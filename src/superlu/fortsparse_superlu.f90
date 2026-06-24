@@ -36,6 +36,7 @@ module fortsparse_superlu
         procedure :: solve_real => slu_solve_real
         procedure :: solve_complex => slu_solve_complex
         procedure :: free => slu_free
+        final :: slu_final
     end type superlu_backend_t
 
     interface
@@ -208,6 +209,18 @@ contains
         self%is_complex = .false.
         self%refine = .false.
     end subroutine slu_free
+
+    ! Free the retained factorization when the backend is destroyed. Runs
+    ! automatically when a solver (and its allocatable backend) goes out of
+    ! scope, so client code needs no explicit teardown.
+    subroutine slu_final(self)
+        type(superlu_backend_t), intent(inout) :: self
+
+        if (c_associated(self%h_real)) call fsparse_slu_free_d(self%h_real)
+        if (c_associated(self%h_cplx)) call fsparse_slu_free_z(self%h_cplx)
+        self%h_real = c_null_ptr
+        self%h_cplx = c_null_ptr
+    end subroutine slu_final
 
     ! Pack a complex array into interleaved (real, imag) real(dp) pairs.
     pure function interleave_complex(z) result(r)

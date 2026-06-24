@@ -17,16 +17,21 @@ module fortsparse_umfpack_ipc
         FORTSPARSE_BACKEND_UNAVAILABLE
     use fortsparse_ipc_proto, only: shm_header_t, &
         OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, OP_SOLVE_COMPLEX, &
-        ST_OK, ST_SINGULAR, find_helper
+        OP_FREE, ST_OK, ST_SINGULAR, find_helper
     implicit none
     private
 
     public :: umfpack_ipc_backend_t
 
     ! Out-of-process UMFPACK backend. Owns one helper session and the shared
-    ! mapping; the resident factorization lives in the helper process.
+    ! mapping for this backend's whole lifetime; the resident factorization lives
+    ! in the helper process. The session persists across factor/solve/free cycles
+    ! so the helper (and the UMFPACK and BLAS it loads) spawns once, not once per
+    ! factorization. The FINAL shuts the helper down when the backend is
+    ! deallocated, so a solver needs no explicit teardown.
     type, extends(sparse_backend_t) :: umfpack_ipc_backend_t
         type(c_ptr) :: sess = c_null_ptr
+        integer(i8) :: mapped = 0_i8
         integer     :: n = 0
         logical     :: is_complex = .false.
     contains
@@ -35,6 +40,7 @@ module fortsparse_umfpack_ipc
         procedure :: solve_real => umf_solve_real
         procedure :: solve_complex => umf_solve_complex
         procedure :: free => umf_free
+        final :: umf_final
     end type umfpack_ipc_backend_t
 
     interface
@@ -45,14 +51,14 @@ module fortsparse_umfpack_ipc
             integer(c_int64_t) :: b
         end function fsparse_ipc_header_bytes
 
-        function fsparse_ipc_acquire(helper, bytes, err) &
-                bind(c, name="fsparse_ipc_acquire") result(sess)
+        function fsparse_ipc_start(helper, bytes, err) &
+                bind(c, name="fsparse_ipc_start") result(sess)
             import :: c_ptr, c_char, c_int64_t, c_int
             character(kind=c_char), intent(in) :: helper(*)
             integer(c_int64_t),     value      :: bytes
             integer(c_int),         intent(out):: err
             type(c_ptr)                         :: sess
-        end function fsparse_ipc_acquire
+        end function fsparse_ipc_start
 
         function fsparse_ipc_data(sess) bind(c, name="fsparse_ipc_data") &
                 result(p)
@@ -67,11 +73,10 @@ module fortsparse_umfpack_ipc
             type(c_ptr), value :: sess
         end function fsparse_ipc_call
 
-        subroutine fsparse_ipc_release(sess) &
-                bind(c, name="fsparse_ipc_release")
+        subroutine fsparse_ipc_stop(sess) bind(c, name="fsparse_ipc_stop")
             import :: c_ptr
             type(c_ptr), value :: sess
-        end subroutine fsparse_ipc_release
+        end subroutine fsparse_ipc_stop
 
     end interface
 
@@ -87,11 +92,9 @@ contains
 
         type(shm_header_t), pointer :: h
         integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, total
-        integer                     :: err
 
-        call self%free()
         call layout_real(A%ncol, A%nnz, o_cp, o_ri, o_ax, o_b, o_x, total)
-        call start_session(self, total, status)
+        call ensure_session(self, total, status)
         if (status%code /= FORTSPARSE_OK) return
         call header_of(self%sess, h)
         h%n = int(A%ncol, c_int64_t)
@@ -116,12 +119,10 @@ contains
 
         type(shm_header_t), pointer :: h
         integer(i8) :: o_cp, o_ri, o_ax, o_az, o_b, o_bz, o_x, o_xz, total
-        integer                     :: err
 
-        call self%free()
         call layout_complex(A%ncol, A%nnz, o_cp, o_ri, o_ax, o_az, o_b, o_bz, &
             o_x, o_xz, total)
-        call start_session(self, total, status)
+        call ensure_session(self, total, status)
         if (status%code /= FORTSPARSE_OK) return
         call header_of(self%sess, h)
         h%n = int(A%ncol, c_int64_t)
@@ -169,27 +170,59 @@ contains
         call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), x)
     end subroutine umf_solve_complex
 
-    ! Detach from the persistent helper session. The helper stays resident for
-    ! the next factorization; fsparse_ipc_release does not tear it down.
+    ! Release the resident factorization, keeping the helper for the next
+    ! factor. This is the public free: the factorization is gone (a later solve
+    ! without a new factor errors), but the helper process stays resident. The
+    ! helper itself is shut down only when the backend is finalized (umf_final).
     subroutine umf_free(self)
         class(umfpack_ipc_backend_t), intent(inout) :: self
 
-        if (c_associated(self%sess)) call fsparse_ipc_release(self%sess)
-        self%sess = c_null_ptr
+        type(shm_header_t), pointer :: h
+        integer(c_int)              :: st
+
+        if (c_associated(self%sess)) then
+            call header_of(self%sess, h)
+            h%opcode = OP_FREE
+            st = fsparse_ipc_call(self%sess)
+        end if
         self%n = 0
         self%is_complex = .false.
     end subroutine umf_free
 
-    ! Discover the helper, start the session, size the mapping. On a missing
+    ! Shut the helper down when the backend is destroyed. Runs automatically when
+    ! a solver (and its allocatable backend) goes out of scope, so client code
+    ! needs no explicit teardown.
+    subroutine umf_final(self)
+        type(umfpack_ipc_backend_t), intent(inout) :: self
+
+        if (c_associated(self%sess)) call fsparse_ipc_stop(self%sess)
+        self%sess = c_null_ptr
+        self%mapped = 0_i8
+    end subroutine umf_final
+
+    ! Ensure a helper session whose mapping holds at least `total` bytes. Reuses
+    ! the resident session when it already fits, so a steady problem size spawns
+    ! the helper once; a larger matrix respawns it bigger. A quarter of headroom
+    ! absorbs the small per-factorization variation in nonzero count. On a missing
     ! helper this reports FORTSPARSE_BACKEND_UNAVAILABLE, the expected state.
-    subroutine start_session(self, total, status)
+    subroutine ensure_session(self, total, status)
         class(umfpack_ipc_backend_t), intent(inout) :: self
         integer(i8),                  intent(in)    :: total
         type(fortsparse_status_t),    intent(out)   :: status
 
         character(:), allocatable :: helper
+        integer(i8)               :: want
         integer                   :: err
 
+        if (c_associated(self%sess) .and. total <= self%mapped) then
+            call status_set(status, FORTSPARSE_OK, "")
+            return
+        end if
+        if (c_associated(self%sess)) then
+            call fsparse_ipc_stop(self%sess)
+            self%sess = c_null_ptr
+            self%mapped = 0_i8
+        end if
         helper = find_helper()
         if (len(helper) == 0) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
@@ -197,16 +230,19 @@ contains
                 "FORTSPARSE_UMFPACK_HELPER or PATH")
             return
         end if
-        self%sess = fsparse_ipc_acquire(helper//c_null_char, &
-            int(total, c_int64_t), err)
+        want = total + total/4_i8
+        self%sess = fsparse_ipc_start(helper//c_null_char, &
+            int(want, c_int64_t), err)
         if (err /= 0 .or. .not. c_associated(self%sess)) then
             self%sess = c_null_ptr
+            self%mapped = 0_i8
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 "umfpack ipc: failed to start helper "//helper)
             return
         end if
+        self%mapped = want
         call status_set(status, FORTSPARSE_OK, "")
-    end subroutine start_session
+    end subroutine ensure_session
 
     ! Post an opcode and map the helper's normalized status onto fortsparse.
     subroutine run(self, opcode, status)

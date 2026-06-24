@@ -38,6 +38,7 @@ module fortsparse_solver
     public :: sparse_factor
     public :: sparse_solve
     public :: sparse_free
+    public :: sparse_destroy
     public :: sparse_solve_once
 
     ! Factor a real or complex matrix into the solver handle.
@@ -112,16 +113,28 @@ contains
         call solver%backend%solve_complex(b, x, status)
     end subroutine sparse_solve_complex
 
-    ! Release backend factors and deallocate the backend handle.
+    ! Release the current factorization, keeping the backend ready to factor
+    ! again. For the out-of-process backend the helper stays resident, so the
+    ! next factor reuses it. The backend and any resource it owns (the helper
+    ! process) are released when the solver is finalized, or at once by
+    ! sparse_destroy.
     subroutine sparse_free(solver)
         type(sparse_solver_t), intent(inout) :: solver
 
-        if (allocated(solver%backend)) then
-            call solver%backend%free()
-            deallocate (solver%backend)
-        end if
+        if (allocated(solver%backend)) call solver%backend%free()
         solver%factored = .false.
     end subroutine sparse_free
+
+    ! Tear the backend down, releasing its factorization and any helper process.
+    ! A solver releases everything automatically when it goes out of scope (its
+    ! backend component is finalized), so most code never needs this; it is for
+    ! freeing a long-lived solver's resources before it goes out of scope.
+    subroutine sparse_destroy(solver)
+        type(sparse_solver_t), intent(inout) :: solver
+
+        if (allocated(solver%backend)) deallocate (solver%backend)
+        solver%factored = .false.
+    end subroutine sparse_destroy
 
     ! Convenience real driver: factor, solve, free.
     subroutine sparse_solve_once_real(A, b, x, status)
@@ -134,11 +147,11 @@ contains
 
         call sparse_factor_real(solver, A, status)
         if (.not. status_ok(status)) then
-            call sparse_free(solver)
+            call sparse_destroy(solver)
             return
         end if
         call sparse_solve_real(solver, b, x, status)
-        call sparse_free(solver)
+        call sparse_destroy(solver)
     end subroutine sparse_solve_once_real
 
     ! Convenience complex driver: factor, solve, free.
@@ -152,21 +165,31 @@ contains
 
         call sparse_factor_complex(solver, A, status)
         if (.not. status_ok(status)) then
-            call sparse_free(solver)
+            call sparse_destroy(solver)
             return
         end if
         call sparse_solve_complex(solver, b, x, status)
-        call sparse_free(solver)
+        call sparse_destroy(solver)
     end subroutine sparse_solve_once_complex
 
     ! Ensure solver%backend is allocated to the concrete type for backend_id.
-    ! Any prior factorization is released first. Unknown ids set the
-    ! backend-unavailable status and leave backend deallocated.
+    ! An existing backend of the selected kind is kept, so its retained session
+    ! (the resident helper, for the out-of-process backend) survives across
+    ! factorizations; the backend's own factor replaces any prior factorization.
+    ! The backend is reallocated only when absent or when backend_id changed, and
+    ! deallocation runs the old backend's finalizer, releasing its resources.
+    ! Unknown ids set the backend-unavailable status.
     subroutine ensure_backend(solver, status)
         type(sparse_solver_t),     intent(inout) :: solver
         type(fortsparse_status_t), intent(out)   :: status
 
-        call sparse_free(solver)
+        if (allocated(solver%backend)) then
+            if (backend_is(solver%backend, solver%backend_id)) then
+                call status_set(status, FORTSPARSE_OK, "")
+                return
+            end if
+            deallocate (solver%backend)
+        end if
         select case (solver%backend_id)
 #ifdef FORTSPARSE_HAVE_SUPERLU
         case (FORTSPARSE_BACKEND_SUPERLU)
@@ -180,6 +203,22 @@ contains
         end select
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine ensure_backend
+
+    ! True when an allocated backend is the concrete kind for backend_id.
+    logical function backend_is(backend, backend_id)
+        class(sparse_backend_t), intent(in) :: backend
+        integer,                 intent(in) :: backend_id
+
+        backend_is = .false.
+        select type (backend)
+#ifdef FORTSPARSE_HAVE_SUPERLU
+            type is (superlu_backend_t)
+            backend_is = (backend_id == FORTSPARSE_BACKEND_SUPERLU)
+#endif
+            type is (umfpack_ipc_backend_t)
+            backend_is = (backend_id == FORTSPARSE_BACKEND_UMFPACK_IPC)
+        end select
+    end function backend_is
 
     ! Set status for a solve attempted before factorization.
     subroutine not_factored(status)
