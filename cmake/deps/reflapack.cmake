@@ -20,6 +20,21 @@ if(NOT TARGET lapack)
     set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
     set(CMAKE_POSITION_INDEPENDENT_CODE ON CACHE BOOL "" FORCE)
 
+    # A parent project that already ran find_package(BLAS/LAPACK) leaves
+    # BLAS_LIBRARIES / LAPACK_LIBRARIES set in this scope. Reference-LAPACK then
+    # validates that system library, finds dgemm/dgeqrt, declares BLAS_FOUND /
+    # LATESTLAPACK_FOUND, and SKIPS add_subdirectory(BLAS|SRC) -- so the netlib
+    # `blas` / `lapack` targets are never created (SuiteSparse's
+    # add_dependencies on them then fails) and the build would silently relink
+    # the system BLAS, defeating the zero-system-dependency guarantee. Force the
+    # reference build by clearing those inputs for the sub-build scope only.
+    set(BLAS_LIBRARIES "")
+    set(LAPACK_LIBRARIES "")
+    set(BLAS_FOUND FALSE)
+    set(LATESTLAPACK_FOUND FALSE)
+    set(USE_OPTIMIZED_BLAS OFF CACHE BOOL "" FORCE)
+    set(USE_OPTIMIZED_LAPACK OFF CACHE BOOL "" FORCE)
+
     FetchContent_Declare(reflapack
         GIT_REPOSITORY https://github.com/Reference-LAPACK/lapack
         GIT_TAG v3.12.1
