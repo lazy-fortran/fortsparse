@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.22)
 
 project(fortsparse LANGUAGES Fortran C)
 
+# Standard install directory variables (CMAKE_INSTALL_BINDIR etc.).
+include(GNUInstallDirs)
+
 # Export compile_commands.json so clangd resolves the C shim include paths.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
@@ -32,6 +35,15 @@ option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
 option(FORTSPARSE_USE_SYSTEM_DEPS
     "Use system SuperLU/UMFPACK via find_package instead of fetching them"
     OFF)
+
+# Install the UMFPACK helper to CMAKE_INSTALL_BINDIR. ON makes a consumer that
+# installs its own executables to the standard bin dir get the helper
+# co-located on `make install` with no extra call; the self-locating library
+# then finds it next to the installed binary. A consumer that installs
+# elsewhere uses fortsparse_colocate_helper(<exe> <dir>) instead and can set
+# this OFF to keep fortsparse from contributing a rule to its install.
+option(FORTSPARSE_INSTALL_HELPER
+    "Install the UMFPACK helper to CMAKE_INSTALL_BINDIR" ON)
 
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
 # offloading land in later releases; the flags document the direction without
@@ -115,6 +127,10 @@ if(FORTSPARSE_BUILD_HELPER)
     # routines live in the C runtime and no libm exists.
     if(NOT WIN32)
         target_link_libraries(fortsparse_umfpack_helper PRIVATE m)
+    endif()
+    if(FORTSPARSE_INSTALL_HELPER)
+        install(TARGETS fortsparse_umfpack_helper
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     endif()
 endif()
 
