@@ -64,6 +64,10 @@ contains
         b = [6.0_dp, 10.0_dp, 8.0_dp]
         call sparse_factor(solver, A, status)
         call check_true("real_factor", status_ok(status), nfail)
+        ! The shm/semaphore names must already be unlinked once the helper has
+        ! attached, even though this session is still live: a hard kill now
+        ! leaves no /dev/shm residue. Names gone == leak-free under SIGKILL.
+        call check_no_shm_residue("real_active_session", nfail)
 
         call sparse_solve(solver, b, x, status)
         call check_true("real_solve", status_ok(status), nfail)
@@ -74,6 +78,7 @@ contains
         call check_true("real_solve2", status_ok(status), nfail)
         call check_err("real_x2", x2, xe2, nfail)
         call sparse_free(solver)
+        call check_no_shm_residue("real_after_free", nfail)
     end subroutine run_real
 
     ! Complex system A x = b solved through the helper.
@@ -138,5 +143,37 @@ contains
             write (error_unit, "(a,a,a)") "FAIL [", label, "] expected .true."
         end if
     end subroutine check_true
+
+    ! Fail if any /dev/shm/fsparse_* object exists. The early-unlink handshake
+    ! drops the names as soon as the helper attaches, so a residue here means a
+    ! hard kill would leak shared memory on the node. Skipped where /dev/shm is
+    ! absent (non-Linux), since the check is platform-specific.
+    subroutine check_no_shm_residue(label, nfail)
+        character(*), intent(in)    :: label
+        integer,      intent(inout) :: nfail
+        character(*), parameter     :: out = "fsparse_shm_residue.txt"
+        integer                     :: u, n, ios, cmdstat
+        logical                     :: have_shm
+
+        inquire (file="/dev/shm/.", exist=have_shm)
+        if (.not. have_shm) return
+
+        call execute_command_line( &
+            "ls /dev/shm 2>/dev/null | grep -c fsparse > " // out, &
+            exitstat=ios, cmdstat=cmdstat)
+        if (cmdstat /= 0) return
+
+        n = -1
+        open (newunit=u, file=out, status="old", action="read", iostat=ios)
+        if (ios == 0) then
+            read (u, *, iostat=ios) n
+            close (u, status="delete")
+        end if
+        if (n /= 0) then
+            nfail = nfail + 1
+            write (error_unit, "(a,a,a,i0,a)") "FAIL [", label, &
+                "] /dev/shm fsparse residue count ", n, " (want 0)"
+        end if
+    end subroutine check_no_shm_residue
 
 end program test_fortsparse_umfpack_ipc

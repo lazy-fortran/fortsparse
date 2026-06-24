@@ -173,6 +173,16 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
     }
     CloseHandle(pi.hThread);
     s->process = pi.hProcess;
+
+    /* No early-unlink is needed or possible here. Win32 named mappings and
+     * semaphores are reference-counted by open handle and have no persistent
+     * filesystem entry (unlike POSIX /dev/shm and named semaphores). The kernel
+     * closes every handle when a process terminates, including on a hard kill,
+     * so the objects disappear automatically once both processes are gone. The
+     * POSIX early-unlink-after-attach handshake exists only to drop the
+     * filesystem names that would otherwise survive a SIGKILL; on Windows there
+     * is nothing to drop, so this branch keeps its handles for the whole
+     * session and leaks nothing on a hard kill. */
     return s;
 }
 
@@ -313,6 +323,24 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
         *err = 1;
         return NULL;
     }
+
+    /* Await the helper's READY post on the done semaphore, then unlink all
+     * three names immediately. The mapping and the open semaphore handles stay
+     * valid in both processes (the kernel keeps each object alive until its
+     * last reference closes), but the names are gone from /dev/shm, so a hard
+     * kill (SLURM/HTCondor SIGKILL on timeout or OOM) of either process leaves
+     * no residue on the node. The READY post is consumed here, before any
+     * request, so the per-operation req/done doorbell stays in step. */
+    while (sem_wait(s->sem_done) != 0) {
+        if (errno != EINTR) {
+            fsparse_ipc_stop(s);
+            *err = 1;
+            return NULL;
+        }
+    }
+    sem_unlink(s->req_name);
+    sem_unlink(s->done_name);
+    shm_unlink(s->shm_name);
     return s;
 }
 
@@ -369,6 +397,12 @@ void fsparse_ipc_stop(void *sess)
     if (s->sem_done != SEM_FAILED) sem_close(s->sem_done);
     if (s->region != NULL) munmap(s->region, (size_t) s->bytes);
     if (s->fd >= 0) close(s->fd);
+    /* In the normal path fsparse_ipc_start already unlinked all three names
+     * once the helper attached, so these calls just return ENOENT. They remain
+     * for the early-failure path (a shm_open/mmap/sem_open error before the
+     * READY handshake), where the names still exist and must be removed.
+     * Unlinking an already-unlinked name is harmless, so stop stays idempotent
+     * and never leaves residue. */
     sem_unlink(s->req_name);
     sem_unlink(s->done_name);
     shm_unlink(s->shm_name);

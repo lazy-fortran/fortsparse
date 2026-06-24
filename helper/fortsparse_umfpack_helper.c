@@ -275,6 +275,18 @@ int main(int argc, char **argv)
     }
     h = (fsparse_shm_header *) c.region;
 
+#if !defined(_WIN32)
+    /* READY handshake (POSIX only): the mapping and both semaphores are now
+     * open. Post done once so the parent can sem_wait on it and then unlink all
+     * three names while our open handles keep the kernel objects alive. A later
+     * SIGKILL of either process then leaves no /dev/shm or named-semaphore
+     * residue. This post is consumed by fsparse_ipc_start, before any request
+     * is issued, so it does not desynchronize the per-operation req/done
+     * doorbell. Windows named objects have no filesystem name to unlink and are
+     * reference-counted by handle, so they need no early handshake. */
+    post_done(&c);
+#endif
+
     for (;;) {
         wait_req(&c);
         if (dispatch(h, c.region, &f) != 0) break;
