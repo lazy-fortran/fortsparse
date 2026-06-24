@@ -16,3 +16,10 @@ link = ["superlu"]
 [fortran]
 implicit-typing = false
 source-form = "free"
+
+# fpm always compiles src/ and links SuperLU, so the SuperLU backend is always
+# present under fpm. Define FORTSPARSE_HAVE_SUPERLU for the preprocessed solver
+# source to keep the fpm build consistent with that.
+[preprocess]
+[preprocess.cpp]
+macros = ["FORTSPARSE_HAVE_SUPERLU"]

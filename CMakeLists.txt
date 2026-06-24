@@ -14,6 +14,13 @@ endif()
 option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
     ${FORTSPARSE_IS_STANDALONE})
 
+# SuperLU (BSD) is the default in-process backend. A consumer that only uses
+# the out-of-process UMFPACK-IPC backend can switch it off and then needs no
+# SuperLU at all: the shim sources are not compiled, SuperLU is not searched
+# for or linked, and the FORTSPARSE_HAVE_SUPERLU macro stays undefined so the
+# solver factory reports the backend unavailable instead of failing to link.
+option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
+
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
 # offloading land in later releases; the flags document the direction without
 # pulling in any toolchain today.
@@ -35,7 +42,10 @@ set(CMAKE_Fortran_MODULE_DIRECTORY ${PROJECT_BINARY_DIR}/include)
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 # SuperLU (BSD) is the default in-process backend; the library links only it.
-find_package(SuperLU REQUIRED)
+# Searched for only when the backend is enabled.
+if(FORTSPARSE_ENABLE_SUPERLU)
+    find_package(SuperLU REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 
 add_subdirectory(src)

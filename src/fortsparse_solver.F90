@@ -13,7 +13,9 @@ module fortsparse_solver
         FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, FORTSPARSE_BACKEND_UNAVAILABLE
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_backend, only: sparse_backend_t
+#ifdef FORTSPARSE_HAVE_SUPERLU
     use fortsparse_superlu, only: superlu_backend_t
+#endif
     use fortsparse_umfpack_ipc, only: umfpack_ipc_backend_t
     implicit none
     private
@@ -166,8 +168,10 @@ contains
 
         call sparse_free(solver)
         select case (solver%backend_id)
+#ifdef FORTSPARSE_HAVE_SUPERLU
         case (FORTSPARSE_BACKEND_SUPERLU)
             allocate (superlu_backend_t :: solver%backend)
+#endif
         case (FORTSPARSE_BACKEND_UMFPACK_IPC)
             allocate (umfpack_ipc_backend_t :: solver%backend)
         case default

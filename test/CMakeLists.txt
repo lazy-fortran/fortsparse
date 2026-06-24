@@ -15,17 +15,26 @@ fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
-fortsparse_add_test(test_fortsparse_solve_real solver/test_fortsparse_solve_real.f90)
-fortsparse_add_test(test_fortsparse_solve_complex
-    solver/test_fortsparse_solve_complex.f90)
-fortsparse_add_test(test_fortsparse_poisson solver/test_fortsparse_poisson.f90)
-fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
-# The no-helper error path must run where no helper sits next to it, otherwise
-# exe-directory discovery would resolve one and the backend would be available.
-# Keep this executable out of the bin dir that holds fortsparse_umfpack_helper.
-if(TARGET test_fortsparse_errors)
-    set_target_properties(test_fortsparse_errors PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/no_helper")
+
+# These cases factor through the default SUPERLU backend, so they only make
+# sense when the SuperLU backend is compiled in. The IPC, selflocate, kinds,
+# status, and csc tests do not depend on it and stay registered always.
+if(FORTSPARSE_ENABLE_SUPERLU)
+    fortsparse_add_test(test_fortsparse_solve_real
+        solver/test_fortsparse_solve_real.f90)
+    fortsparse_add_test(test_fortsparse_solve_complex
+        solver/test_fortsparse_solve_complex.f90)
+    fortsparse_add_test(test_fortsparse_poisson
+        solver/test_fortsparse_poisson.f90)
+    fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
+    # The no-helper error path must run where no helper sits next to it,
+    # otherwise exe-directory discovery would resolve one and the backend would
+    # be available. Keep this executable out of the bin dir that holds
+    # fortsparse_umfpack_helper.
+    if(TARGET test_fortsparse_errors)
+        set_target_properties(test_fortsparse_errors PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/no_helper")
+    endif()
 endif()
 
 # IPC backend round-trip through the GPL helper. Registered only when the

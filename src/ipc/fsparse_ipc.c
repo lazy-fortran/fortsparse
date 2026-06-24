@@ -78,7 +78,7 @@ size_t fsparse_self_dir(char *buf, size_t n)
 
     if (buf == NULL || n == 0) return 0;
     len = readlink("/proc/self/exe", buf, n - 1);
-    if (len <= 0) return 0;
+    if (len <= 0 || (size_t) len >= n - 1) return 0;
     buf[len] = '\0';
     for (i = (size_t) len; i > 0; i--) {
         if (buf[i - 1] == '/') {
@@ -152,8 +152,16 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
         return NULL;
     }
 
-    sprintf(cmd, "\"%s\" %s %s %s %lld", helper_path, s->shm_name,
-            s->req_name, s->done_name, (long long) bytes);
+    {
+        int need = _snprintf_s(cmd, sizeof(cmd), _TRUNCATE,
+                               "\"%s\" %s %s %s %lld", helper_path, s->shm_name,
+                               s->req_name, s->done_name, (long long) bytes);
+        if (need < 0) {
+            fsparse_ipc_stop(s);
+            *err = 1;
+            return NULL;
+        }
+    }
     memset(&si, 0, sizeof(si));
     si.cb = sizeof(si);
     memset(&pi, 0, sizeof(pi));
@@ -178,8 +186,18 @@ int fsparse_ipc_call(void *sess)
 {
     ipc_session *s = (ipc_session *) sess;
     fsparse_shm_header *h = (fsparse_shm_header *) s->region;
+    HANDLE waits[2];
+    DWORD w;
     ReleaseSemaphore(s->sem_req, 1, NULL);
-    WaitForSingleObject(s->sem_done, INFINITE);
+    /* Wake on the done doorbell, or on the helper process exiting first, so a
+     * crashed helper returns an error status instead of hanging forever. */
+    waits[0] = s->sem_done;
+    waits[1] = s->process;
+    w = WaitForMultipleObjects(2, waits, FALSE, INFINITE);
+    if (w != WAIT_OBJECT_0) {
+        h->status = FSPARSE_ST_ERROR;
+        return FSPARSE_ST_ERROR;
+    }
     return (int) h->status;
 }
 
@@ -206,11 +224,13 @@ void fsparse_ipc_stop(void *sess)
 
 #else /* POSIX: Linux and macOS */
 
+#include <errno.h>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <spawn.h>
 #include <sys/mman.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 extern char **environ;
@@ -307,9 +327,29 @@ int fsparse_ipc_call(void *sess)
     ipc_session *s = (ipc_session *) sess;
     fsparse_shm_header *h = (fsparse_shm_header *) s->region;
     sem_post(s->sem_req);
-    while (sem_wait(s->sem_done) != 0)
-        ; /* retry on EINTR */
-    return (int) h->status;
+    /* Wait on the done doorbell, but poll for helper death so a crashed or
+     * killed helper returns an error status instead of hanging forever. */
+    for (;;) {
+        struct timespec ts;
+        int wstatus;
+        pid_t r;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_nsec += 100000000L; /* 100 ms */
+        if (ts.tv_nsec >= 1000000000L) {
+            ts.tv_nsec -= 1000000000L;
+            ts.tv_sec += 1;
+        }
+        if (sem_timedwait(s->sem_done, &ts) == 0) return (int) h->status;
+        if (errno == EINTR) continue;
+        if (errno != ETIMEDOUT) return FSPARSE_ST_ERROR;
+        if (s->pid <= 0) continue;
+        r = waitpid(s->pid, &wstatus, WNOHANG);
+        if (r == s->pid || (r < 0 && errno == ECHILD)) {
+            s->pid = -1; /* reaped: keep fsparse_ipc_stop from blocking */
+            h->status = FSPARSE_ST_ERROR;
+            return FSPARSE_ST_ERROR;
+        }
+    }
 }
 
 void fsparse_ipc_stop(void *sess)

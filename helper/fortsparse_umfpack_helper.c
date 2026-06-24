@@ -81,7 +81,14 @@ typedef struct {
 
 static int attach(helper_ctx *c, char **argv, int64_t bytes)
 {
+    /* Set the failure sentinels first: detach() tests against SEM_FAILED and
+     * fd < 0, which a zeroed struct does not portably provide (SEM_FAILED is
+     * not guaranteed to be NULL). */
     c->bytes = bytes;
+    c->region = NULL;
+    c->fd = -1;
+    c->sem_req = SEM_FAILED;
+    c->sem_done = SEM_FAILED;
     c->fd = shm_open(argv[1], O_RDWR, 0600);
     if (c->fd < 0) return 1;
     c->region = mmap(NULL, (size_t) bytes, PROT_READ | PROT_WRITE, MAP_SHARED,
@@ -239,8 +246,12 @@ static int dispatch(fsparse_shm_header *h, void *region, factors_t *f)
         h->status = FSPARSE_ST_OK;
         return 0;
     case FSPARSE_OP_SHUTDOWN:
-    default:
         return 1;
+    default:
+        /* Unknown opcode: complete the doorbell with an error status so the
+         * parent unblocks instead of hanging. Only shutdown ends the loop. */
+        h->status = FSPARSE_ST_ERROR;
+        return 0;
     }
 }
 
