@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Full CMake build and CTest. Builds the MIT library against SuperLU and the
+  # separate GPL UMFPACK helper, then runs the suite including the out-of-process
+  # IPC round-trip through the helper. Required.
+  cmake:
+    name: cmake + ctest ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake \
+            gfortran \
+            ninja-build \
+            libsuperlu-dev \
+            libsuitesparse-dev \
+            liblapack-dev \
+            libblas-dev
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DFORTSPARSE_BUILD_TESTING=ON
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # MIT-only build through fo: it sees only src/, links SuperLU, never the
+      # GPL helper. Runs the full fo pipeline (static analysis, build, test,
+      # lint, format check) when fo is on PATH; skips cleanly otherwise.
+      - name: fo (MIT-only) pipeline
+        run: |
+          set -euo pipefail
+          if command -v fo >/dev/null 2>&1; then
+            fo
+          else
+            echo "fo not available on this runner; skipping the MIT-only pipeline."
+          fi

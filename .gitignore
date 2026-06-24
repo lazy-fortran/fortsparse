@@ -1,0 +1,15 @@
+build/
+build-*/
+*.mod
+*.smod
+*.o
+*.a
+.cache/
+
+# fpm build directories
+build/dependencies/
+/build/
+
+# Python tooling
+__pycache__/
+*.pyc
