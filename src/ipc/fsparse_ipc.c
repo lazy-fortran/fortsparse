@@ -410,3 +410,100 @@ void fsparse_ipc_stop(void *sess)
 }
 
 #endif
+
+/* Pool of process-persistent helper sessions. Spawning the helper reloads
+ * UMFPACK and its BLAS every time, which dominates a factor/solve/free loop when
+ * it happens per factorization; keeping helpers resident and reusing their
+ * mappings removes that cost. A session is held (busy) from factor to free, so
+ * several live factorizations at once (NEO-2 drives a real and a complex solver)
+ * each get their own session and never cross. Idle sessions are reused while
+ * their mapping is large enough, and grown (respawned once) when it is not.
+ *
+ * The pool is per process and driven serially: fortsparse routes every solve
+ * through a shared module-global solver, so concurrent factorizations come from
+ * separate MPI rank processes, each with their own pool, not from threads
+ * sharing this one. Overflow past the pool size falls back to an unpooled
+ * session that is torn down on release. */
+#define FSPARSE_POOL_SIZE 8
+
+static struct {
+    void *sess;
+    int64_t bytes;
+    int busy;
+} g_pool[FSPARSE_POOL_SIZE];
+static int g_pool_atexit = 0;
+
+static void fsparse_ipc_atexit(void)
+{
+    int i;
+    for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
+        void *s = g_pool[i].sess;
+        g_pool[i].sess = NULL;
+        g_pool[i].bytes = 0;
+        g_pool[i].busy = 0;
+        if (s != NULL) fsparse_ipc_stop(s);
+    }
+}
+
+void *fsparse_ipc_acquire(const char *helper_path, int64_t bytes, int *err)
+{
+    int i, slot = -1;
+    int64_t want;
+
+    *err = 0;
+
+    /* Reuse an idle session whose mapping already fits. */
+    for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
+        if (g_pool[i].sess != NULL && !g_pool[i].busy
+                && g_pool[i].bytes >= bytes) {
+            g_pool[i].busy = 1;
+            return g_pool[i].sess;
+        }
+    }
+    /* Otherwise take an empty slot, or an idle one to grow (respawn larger). */
+    for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
+        if (g_pool[i].sess == NULL) { slot = i; break; }
+    }
+    if (slot < 0) {
+        for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
+            if (!g_pool[i].busy) { slot = i; break; }
+        }
+    }
+
+    /* A quarter of headroom absorbs the small per-factorization variation in
+     * nonzero count so a steady-state problem size respawns at most once. */
+    want = bytes + bytes / 4;
+
+    /* Every slot busy: hand back an unpooled session for this overflow; release
+     * tears it down since it is not found in the pool. */
+    if (slot < 0) return fsparse_ipc_start(helper_path, want, err);
+
+    if (g_pool[slot].sess != NULL) {
+        void *old = g_pool[slot].sess;
+        g_pool[slot].sess = NULL;
+        g_pool[slot].bytes = 0;
+        fsparse_ipc_stop(old);
+    }
+    g_pool[slot].sess = fsparse_ipc_start(helper_path, want, err);
+    if (g_pool[slot].sess == NULL) return NULL;
+    g_pool[slot].bytes = want;
+    g_pool[slot].busy = 1;
+    if (!g_pool_atexit) {
+        atexit(fsparse_ipc_atexit);
+        g_pool_atexit = 1;
+    }
+    return g_pool[slot].sess;
+}
+
+void fsparse_ipc_release(void *sess)
+{
+    int i;
+    if (sess == NULL) return;
+    /* A pooled session goes back to idle, keeping its helper resident for the
+     * next factorization. A session not in the pool is an overflow fallback and
+     * is torn down here. */
+    for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
+        if (g_pool[i].sess == sess) { g_pool[i].busy = 0; return; }
+    }
+    fsparse_ipc_stop(sess);
+}

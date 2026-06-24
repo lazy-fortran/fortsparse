@@ -44,6 +44,25 @@ int fsparse_ipc_call(void *sess);
 /* Tell the helper to shut down, then unmap, unlink, close, and reap it. */
 void fsparse_ipc_stop(void *sess);
 
+/* Acquire a process-persistent helper session sized for at least `bytes`.
+ *
+ * The first call spawns the helper (loading UMFPACK and its BLAS once) and
+ * registers an atexit handler to shut it down. Later calls return the same
+ * session as long as its mapping is large enough, so a factor/solve/free loop
+ * reuses one resident helper instead of respawning it per factorization. A
+ * request larger than the current mapping grows it, which respawns once. The
+ * session is a per-process singleton; callers must drive it serially (one
+ * factorization at a time), which is the direct-solver usage. Returns the
+ * session, or NULL with *err != 0 when the helper is missing or the spawn
+ * fails. */
+void *fsparse_ipc_acquire(const char *helper_path, int64_t bytes, int *err);
+
+/* Release a session obtained from fsparse_ipc_acquire. The persistent helper
+ * stays alive for the next factorization (its resident factors are overwritten
+ * by the next FACTOR and freed at process exit), so this only detaches the
+ * caller and never tears the helper down. */
+void fsparse_ipc_release(void *sess);
+
 #ifdef __cplusplus
 }
 #endif

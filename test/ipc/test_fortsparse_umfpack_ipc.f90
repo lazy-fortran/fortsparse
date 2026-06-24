@@ -23,6 +23,8 @@ program test_fortsparse_umfpack_ipc
 
     call run_real(nfail)
     call run_complex(nfail)
+    call run_concurrent(nfail)
+    call run_reuse(nfail)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -111,6 +113,90 @@ contains
         call check_zerr("cplx_x", x, xe, nfail)
         call sparse_free(solver)
     end subroutine run_complex
+
+    ! Two factorizations held live at once, a real and a complex solver, must
+    ! not share resident factors. Both are factored before either is solved, so
+    ! a single shared helper session would let the complex factor overwrite the
+    ! real one and corrupt the real solve. The persistent-session pool hands each
+    ! live factorization its own session; solving both, then the real one again
+    ! after the complex solve, proves the isolation.
+    subroutine run_concurrent(nfail)
+        integer, intent(inout) :: nfail
+
+        type(csc_t)               :: ar
+        type(csc_z_t)             :: az
+        type(sparse_solver_t)     :: sr, sz
+        type(fortsparse_status_t) :: status
+        integer                   :: rrows(7), rcols(7), zrows(5), zcols(5)
+        real(dp)                  :: rvals(7), rb(3), rx(3), rxe(3)
+        complex(dp)               :: zvals(5), zb(3), zx(3), zxe(3)
+
+        rrows = [1, 1, 2, 2, 2, 3, 3]
+        rcols = [1, 2, 1, 2, 3, 2, 3]
+        rvals = [4.0_dp, 1.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+        call csc_from_triplet(3, 3, rrows, rcols, rvals, ar, status)
+        rxe = [1.0_dp, 2.0_dp, 3.0_dp]
+        rb = csc_matvec(ar, rxe)
+
+        zrows = [1, 2, 2, 3, 3]
+        zcols = [1, 1, 2, 2, 3]
+        zvals = [cmplx(2.0_dp, 1.0_dp, dp), cmplx(1.0_dp, 0.0_dp, dp), &
+            cmplx(3.0_dp, -1.0_dp, dp), cmplx(1.0_dp, 1.0_dp, dp), &
+            cmplx(2.0_dp, 0.0_dp, dp)]
+        call csc_from_triplet(3, 3, zrows, zcols, zvals, az, status)
+        zxe = [cmplx(1.0_dp, -1.0_dp, dp), cmplx(0.0_dp, 2.0_dp, dp), &
+            cmplx(3.0_dp, 0.0_dp, dp)]
+        zb = csc_matvec(az, zxe)
+
+        sr%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+        sz%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+
+        call sparse_factor(sr, ar, status)
+        call check_true("conc_real_factor", status_ok(status), nfail)
+        call sparse_factor(sz, az, status)
+        call check_true("conc_cplx_factor", status_ok(status), nfail)
+
+        call sparse_solve(sr, rb, rx, status)
+        call check_true("conc_real_solve", status_ok(status), nfail)
+        call check_err("conc_real_x", rx, rxe, nfail)
+        call sparse_solve(sz, zb, zx, status)
+        call check_true("conc_cplx_solve", status_ok(status), nfail)
+        call check_zerr("conc_cplx_x", zx, zxe, nfail)
+        call sparse_solve(sr, rb, rx, status)
+        call check_err("conc_real_x_again", rx, rxe, nfail)
+
+        call sparse_free(sr)
+        call sparse_free(sz)
+    end subroutine run_concurrent
+
+    ! Many factor/solve/free cycles reuse pooled helpers without respawning one
+    ! per factorization. Every cycle must still return the right answer: a stale
+    ! reused mapping or leftover resident factors would corrupt a later solve.
+    subroutine run_reuse(nfail)
+        integer, intent(inout) :: nfail
+
+        type(csc_t)               :: A
+        type(sparse_solver_t)     :: solver
+        type(fortsparse_status_t) :: status
+        integer                   :: rows(7), cols(7), i
+        real(dp)                  :: vals(7), b(3), x(3), xe(3)
+
+        rows = [1, 1, 2, 2, 2, 3, 3]
+        cols = [1, 2, 1, 2, 3, 2, 3]
+        vals = [4.0_dp, 1.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+        call csc_from_triplet(3, 3, rows, cols, vals, A, status)
+        solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+
+        do i = 1, 50
+            xe = [real(i, dp), 2.0_dp, 3.0_dp]
+            b = csc_matvec(A, xe)
+            call sparse_factor(solver, A, status)
+            call check_true("reuse_factor", status_ok(status), nfail)
+            call sparse_solve(solver, b, x, status)
+            call check_err("reuse_x", x, xe, nfail)
+            call sparse_free(solver)
+        end do
+    end subroutine run_reuse
 
     subroutine check_err(label, got, want, nfail)
         character(*), intent(in)    :: label

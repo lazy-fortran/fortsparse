@@ -45,14 +45,14 @@ module fortsparse_umfpack_ipc
             integer(c_int64_t) :: b
         end function fsparse_ipc_header_bytes
 
-        function fsparse_ipc_start(helper, bytes, err) &
-                bind(c, name="fsparse_ipc_start") result(sess)
+        function fsparse_ipc_acquire(helper, bytes, err) &
+                bind(c, name="fsparse_ipc_acquire") result(sess)
             import :: c_ptr, c_char, c_int64_t, c_int
             character(kind=c_char), intent(in) :: helper(*)
             integer(c_int64_t),     value      :: bytes
             integer(c_int),         intent(out):: err
             type(c_ptr)                         :: sess
-        end function fsparse_ipc_start
+        end function fsparse_ipc_acquire
 
         function fsparse_ipc_data(sess) bind(c, name="fsparse_ipc_data") &
                 result(p)
@@ -67,10 +67,11 @@ module fortsparse_umfpack_ipc
             type(c_ptr), value :: sess
         end function fsparse_ipc_call
 
-        subroutine fsparse_ipc_stop(sess) bind(c, name="fsparse_ipc_stop")
+        subroutine fsparse_ipc_release(sess) &
+                bind(c, name="fsparse_ipc_release")
             import :: c_ptr
             type(c_ptr), value :: sess
-        end subroutine fsparse_ipc_stop
+        end subroutine fsparse_ipc_release
 
     end interface
 
@@ -168,11 +169,12 @@ contains
         call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), x)
     end subroutine umf_solve_complex
 
-    ! Shut the helper down and release the session.
+    ! Detach from the persistent helper session. The helper stays resident for
+    ! the next factorization; fsparse_ipc_release does not tear it down.
     subroutine umf_free(self)
         class(umfpack_ipc_backend_t), intent(inout) :: self
 
-        if (c_associated(self%sess)) call fsparse_ipc_stop(self%sess)
+        if (c_associated(self%sess)) call fsparse_ipc_release(self%sess)
         self%sess = c_null_ptr
         self%n = 0
         self%is_complex = .false.
@@ -195,7 +197,7 @@ contains
                 "FORTSPARSE_UMFPACK_HELPER or PATH")
             return
         end if
-        self%sess = fsparse_ipc_start(helper//c_null_char, &
+        self%sess = fsparse_ipc_acquire(helper//c_null_char, &
             int(total, c_int64_t), err)
         if (err /= 0 .or. .not. c_associated(self%sess)) then
             self%sess = c_null_ptr
