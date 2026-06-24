@@ -21,15 +21,16 @@ option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
 # solver factory reports the backend unavailable instead of failing to link.
 option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
 
-# Zero-system-dependency build. OFF (default) fetches and builds every
-# numerical dependency from source -- OpenBLAS, SuperLU, and the
-# SuiteSparse/UMFPACK chain -- so a consumer needs only a C/Fortran compiler,
-# CMake and Ninja. ON uses find_package for SuperLU/UMFPACK/BLAS as before, for
-# distros that ship them. The two paths are orthogonal to
-# FORTSPARSE_ENABLE_SUPERLU: when SuperLU is disabled nothing SuperLU-related is
-# fetched, found, or linked under either setting.
+# Zero-dependency build for the niche libraries only. OFF (default) fetches and
+# builds SuperLU and the SuiteSparse/UMFPACK chain from source; ON locates them
+# via find_package, for distros that ship them. Either way BLAS/LAPACK always
+# come from the system: they are universally present and optimized, and reusing
+# the same system OpenBLAS as the rest of the stack keeps numerics consistent.
+# The two paths are orthogonal to FORTSPARSE_ENABLE_SUPERLU: when SuperLU is
+# disabled nothing SuperLU-related is fetched, found, or linked under either
+# setting.
 option(FORTSPARSE_USE_SYSTEM_DEPS
-    "Use system SuperLU/UMFPACK/BLAS via find_package instead of fetching them"
+    "Use system SuperLU/UMFPACK via find_package instead of fetching them"
     OFF)
 
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
@@ -65,6 +66,20 @@ if(FORTSPARSE_ENABLE_SUPERLU)
 endif()
 find_package(Threads REQUIRED)
 
+# BLAS/LAPACK always come from the system: optimized, universally present, and
+# the same OpenBLAS the rest of the stack uses, so numerics stay consistent. The
+# fetched UMFPACK and SuperLU link against this, not a from-source BLAS. A parent
+# project that already ran find_package(BLAS/LAPACK) (NEO-2 does) leaves the
+# result variables set; reuse them instead of searching again, and honour
+# BLA_VENDOR so a user can select MKL. REQUIRED because the GPL helper cannot
+# link UMFPACK without a dense BLAS.
+if(NOT BLAS_FOUND)
+    find_package(BLAS REQUIRED)
+endif()
+if(NOT LAPACK_FOUND)
+    find_package(LAPACK REQUIRED)
+endif()
+
 add_subdirectory(src)
 
 # The UMFPACK (GPL) backend lives entirely in a separate helper executable. It
@@ -72,15 +87,14 @@ add_subdirectory(src)
 # reaches it out-of-process over shared memory and named semaphores.
 #
 # System path: built only when find_package locates UMFPACK, so a host without
-# it still gets the SuperLU-only library. Zero-dependency path: fetch and build
-# the SuiteSparse/UMFPACK chain (pointed at the fetched OpenBLAS) and always
-# build the helper.
+# it still gets the SuperLU-only library. Fetched path: fetch and build the
+# SuiteSparse/UMFPACK chain from source, linked against the system BLAS/LAPACK,
+# and always build the helper.
 if(FORTSPARSE_USE_SYSTEM_DEPS)
     find_package(UMFPACK)
     set(FORTSPARSE_BUILD_HELPER ${UMFPACK_FOUND})
     set(FORTSPARSE_UMFPACK_TARGET UMFPACK::UMFPACK)
 else()
-    include(deps/openblas)
     include(deps/suitesparse)
     set(FORTSPARSE_BUILD_HELPER ON)
     set(FORTSPARSE_UMFPACK_TARGET SuiteSparse::umfpack)

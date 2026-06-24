@@ -1,12 +1,11 @@
 # Fetch and build sequential SuperLU (BSD) from source, static. Provides the
-# `superlu` target. This is the zero-system-dependency replacement for
-# find_package(SuperLU): it needs no system BLAS.
+# `superlu` target. The niche solver is fetched; its dense kernels link the
+# SYSTEM BLAS, the same OpenBLAS the SuiteSparse/UMFPACK chain uses, so numerics
+# stay consistent across backends.
 #
-# SuperLU builds its own bundled CBLAS (enable_internal_blaslib=ON) so it needs
-# no external BLAS at all. That keeps SuperLU fully self-contained and decoupled
-# from the OpenBLAS the SuiteSparse/UMFPACK chain links: the two backends share
-# no BLAS target, so there is no name collision and SuperLU stays buildable even
-# when the UMFPACK chain is off.
+# The top-level CMake runs find_package(BLAS) before including this file, so the
+# BLAS::BLAS imported target exists. SuperLU's enable_internal_blaslib stays OFF
+# and the build links the system BLAS through BLAS::BLAS.
 #
 # The fortsparse SuperLU C shim includes its headers with a `superlu/` prefix
 # (e.g. <superlu/slu_ddefs.h>), matching the usual distro layout. The upstream
@@ -17,9 +16,13 @@
 include(FetchContent)
 
 if(NOT TARGET superlu)
-    # Build SuperLU's bundled CBLAS so the backend carries its own BLAS and
-    # needs no external library.
-    set(enable_internal_blaslib ON CACHE BOOL "" FORCE)
+    # Link the system BLAS (BLAS::BLAS) instead of building SuperLU's bundled
+    # CBLAS, so both backends share the same OpenBLAS.
+    set(enable_internal_blaslib OFF CACHE BOOL "" FORCE)
+    if(TARGET BLAS::BLAS)
+        set(BLAS_LIBRARIES BLAS::BLAS CACHE STRING "" FORCE)
+        set(TPL_BLAS_LIBRARIES BLAS::BLAS CACHE STRING "" FORCE)
+    endif()
     set(enable_tests OFF CACHE BOOL "" FORCE)
     set(enable_doc OFF CACHE BOOL "" FORCE)
     set(enable_examples OFF CACHE BOOL "" FORCE)

@@ -1,6 +1,6 @@
 # Fetch and build SuiteSparse/UMFPACK (GPL) from source via ExternalProject,
-# pointed at the fetched OpenBLAS so the whole chain needs no system numerical
-# libraries. Builds only the packages UMFPACK requires without CHOLMOD:
+# linked against the SYSTEM BLAS/LAPACK so the niche solver is the only thing
+# built from source. Builds only the packages UMFPACK requires without CHOLMOD:
 # SuiteSparse_config + AMD + CAMD + CCOLAMD + COLAMD + UMFPACK.
 #
 # Exposes IMPORTED targets SuiteSparse::umfpack, SuiteSparse::amd and
@@ -8,11 +8,62 @@
 # libfortsparse never does.
 #
 # Pattern adapted from sparse_draft/cmake/FetchSuiteSparse.cmake: ExternalProject
-# (not FetchContent) so we can restrict the project set and pass an out-of-tree
-# BLAS. include() cmake/deps/openblas.cmake before this file so the `openblas`
-# target and its archive path exist.
+# (not FetchContent) so we can restrict the project set and pass the system
+# BLAS/LAPACK out of tree. The top-level CMake must have run find_package(BLAS)
+# and find_package(LAPACK) before including this file.
 
 include(ExternalProject)
+
+# Resolve the find_package BLAS/LAPACK results to concrete library file paths.
+# ExternalProject configures out of tree and cannot see CMake imported targets,
+# so pass it real file paths. find_package may yield either a list of file paths
+# in BLAS_LIBRARIES / LAPACK_LIBRARIES or only the BLAS::BLAS / LAPACK::LAPACK
+# imported targets (newer FindBLAS/FindLAPACK); in the latter case extract their
+# IMPORTED_LOCATION. Concrete paths also survive the nested-FetchContent scope
+# re-evaluation that a $<TARGET_FILE:...> genexp would abort on.
+function(_fortsparse_resolve_libs out_var raw_libs imported_target)
+    set(_resolved "")
+    if(raw_libs)
+        foreach(_lib IN LISTS raw_libs)
+            if(TARGET ${_lib})
+                get_target_property(_loc ${_lib} IMPORTED_LOCATION)
+                if(_loc)
+                    list(APPEND _resolved "${_loc}")
+                endif()
+            else()
+                list(APPEND _resolved "${_lib}")
+            endif()
+        endforeach()
+    endif()
+    if(NOT _resolved AND TARGET ${imported_target})
+        get_target_property(_loc ${imported_target} IMPORTED_LOCATION)
+        if(_loc)
+            list(APPEND _resolved "${_loc}")
+        endif()
+        get_target_property(_iface ${imported_target} INTERFACE_LINK_LIBRARIES)
+        if(_iface)
+            foreach(_lib IN LISTS _iface)
+                if(TARGET ${_lib})
+                    get_target_property(_loc ${_lib} IMPORTED_LOCATION)
+                    if(_loc)
+                        list(APPEND _resolved "${_loc}")
+                    endif()
+                else()
+                    list(APPEND _resolved "${_lib}")
+                endif()
+            endforeach()
+        endif()
+    endif()
+    set(${out_var} "${_resolved}" PARENT_SCOPE)
+endfunction()
+
+_fortsparse_resolve_libs(FORTSPARSE_BLAS_LIBS "${BLAS_LIBRARIES}" BLAS::BLAS)
+_fortsparse_resolve_libs(FORTSPARSE_LAPACK_LIBS "${LAPACK_LIBRARIES}" LAPACK::LAPACK)
+
+# Join multi-entry lists with the pipe LIST_SEPARATOR so they reach the sub-build
+# as ";"-separated lists without tripping ExternalProject's genexp evaluation.
+string(REPLACE ";" "|" FORTSPARSE_BLAS_LIBS_ARG "${FORTSPARSE_BLAS_LIBS}")
+string(REPLACE ";" "|" FORTSPARSE_LAPACK_LIBS_ARG "${FORTSPARSE_LAPACK_LIBS}")
 
 set(SUITESPARSE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/suitesparse-install)
 set(SUITESPARSE_INCLUDE_DIR ${SUITESPARSE_INSTALL_PREFIX}/include)
@@ -39,11 +90,11 @@ ExternalProject_Add(
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     URL https://github.com/DrTimothyAldenDavis/SuiteSparse/archive/refs/tags/v7.8.3.tar.gz
     URL_HASH MD5=242e38ecfc8a3e3aa6b7d8d44849c5cf
-    # Pass the SUITESPARSE_ENABLE_PROJECTS list pipe-separated and tell
-    # ExternalProject to translate "|" back into ";" inside the sub-build. A
-    # literal ";" (or a $<SEMICOLON> genexp) in CMAKE_ARGS makes ExternalProject
-    # emit an "add_custom_command EVAL" error when fortsparse is configured as a
-    # nested FetchContent sub-project, which silently drops the source build.
+    # Pass list-valued args pipe-separated and tell ExternalProject to translate
+    # "|" back into ";" inside the sub-build. A literal ";" (or a $<SEMICOLON>
+    # genexp) in CMAKE_ARGS makes ExternalProject emit an "add_custom_command
+    # EVAL" error when fortsparse is configured as a nested FetchContent
+    # sub-project, which silently drops the source build.
     LIST_SEPARATOR |
     CMAKE_ARGS
         -G Ninja
@@ -54,8 +105,8 @@ ExternalProject_Add(
         -DUMFPACK_USE_CHOLMOD=OFF
         -DSUITESPARSE_USE_OPENMP=OFF
         -DSUITESPARSE_DEMOS=OFF
-        -DBLAS_LIBRARIES=${FORTSPARSE_OPENBLAS_LIB}
-        -DLAPACK_LIBRARIES=${FORTSPARSE_OPENBLAS_LIB}
+        -DBLAS_LIBRARIES=${FORTSPARSE_BLAS_LIBS_ARG}
+        -DLAPACK_LIBRARIES=${FORTSPARSE_LAPACK_LIBS_ARG}
         -DCMAKE_INSTALL_PREFIX=${SUITESPARSE_INSTALL_PREFIX}
         -DCMAKE_INSTALL_LIBDIR=lib
     BUILD_BYPRODUCTS
@@ -66,15 +117,26 @@ ExternalProject_Add(
         ${COLAMD_LIBRARY_PATH}
         ${SUITESPARSE_CONFIG_LIBRARY_PATH})
 
-# The OpenBLAS archive (BLAS + bundled LAPACK) must exist before SuiteSparse
-# configures.
-add_dependencies(SuiteSparse openblas)
+# The system BLAS/LAPACK targets carry the link interface the GPL helper needs;
+# attach them to the lowest IMPORTED target so the helper resolves dense kernels
+# against the system OpenBLAS/LAPACK.
+set(_fortsparse_blas_iface "")
+if(TARGET BLAS::BLAS)
+    list(APPEND _fortsparse_blas_iface BLAS::BLAS)
+elseif(BLAS_LIBRARIES)
+    list(APPEND _fortsparse_blas_iface ${BLAS_LIBRARIES})
+endif()
+if(TARGET LAPACK::LAPACK)
+    list(APPEND _fortsparse_blas_iface LAPACK::LAPACK)
+elseif(LAPACK_LIBRARIES)
+    list(APPEND _fortsparse_blas_iface ${LAPACK_LIBRARIES})
+endif()
 
 add_library(SuiteSparse::suitesparse_config STATIC IMPORTED)
 set_target_properties(SuiteSparse::suitesparse_config PROPERTIES
     IMPORTED_LOCATION ${SUITESPARSE_CONFIG_LIBRARY_PATH}
     INTERFACE_INCLUDE_DIRECTORIES ${SUITESPARSE_INCLUDE_DIR}
-    INTERFACE_LINK_LIBRARIES "openblas")
+    INTERFACE_LINK_LIBRARIES "${_fortsparse_blas_iface}")
 add_dependencies(SuiteSparse::suitesparse_config SuiteSparse)
 
 add_library(SuiteSparse::amd STATIC IMPORTED)
