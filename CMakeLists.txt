@@ -107,6 +107,15 @@ if(FORTSPARSE_BUILD_HELPER)
         ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(fortsparse_umfpack_helper PRIVATE
         ${FORTSPARSE_UMFPACK_TARGET} Threads::Threads)
+    # SuiteSparse_config references libm (hypot). With system BLAS on the link
+    # line libm is no longer pulled in transitively the way the fetched OpenBLAS
+    # dragged it in, so the static SuiteSparse archives leave hypot unresolved.
+    # Request libm explicitly; it must follow the archives on the link line,
+    # which a separate PRIVATE entry guarantees. Skip on Windows, where the math
+    # routines live in the C runtime and no libm exists.
+    if(NOT WIN32)
+        target_link_libraries(fortsparse_umfpack_helper PRIVATE m)
+    endif()
 endif()
 
 if(FORTSPARSE_BUILD_TESTING)
