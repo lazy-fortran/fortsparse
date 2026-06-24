@@ -118,6 +118,34 @@ if(FORTSPARSE_BUILD_HELPER)
     endif()
 endif()
 
+# Place the UMFPACK helper next to a consumer's executable so fortsparse's
+# exe-dir discovery finds it at run time with no env var or PATH change, and
+# optionally install it alongside that executable. Call once per executable
+# that may issue sparse solves:
+#
+#   fortsparse_colocate_helper(my_app)                 # build tree only
+#   fortsparse_colocate_helper(my_app ${install_dir})  # also install there
+#
+# A no-op when the helper was not built (a SuperLU-only build links nothing
+# GPL and needs no separate process), so consumers can call it unconditionally.
+# Available to FetchContent/add_subdirectory consumers once fortsparse has been
+# made available; the parent owns its own target names, so it must name each
+# executable here rather than fortsparse attaching to them implicitly.
+function(fortsparse_colocate_helper target)
+    if(NOT TARGET fortsparse_umfpack_helper)
+        return()
+    endif()
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:fortsparse_umfpack_helper>
+            $<TARGET_FILE_DIR:${target}>
+        VERBATIM)
+    if(ARGN)
+        install(PROGRAMS $<TARGET_FILE:fortsparse_umfpack_helper>
+            DESTINATION ${ARGN})
+    endif()
+endfunction()
+
 if(FORTSPARSE_BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
