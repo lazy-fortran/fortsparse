@@ -40,6 +40,7 @@ module fortsparse_solver
     public :: sparse_free
     public :: sparse_destroy
     public :: sparse_solve_once
+    public :: sparse_vector
 
     ! Factor a real or complex matrix into the solver handle.
     interface sparse_factor
@@ -91,10 +92,10 @@ contains
 
     ! Solve A x = b for a real RHS, reusing the stored factorization.
     subroutine sparse_solve_real(solver, b, x, status)
-        type(sparse_solver_t),     intent(inout) :: solver
-        real(dp),                  intent(in)    :: b(:)
-        real(dp),                  intent(out)   :: x(:)
-        type(fortsparse_status_t), intent(out)   :: status
+        type(sparse_solver_t),        intent(inout) :: solver
+        real(dp), target, contiguous, intent(in)    :: b(:)
+        real(dp), target, contiguous, intent(out)   :: x(:)
+        type(fortsparse_status_t),    intent(out)   :: status
 
         if (.not. solver%factored) then
             call not_factored(status)
@@ -154,6 +155,25 @@ contains
         if (allocated(solver%backend)) call solver%backend%free()
         solver%factored = .false.
     end subroutine sparse_free
+
+    ! Allocate a length-n real solve vector owned by the solver. Used as the RHS
+    ! and/or solution of sparse_solve, it avoids copying that vector across the
+    ! backend boundary: for the out-of-process backend it is a shared-memory
+    ! slot the helper reads and writes directly. Valid after factorization (it is
+    ! sized to the factorization); released when the solver is finalized, so the
+    ! caller never frees it. Returns null if no backend is active or the pool is
+    ! exhausted.
+    function sparse_vector(solver, n) result(p)
+        type(sparse_solver_t), intent(inout) :: solver
+        integer,               intent(in)    :: n
+        real(dp), pointer                    :: p(:)
+
+        if (allocated(solver%backend)) then
+            p => solver%backend%vector(n)
+        else
+            p => null()
+        end if
+    end function sparse_vector
 
     ! Tear the backend down, releasing its factorization and any helper process.
     ! A solver releases everything automatically when it goes out of scope (its

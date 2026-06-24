@@ -23,6 +23,11 @@ module fortsparse_superlu
     ! sharpens the solution from the residual r = b - A x.
     integer, parameter :: REFINE_STEPS = 2
 
+    ! Owns one heap-allocated solve vector handed out by the backend.
+    type :: rvec_t
+        real(dp), pointer :: p(:) => null()
+    end type rvec_t
+
     type, extends(sparse_backend_t) :: superlu_backend_t
         type(c_ptr) :: h_real = c_null_ptr
         type(c_ptr) :: h_cplx = c_null_ptr
@@ -32,6 +37,8 @@ module fortsparse_superlu
         type(csc_z_t) :: a_cplx
         real(dp),    allocatable :: xbuf(:)
         complex(dp), allocatable :: zbuf(:)
+        type(rvec_t), allocatable :: vlist(:) ! vectors handed out by vector()
+        integer                   :: nvec = 0
     contains
         procedure :: factor_real => slu_factor_real
         procedure :: factor_complex => slu_factor_complex
@@ -39,6 +46,7 @@ module fortsparse_superlu
         procedure :: solve_complex => slu_solve_complex
         procedure :: solve_real_inplace => slu_solve_real_inplace
         procedure :: solve_complex_inplace => slu_solve_complex_inplace
+        procedure :: vector => slu_vector
         procedure :: free => slu_free
         final :: slu_final
     end type superlu_backend_t
@@ -148,10 +156,10 @@ contains
 
     ! Solve A x = b for a real RHS using the retained factorization.
     subroutine slu_solve_real(self, b, x, status)
-        class(superlu_backend_t),  intent(inout) :: self
-        real(dp),                  intent(in)    :: b(:)
-        real(dp),                  intent(out)   :: x(:)
-        type(fortsparse_status_t), intent(out)   :: status
+        class(superlu_backend_t),     intent(inout) :: self
+        real(dp), target, contiguous, intent(in)    :: b(:)
+        real(dp), target, contiguous, intent(out)   :: x(:)
+        type(fortsparse_status_t),    intent(out)   :: status
 
         real(dp), allocatable :: r(:), dx(:)
         integer(c_int)        :: info
@@ -236,6 +244,27 @@ contains
         if (status%code == FORTSPARSE_OK) b = self%zbuf(1:size(b))
     end subroutine slu_solve_complex_inplace
 
+    ! In-process backend: a solve vector is a plain heap array the backend owns
+    ! and frees on teardown (the in-process solve already copies nothing). Kept
+    ! uniform with the out-of-process backend so client code is identical.
+    function slu_vector(self, n) result(p)
+        class(superlu_backend_t), intent(inout) :: self
+        integer,                  intent(in)    :: n
+        real(dp), pointer                       :: p(:)
+
+        type(rvec_t), allocatable :: tmp(:)
+
+        allocate (p(n))
+        if (.not. allocated(self%vlist)) allocate (self%vlist(8))
+        if (self%nvec >= size(self%vlist)) then
+            allocate (tmp(2*size(self%vlist)))
+            tmp(1:self%nvec) = self%vlist(1:self%nvec)
+            call move_alloc(tmp, self%vlist)
+        end if
+        self%nvec = self%nvec + 1
+        self%vlist(self%nvec)%p => p
+    end function slu_vector
+
     ! Release the retained factorization, if any.
     subroutine slu_free(self)
         class(superlu_backend_t), intent(inout) :: self
@@ -254,10 +283,17 @@ contains
     subroutine slu_final(self)
         type(superlu_backend_t), intent(inout) :: self
 
+        integer :: i
+
         if (c_associated(self%h_real)) call fsparse_slu_free_d(self%h_real)
         if (c_associated(self%h_cplx)) call fsparse_slu_free_z(self%h_cplx)
         self%h_real = c_null_ptr
         self%h_cplx = c_null_ptr
+        if (allocated(self%vlist)) then
+            do i = 1, self%nvec
+                if (associated(self%vlist(i)%p)) deallocate (self%vlist(i)%p)
+            end do
+        end if
     end subroutine slu_final
 
     ! Pack a complex array into interleaved (real, imag) real(dp) pairs.

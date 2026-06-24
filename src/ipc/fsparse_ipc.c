@@ -230,6 +230,17 @@ void *fsparse_ipc_data(void *sess)
     return s == NULL ? NULL : s->region;
 }
 
+int64_t fsparse_ipc_offset(void *sess, void *ptr)
+{
+    ipc_session *s = (ipc_session *) sess;
+    uintptr_t base, p;
+    if (s == NULL || s->region == NULL || ptr == NULL) return -1;
+    base = (uintptr_t) s->region;
+    p = (uintptr_t) ptr;
+    if (p < base || p >= base + (uintptr_t) s->bytes) return -1;
+    return (int64_t) (p - base);
+}
+
 int fsparse_ipc_call(void *sess)
 {
     ipc_session *s = (ipc_session *) sess;
@@ -388,6 +399,17 @@ void *fsparse_ipc_data(void *sess)
 {
     ipc_session *s = (ipc_session *) sess;
     return s == NULL ? NULL : s->region;
+}
+
+int64_t fsparse_ipc_offset(void *sess, void *ptr)
+{
+    ipc_session *s = (ipc_session *) sess;
+    uintptr_t base, p;
+    if (s == NULL || s->region == NULL || ptr == NULL) return -1;
+    base = (uintptr_t) s->region;
+    p = (uintptr_t) ptr;
+    if (p < base || p >= base + (uintptr_t) s->bytes) return -1;
+    return (int64_t) (p - base);
 }
 
 int fsparse_ipc_call(void *sess)

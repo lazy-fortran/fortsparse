@@ -202,6 +202,9 @@ static int32_t do_solve_real(fsparse_shm_header *h, void *region, factors_t *f)
     int st;
 
     if (f->numeric == NULL) return FSPARSE_ST_ERROR;
+    /* Reads the RHS from off_b and writes the solution to off_x. When both are
+     * fortsparse vectors in shared memory, UMFPACK reads and writes the caller's
+     * slots directly, so the solve copies nothing. */
     st = umfpack_dl_solve(UMFPACK_A, colptr, rowidx, ax, x, b, f->numeric,
                           NULL, NULL);
     return norm_status(st);

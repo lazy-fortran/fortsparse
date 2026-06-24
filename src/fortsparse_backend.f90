@@ -20,6 +20,7 @@ module fortsparse_backend
         procedure(solve_complex_i), deferred :: solve_complex
         procedure(solve_real_inplace_i), deferred :: solve_real_inplace
         procedure(solve_complex_inplace_i), deferred :: solve_complex_inplace
+        procedure(vector_i), deferred :: vector
         procedure(free_i), deferred :: free
     end type sparse_backend_t
 
@@ -43,10 +44,10 @@ module fortsparse_backend
 
         subroutine solve_real_i(self, b, x, status)
             import :: sparse_backend_t, dp, fortsparse_status_t
-            class(sparse_backend_t),   intent(inout) :: self
-            real(dp),                  intent(in)    :: b(:)
-            real(dp),                  intent(out)   :: x(:)
-            type(fortsparse_status_t), intent(out)   :: status
+            class(sparse_backend_t),       intent(inout) :: self
+            real(dp), target, contiguous,  intent(in)    :: b(:)
+            real(dp), target, contiguous,  intent(out)   :: x(:)
+            type(fortsparse_status_t),     intent(out)   :: status
         end subroutine solve_real_i
 
         subroutine solve_complex_i(self, b, x, status)
@@ -74,6 +75,18 @@ module fortsparse_backend
             complex(dp),               intent(inout) :: b(:)
             type(fortsparse_status_t), intent(out)   :: status
         end subroutine solve_complex_inplace_i
+
+        ! Allocate a length-n real solve vector owned by the backend. For the
+        ! out-of-process backend it is a slot in the shared mapping, so a solve
+        ! whose RHS and solution are such vectors copies nothing across the
+        ! boundary; for an in-process backend it is a plain array. The vector
+        ! lives until the backend is finalized; the caller does not free it.
+        function vector_i(self, n) result(p)
+            import :: sparse_backend_t, dp
+            class(sparse_backend_t), intent(inout) :: self
+            integer,                 intent(in)    :: n
+            real(dp), pointer                      :: p(:)
+        end function vector_i
 
         subroutine free_i(self)
             import :: sparse_backend_t

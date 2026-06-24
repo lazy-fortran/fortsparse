@@ -6,7 +6,8 @@ program test_fortsparse_umfpack_ipc
     use, intrinsic :: iso_fortran_env, only: error_unit
     use fortsparse, only: dp, csc_t, csc_z_t, csc_from_triplet, csc_matvec, &
         sparse_solver_t, sparse_factor, sparse_solve, sparse_free, &
-        fortsparse_status_t, status_ok, FORTSPARSE_BACKEND_UMFPACK_IPC
+        sparse_vector, fortsparse_status_t, status_ok, &
+        FORTSPARSE_BACKEND_UMFPACK_IPC
     implicit none
 
     integer :: nfail
@@ -26,6 +27,7 @@ program test_fortsparse_umfpack_ipc
     call run_concurrent(nfail)
     call run_reuse(nfail)
     call run_inplace(nfail)
+    call run_zerocopy(nfail)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -228,6 +230,54 @@ contains
         call check_err("inplace_x2", b, [0.0_dp, 1.0_dp, 0.0_dp], nfail)
         call sparse_free(solver)
     end subroutine run_inplace
+
+    ! Zero-copy solve: the RHS and the solution are fortsparse vectors, i.e.
+    ! slots in the shared mapping, so the helper reads and writes them directly
+    ! with no marshalling. Exercises reuse and a mixed pool/plain-array call; a
+    ! wrong slot offset would corrupt the result, so correctness here certifies
+    ! the offset and pool logic.
+    subroutine run_zerocopy(nfail)
+        integer, intent(inout) :: nfail
+
+        type(csc_t)               :: A
+        type(sparse_solver_t)     :: solver
+        type(fortsparse_status_t) :: status
+        integer                   :: rows(7), cols(7)
+        real(dp)                  :: vals(7), xe(3), xreg(3)
+        real(dp), pointer         :: b(:), x(:)
+
+        rows = [1, 1, 2, 2, 2, 3, 3]
+        cols = [1, 2, 1, 2, 3, 2, 3]
+        vals = [4.0_dp, 1.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+        call csc_from_triplet(3, 3, rows, cols, vals, A, status)
+        solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+        call sparse_factor(solver, A, status)
+        call check_true("zc_factor", status_ok(status), nfail)
+
+        b => sparse_vector(solver, 3)
+        x => sparse_vector(solver, 3)
+        call check_true("zc_vec_b", associated(b), nfail)
+        call check_true("zc_vec_x", associated(x), nfail)
+        if (.not. (associated(b) .and. associated(x))) return
+
+        xe = [1.0_dp, 2.0_dp, 3.0_dp]
+        b = csc_matvec(A, xe)
+        call sparse_solve(solver, b, x, status)
+        call check_true("zc_solve", status_ok(status), nfail)
+        call check_err("zc_x", x, xe, nfail)
+
+        ! Reuse the factorization, still zero-copy.
+        b = csc_matvec(A, [0.0_dp, 1.0_dp, 0.0_dp])
+        call sparse_solve(solver, b, x, status)
+        call check_err("zc_x2", x, [0.0_dp, 1.0_dp, 0.0_dp], nfail)
+
+        ! Mixed: shared-memory RHS, plain-array solution (marshalled out).
+        b = csc_matvec(A, xe)
+        call sparse_solve(solver, b, xreg, status)
+        call check_err("zc_mixed", xreg, xe, nfail)
+
+        call sparse_free(solver)
+    end subroutine run_zerocopy
 
     subroutine check_err(label, got, want, nfail)
         character(*), intent(in)    :: label

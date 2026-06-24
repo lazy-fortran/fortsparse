@@ -32,6 +32,8 @@ module fortsparse_umfpack_ipc
     type, extends(sparse_backend_t) :: umfpack_ipc_backend_t
         type(c_ptr) :: sess = c_null_ptr
         integer(i8) :: mapped = 0_i8
+        integer(i8) :: o_pool = 0_i8 ! byte offset of the vector pool
+        integer     :: pool_next = 0 ! next free pool slot
         integer     :: n = 0
         logical     :: is_complex = .false.
     contains
@@ -41,9 +43,14 @@ module fortsparse_umfpack_ipc
         procedure :: solve_complex => umf_solve_complex
         procedure :: solve_real_inplace => umf_solve_real_inplace
         procedure :: solve_complex_inplace => umf_solve_complex_inplace
+        procedure :: vector => umf_vector
         procedure :: free => umf_free
         final :: umf_final
     end type umfpack_ipc_backend_t
+
+    ! Slots reserved in the shared mapping for zero-copy solve vectors. One per
+    ! concurrently-live solve vector a client holds; eight covers typical use.
+    integer, parameter :: POOL_SLOTS = 8
 
     interface
 
@@ -69,6 +76,14 @@ module fortsparse_umfpack_ipc
             type(c_ptr)        :: p
         end function fsparse_ipc_data
 
+        function fsparse_ipc_offset(sess, ptr) &
+                bind(c, name="fsparse_ipc_offset") result(off)
+            import :: c_ptr, c_int64_t
+            type(c_ptr), value :: sess
+            type(c_ptr), value :: ptr
+            integer(c_int64_t) :: off
+        end function fsparse_ipc_offset
+
         integer(c_int) function fsparse_ipc_call(sess) &
                 bind(c, name="fsparse_ipc_call")
             import :: c_ptr, c_int
@@ -93,9 +108,9 @@ contains
         type(fortsparse_status_t),    intent(out)   :: status
 
         type(shm_header_t), pointer :: h
-        integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, total
+        integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, o_pool, total
 
-        call layout_real(A%ncol, A%nnz, o_cp, o_ri, o_ax, o_b, o_x, total)
+        call layout_real(A%ncol, A%nnz, o_b, o_x, o_pool, o_cp, o_ri, o_ax, total)
         call ensure_session(self, total, status)
         if (status%code /= FORTSPARSE_OK) return
         call header_of(self%sess, h)
@@ -108,6 +123,8 @@ contains
         call write_index(self%sess, o_ri, A%row_idx)
         call write_real(self%sess, o_ax, A%val)
         self%n = A%ncol
+        self%o_pool = o_pool
+        self%pool_next = 0
         self%is_complex = .false.
         call run(self, OP_FACTOR_REAL, status)
     end subroutine umf_factor_real
@@ -143,17 +160,37 @@ contains
     ! Solve a real RHS through the resident factorization.
     subroutine umf_solve_real(self, b, x, status)
         class(umfpack_ipc_backend_t), intent(inout) :: self
-        real(dp),                     intent(in)    :: b(:)
-        real(dp),                     intent(out)   :: x(:)
+        real(dp), target, contiguous, intent(in)    :: b(:)
+        real(dp), target, contiguous, intent(out)   :: x(:)
         type(fortsparse_status_t),    intent(out)   :: status
 
         type(shm_header_t), pointer :: h
+        integer(i8)                 :: o_b_fixed, o_x_fixed
+        integer(c_int64_t)          :: ob, ox
 
         call header_of(self%sess, h)
-        call write_real(self%sess, int(h%off_b, i8), b)
+        o_b_fixed = fsparse_ipc_header_bytes()
+        o_x_fixed = o_b_fixed + int(self%n, i8)*8_i8
+        ! RHS: when b is a fortsparse vector it already lives in the mapping, so
+        ! point the solve at it; a plain array is copied into the fixed RHS slot.
+        ob = fsparse_ipc_offset(self%sess, c_loc(b(1)))
+        if (ob >= 0_c_int64_t) then
+            h%off_b = ob
+        else
+            h%off_b = int(o_b_fixed, c_int64_t)
+            call write_real(self%sess, o_b_fixed, b)
+        end if
+        ! Solution: write straight into x's slot when x is a fortsparse vector;
+        ! otherwise the fixed slot, copied out after the solve.
+        ox = fsparse_ipc_offset(self%sess, c_loc(x(1)))
+        if (ox >= 0_c_int64_t) then
+            h%off_x = ox
+        else
+            h%off_x = int(o_x_fixed, c_int64_t)
+        end if
         call run(self, OP_SOLVE_REAL, status)
         if (status%code /= FORTSPARSE_OK) return
-        call read_real(self%sess, int(h%off_x, i8), x)
+        if (ox < 0_c_int64_t) call read_real(self%sess, o_x_fixed, x)
     end subroutine umf_solve_real
 
     ! Solve a complex RHS through the resident factorization.
@@ -181,12 +218,17 @@ contains
         type(fortsparse_status_t),    intent(out)   :: status
 
         type(shm_header_t), pointer :: h
+        integer(i8)                 :: o_b_fixed, o_x_fixed
 
         call header_of(self%sess, h)
-        call write_real(self%sess, int(h%off_b, i8), b)
+        o_b_fixed = fsparse_ipc_header_bytes()
+        o_x_fixed = o_b_fixed + int(self%n, i8)*8_i8
+        h%off_b = int(o_b_fixed, c_int64_t)
+        h%off_x = int(o_x_fixed, c_int64_t)
+        call write_real(self%sess, o_b_fixed, b)
         call run(self, OP_SOLVE_REAL, status)
         if (status%code /= FORTSPARSE_OK) return
-        call read_real(self%sess, int(h%off_x, i8), b)
+        call read_real(self%sess, o_x_fixed, b)
     end subroutine umf_solve_real_inplace
 
     ! In-place complex solve; b is the RHS on entry, the solution on return.
@@ -203,6 +245,26 @@ contains
         if (status%code /= FORTSPARSE_OK) return
         call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), b)
     end subroutine umf_solve_complex_inplace
+
+    ! Hand out the next free pool slot as a length-n real array aliasing the
+    ! shared mapping. A solve whose RHS and solution are such vectors crosses the
+    ! process boundary with no copy. Returns null if there is no factorization
+    ! yet, the size does not match it, or the pool is exhausted; valid until the
+    ! next factor (which resets the pool) or the backend's teardown.
+    function umf_vector(self, n) result(p)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        integer,                      intent(in)    :: n
+        real(dp), pointer                           :: p(:)
+
+        integer(i8) :: off
+
+        p => null()
+        if (.not. c_associated(self%sess)) return
+        if (n /= self%n .or. self%pool_next >= POOL_SLOTS) return
+        off = self%o_pool + int(self%pool_next, i8)*int(n, i8)*8_i8
+        call c_f_pointer(region_at(self%sess, off), p, [n])
+        self%pool_next = self%pool_next + 1
+    end function umf_vector
 
     ! Release the resident factorization, keeping the helper for the next
     ! factor. This is the public free: the factorization is gone (a later solve
@@ -309,17 +371,22 @@ contains
         call c_f_pointer(fsparse_ipc_data(sess), h)
     end subroutine header_of
 
-    ! Real layout: header, colptr(n+1), rowidx(nnz), ax(nnz), b(n), x(n).
-    subroutine layout_real(n, nnz, o_cp, o_ri, o_ax, o_b, o_x, total)
+    ! Real layout: header, b(n), x(n), pool(POOL_SLOTS*n), then the matrix
+    ! colptr(n+1), rowidx(nnz), ax(nnz). The fixed b/x slots and the vector pool
+    ! sit before the matrix so their offsets do not shift when the nonzero count
+    ! varies, keeping handed-out vector pointers valid across factorizations of
+    ! the same size.
+    subroutine layout_real(n, nnz, o_b, o_x, o_pool, o_cp, o_ri, o_ax, total)
         integer,     intent(in)  :: n, nnz
-        integer(i8), intent(out) :: o_cp, o_ri, o_ax, o_b, o_x, total
+        integer(i8), intent(out) :: o_b, o_x, o_pool, o_cp, o_ri, o_ax, total
 
-        o_cp = fsparse_ipc_header_bytes()
+        o_b = fsparse_ipc_header_bytes()
+        o_x = o_b + int(n, i8)*8_i8
+        o_pool = o_x + int(n, i8)*8_i8
+        o_cp = o_pool + int(POOL_SLOTS, i8)*int(n, i8)*8_i8
         o_ri = o_cp + int(n + 1, i8)*8_i8
         o_ax = o_ri + int(nnz, i8)*8_i8
-        o_b = o_ax + int(nnz, i8)*8_i8
-        o_x = o_b + int(n, i8)*8_i8
-        total = o_x + int(n, i8)*8_i8
+        total = o_ax + int(nnz, i8)*8_i8
     end subroutine layout_real
 
     ! Complex layout adds the imaginary arrays az, bz, xz after their reals.

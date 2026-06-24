@@ -37,6 +37,11 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err);
 /* Pointer to the mapped region (the protocol header is at offset 0). */
 void *fsparse_ipc_data(void *sess);
 
+/* Byte offset of ptr within the mapped region, or -1 if ptr lies outside it.
+ * Lets the library recognise a caller vector that already lives in the shared
+ * mapping and point the solve at it directly, with no copy. */
+int64_t fsparse_ipc_offset(void *sess, void *ptr);
+
 /* Post the request doorbell, wait on the done doorbell, and return the status
  * the helper wrote into the protocol header. */
 int fsparse_ipc_call(void *sess);
