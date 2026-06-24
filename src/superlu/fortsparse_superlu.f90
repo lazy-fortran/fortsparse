@@ -30,11 +30,15 @@ module fortsparse_superlu
         logical     :: refine = .false.
         type(csc_t)   :: a_real
         type(csc_z_t) :: a_cplx
+        real(dp),    allocatable :: xbuf(:)
+        complex(dp), allocatable :: zbuf(:)
     contains
         procedure :: factor_real => slu_factor_real
         procedure :: factor_complex => slu_factor_complex
         procedure :: solve_real => slu_solve_real
         procedure :: solve_complex => slu_solve_complex
+        procedure :: solve_real_inplace => slu_solve_real_inplace
+        procedure :: solve_complex_inplace => slu_solve_complex_inplace
         procedure :: free => slu_free
         final :: slu_final
     end type superlu_backend_t
@@ -197,6 +201,40 @@ contains
         end do
         call map_solve_status(info, status)
     end subroutine slu_solve_complex
+
+    ! In-place real solve: b is the RHS on entry, the solution on return. Uses a
+    ! backend-held scratch (grown once, not per solve) so the in-process solve
+    ! needs no caller temporary.
+    subroutine slu_solve_real_inplace(self, b, status)
+        class(superlu_backend_t),  intent(inout) :: self
+        real(dp),                  intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. allocated(self%xbuf)) then
+            allocate (self%xbuf(size(b)))
+        else if (size(self%xbuf) < size(b)) then
+            deallocate (self%xbuf)
+            allocate (self%xbuf(size(b)))
+        end if
+        call slu_solve_real(self, b, self%xbuf(1:size(b)), status)
+        if (status%code == FORTSPARSE_OK) b = self%xbuf(1:size(b))
+    end subroutine slu_solve_real_inplace
+
+    ! In-place complex solve; b is the RHS on entry, the solution on return.
+    subroutine slu_solve_complex_inplace(self, b, status)
+        class(superlu_backend_t),  intent(inout) :: self
+        complex(dp),               intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. allocated(self%zbuf)) then
+            allocate (self%zbuf(size(b)))
+        else if (size(self%zbuf) < size(b)) then
+            deallocate (self%zbuf)
+            allocate (self%zbuf(size(b)))
+        end if
+        call slu_solve_complex(self, b, self%zbuf(1:size(b)), status)
+        if (status%code == FORTSPARSE_OK) b = self%zbuf(1:size(b))
+    end subroutine slu_solve_complex_inplace
 
     ! Release the retained factorization, if any.
     subroutine slu_free(self)

@@ -18,6 +18,8 @@ module fortsparse_backend
         procedure(factor_complex_i), deferred :: factor_complex
         procedure(solve_real_i), deferred :: solve_real
         procedure(solve_complex_i), deferred :: solve_complex
+        procedure(solve_real_inplace_i), deferred :: solve_real_inplace
+        procedure(solve_complex_inplace_i), deferred :: solve_complex_inplace
         procedure(free_i), deferred :: free
     end type sparse_backend_t
 
@@ -54,6 +56,24 @@ module fortsparse_backend
             complex(dp),               intent(out)   :: x(:)
             type(fortsparse_status_t), intent(out)   :: status
         end subroutine solve_complex_i
+
+        ! In-place real solve: b holds the right-hand side on entry and the
+        ! solution on return. Lets a caller reuse one vector with no temporary
+        ! and no extra copy at the call site.
+        subroutine solve_real_inplace_i(self, b, status)
+            import :: sparse_backend_t, dp, fortsparse_status_t
+            class(sparse_backend_t),   intent(inout) :: self
+            real(dp),                  intent(inout) :: b(:)
+            type(fortsparse_status_t), intent(out)   :: status
+        end subroutine solve_real_inplace_i
+
+        ! In-place complex solve; b is the RHS on entry, the solution on return.
+        subroutine solve_complex_inplace_i(self, b, status)
+            import :: sparse_backend_t, dp, fortsparse_status_t
+            class(sparse_backend_t),   intent(inout) :: self
+            complex(dp),               intent(inout) :: b(:)
+            type(fortsparse_status_t), intent(out)   :: status
+        end subroutine solve_complex_inplace_i
 
         subroutine free_i(self)
             import :: sparse_backend_t

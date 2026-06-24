@@ -47,10 +47,14 @@ module fortsparse_solver
         module procedure sparse_factor_complex
     end interface sparse_factor
 
-    ! Solve A x = b reusing the factorization; real or complex vectors.
+    ! Solve A x = b reusing the factorization; real or complex vectors. The
+    ! two-vector forms write the solution to x; the in-place forms return it in
+    ! b, sparing the caller a temporary and a copy in a tight solve loop.
     interface sparse_solve
         module procedure sparse_solve_real
         module procedure sparse_solve_complex
+        module procedure sparse_solve_real_inplace
+        module procedure sparse_solve_complex_inplace
     end interface sparse_solve
 
     ! Convenience: factor, solve one RHS, and free in a single call.
@@ -112,6 +116,32 @@ contains
         end if
         call solver%backend%solve_complex(b, x, status)
     end subroutine sparse_solve_complex
+
+    ! In-place real solve: b is the RHS on entry, the solution on return.
+    subroutine sparse_solve_real_inplace(solver, b, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        real(dp),                  intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        call solver%backend%solve_real_inplace(b, status)
+    end subroutine sparse_solve_real_inplace
+
+    ! In-place complex solve: b is the RHS on entry, the solution on return.
+    subroutine sparse_solve_complex_inplace(solver, b, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        complex(dp),               intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        call solver%backend%solve_complex_inplace(b, status)
+    end subroutine sparse_solve_complex_inplace
 
     ! Release the current factorization, keeping the backend ready to factor
     ! again. For the out-of-process backend the helper stays resident, so the

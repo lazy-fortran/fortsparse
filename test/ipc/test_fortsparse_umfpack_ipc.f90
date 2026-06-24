@@ -25,6 +25,7 @@ program test_fortsparse_umfpack_ipc
     call run_complex(nfail)
     call run_concurrent(nfail)
     call run_reuse(nfail)
+    call run_inplace(nfail)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -197,6 +198,36 @@ contains
             call sparse_free(solver)
         end do
     end subroutine run_reuse
+
+    ! In-place real solve: b carries the RHS in and the solution out, with no
+    ! caller temporary. Must match the two-vector solve.
+    subroutine run_inplace(nfail)
+        integer, intent(inout) :: nfail
+
+        type(csc_t)               :: A
+        type(sparse_solver_t)     :: solver
+        type(fortsparse_status_t) :: status
+        integer                   :: rows(7), cols(7)
+        real(dp)                  :: vals(7), b(3), xe(3)
+
+        rows = [1, 1, 2, 2, 2, 3, 3]
+        cols = [1, 2, 1, 2, 3, 2, 3]
+        vals = [4.0_dp, 1.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+        call csc_from_triplet(3, 3, rows, cols, vals, A, status)
+        solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+        xe = [1.0_dp, 2.0_dp, 3.0_dp]
+        b = [6.0_dp, 10.0_dp, 8.0_dp]
+        call sparse_factor(solver, A, status)
+        call check_true("inplace_factor", status_ok(status), nfail)
+        call sparse_solve(solver, b, status)
+        call check_true("inplace_solve", status_ok(status), nfail)
+        call check_err("inplace_x", b, xe, nfail)
+        ! A second in-place solve reuses the factorization.
+        b = csc_matvec(A, [0.0_dp, 1.0_dp, 0.0_dp])
+        call sparse_solve(solver, b, status)
+        call check_err("inplace_x2", b, [0.0_dp, 1.0_dp, 0.0_dp], nfail)
+        call sparse_free(solver)
+    end subroutine run_inplace
 
     subroutine check_err(label, got, want, nfail)
         character(*), intent(in)    :: label

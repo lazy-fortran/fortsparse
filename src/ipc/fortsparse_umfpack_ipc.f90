@@ -39,6 +39,8 @@ module fortsparse_umfpack_ipc
         procedure :: factor_complex => umf_factor_complex
         procedure :: solve_real => umf_solve_real
         procedure :: solve_complex => umf_solve_complex
+        procedure :: solve_real_inplace => umf_solve_real_inplace
+        procedure :: solve_complex_inplace => umf_solve_complex_inplace
         procedure :: free => umf_free
         final :: umf_final
     end type umfpack_ipc_backend_t
@@ -169,6 +171,38 @@ contains
         if (status%code /= FORTSPARSE_OK) return
         call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), x)
     end subroutine umf_solve_complex
+
+    ! In-place real solve: write the RHS from b, then read the solution back
+    ! into b. Saves the caller a temporary and the final copy a separate-output
+    ! solve forces; b crosses the boundary once each way, the irreducible cost.
+    subroutine umf_solve_real_inplace(self, b, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        real(dp),                     intent(inout) :: b(:)
+        type(fortsparse_status_t),    intent(out)   :: status
+
+        type(shm_header_t), pointer :: h
+
+        call header_of(self%sess, h)
+        call write_real(self%sess, int(h%off_b, i8), b)
+        call run(self, OP_SOLVE_REAL, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call read_real(self%sess, int(h%off_x, i8), b)
+    end subroutine umf_solve_real_inplace
+
+    ! In-place complex solve; b is the RHS on entry, the solution on return.
+    subroutine umf_solve_complex_inplace(self, b, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        complex(dp),                  intent(inout) :: b(:)
+        type(fortsparse_status_t),    intent(out)   :: status
+
+        type(shm_header_t), pointer :: h
+
+        call header_of(self%sess, h)
+        call write_split(self%sess, int(h%off_b, i8), int(h%off_bz, i8), b)
+        call run(self, OP_SOLVE_COMPLEX, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), b)
+    end subroutine umf_solve_complex_inplace
 
     ! Release the resident factorization, keeping the helper for the next
     ! factor. This is the public free: the factorization is gone (a later solve
