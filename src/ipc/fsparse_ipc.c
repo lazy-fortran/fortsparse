@@ -460,13 +460,18 @@ void *fsparse_ipc_acquire(const char *helper_path, int64_t bytes, int *err)
             return g_pool[i].sess;
         }
     }
-    /* Otherwise take an empty slot, or an idle one to grow (respawn larger). */
+    /* No idle session is large enough. Grow one in place: reuse an idle slot,
+     * respawning its helper at the larger size. Preferring this over an empty
+     * slot keeps the pool to one session per concurrent factorization (a problem
+     * whose size climbs during start-up then settles), instead of accumulating a
+     * separate idle helper for every size seen. Fall back to an empty slot only
+     * when every existing session is busy with a live factorization. */
     for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
-        if (g_pool[i].sess == NULL) { slot = i; break; }
+        if (g_pool[i].sess != NULL && !g_pool[i].busy) { slot = i; break; }
     }
     if (slot < 0) {
         for (i = 0; i < FSPARSE_POOL_SIZE; i++) {
-            if (!g_pool[i].busy) { slot = i; break; }
+            if (g_pool[i].sess == NULL) { slot = i; break; }
         }
     }
 
