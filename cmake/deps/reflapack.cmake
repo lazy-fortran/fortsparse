@@ -29,10 +29,16 @@ endif()
 
 # Absolute paths to the built static archives, consumed by the SuiteSparse
 # ExternalProject (which configures out of tree and cannot see the `blas` /
-# `lapack` CMake targets directly).
+# `lapack` CMake targets directly). Use the concrete archive paths under the
+# Reference-LAPACK build tree rather than a $<TARGET_FILE:...> generator
+# expression: ExternalProject_Add re-evaluates CMAKE_ARGS genexps in an
+# add_custom_command scope that cannot resolve the `blas` / `lapack` targets
+# when fortsparse is a nested FetchContent sub-project, which aborts the
+# configure with "No target blas". Reference-LAPACK installs its static
+# archives into <build>/lib regardless of nesting.
 set(FORTSPARSE_REFLAPACK_BLAS_LIB
-    "$<TARGET_FILE:blas>"
+    "${reflapack_BINARY_DIR}/lib/libblas${CMAKE_STATIC_LIBRARY_SUFFIX}"
     CACHE INTERNAL "reference BLAS static archive")
 set(FORTSPARSE_REFLAPACK_LAPACK_LIB
-    "$<TARGET_FILE:lapack>"
+    "${reflapack_BINARY_DIR}/lib/liblapack${CMAKE_STATIC_LIBRARY_SUFFIX}"
     CACHE INTERNAL "reference LAPACK static archive")
