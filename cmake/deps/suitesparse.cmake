@@ -39,12 +39,18 @@ ExternalProject_Add(
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     URL https://github.com/DrTimothyAldenDavis/SuiteSparse/archive/refs/tags/v7.8.3.tar.gz
     URL_HASH MD5=242e38ecfc8a3e3aa6b7d8d44849c5cf
+    # Pass the SUITESPARSE_ENABLE_PROJECTS list pipe-separated and tell
+    # ExternalProject to translate "|" back into ";" inside the sub-build. A
+    # literal ";" (or a $<SEMICOLON> genexp) in CMAKE_ARGS makes ExternalProject
+    # emit an "add_custom_command EVAL" error when fortsparse is configured as a
+    # nested FetchContent sub-project, which silently drops the source build.
+    LIST_SEPARATOR |
     CMAKE_ARGS
         -G Ninja
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON
         -DCMAKE_BUILD_TYPE=Release
         -DBUILD_SHARED_LIBS=OFF
-        -DSUITESPARSE_ENABLE_PROJECTS=suitesparse_config$<SEMICOLON>amd$<SEMICOLON>camd$<SEMICOLON>ccolamd$<SEMICOLON>colamd$<SEMICOLON>umfpack
+        -DSUITESPARSE_ENABLE_PROJECTS=suitesparse_config|amd|camd|ccolamd|colamd|umfpack
         -DUMFPACK_USE_CHOLMOD=OFF
         -DSUITESPARSE_USE_OPENMP=OFF
         -DSUITESPARSE_DEMOS=OFF
