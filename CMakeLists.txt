@@ -22,7 +22,7 @@ option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
 option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
 
 # Zero-system-dependency build. OFF (default) fetches and builds every
-# numerical dependency from source -- reference BLAS/LAPACK, SuperLU, and the
+# numerical dependency from source -- OpenBLAS, SuperLU, and the
 # SuiteSparse/UMFPACK chain -- so a consumer needs only a C/Fortran compiler,
 # CMake and Ninja. ON uses find_package for SuperLU/UMFPACK/BLAS as before, for
 # distros that ship them. The two paths are orthogonal to
@@ -73,14 +73,14 @@ add_subdirectory(src)
 #
 # System path: built only when find_package locates UMFPACK, so a host without
 # it still gets the SuperLU-only library. Zero-dependency path: fetch and build
-# the SuiteSparse/UMFPACK chain (pointed at the fetched reference BLAS/LAPACK)
-# and always build the helper.
+# the SuiteSparse/UMFPACK chain (pointed at the fetched OpenBLAS) and always
+# build the helper.
 if(FORTSPARSE_USE_SYSTEM_DEPS)
     find_package(UMFPACK)
     set(FORTSPARSE_BUILD_HELPER ${UMFPACK_FOUND})
     set(FORTSPARSE_UMFPACK_TARGET UMFPACK::UMFPACK)
 else()
-    include(deps/reflapack)
+    include(deps/openblas)
     include(deps/suitesparse)
     set(FORTSPARSE_BUILD_HELPER ON)
     set(FORTSPARSE_UMFPACK_TARGET SuiteSparse::umfpack)

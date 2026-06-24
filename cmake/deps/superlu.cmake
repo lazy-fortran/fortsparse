@@ -2,12 +2,11 @@
 # `superlu` target. This is the zero-system-dependency replacement for
 # find_package(SuperLU): it needs no system BLAS.
 #
-# SuperLU's own bundled CBLAS also creates a target literally named `blas`,
-# which collides with the reference-BLAS `blas` target the SuiteSparse chain
-# needs. Both must live in the same CMake tree, so we disable the bundled CBLAS
-# and point SuperLU at the fetched reference BLAS instead (still source-built,
-# still no system dependency). include(deps/reflapack) must run before this file
-# so the `blas` target exists.
+# SuperLU builds its own bundled CBLAS (enable_internal_blaslib=ON) so it needs
+# no external BLAS at all. That keeps SuperLU fully self-contained and decoupled
+# from the OpenBLAS the SuiteSparse/UMFPACK chain links: the two backends share
+# no BLAS target, so there is no name collision and SuperLU stays buildable even
+# when the UMFPACK chain is off.
 #
 # The fortsparse SuperLU C shim includes its headers with a `superlu/` prefix
 # (e.g. <superlu/slu_ddefs.h>), matching the usual distro layout. The upstream
@@ -16,13 +15,11 @@
 # includes.
 
 include(FetchContent)
-include(deps/reflapack)
 
 if(NOT TARGET superlu)
-    # Use the fetched reference BLAS rather than SuperLU's bundled CBLAS to keep
-    # a single `blas` target in the tree.
-    set(enable_internal_blaslib OFF CACHE BOOL "" FORCE)
-    set(TPL_BLAS_LIBRARIES "$<TARGET_FILE:blas>" CACHE STRING "" FORCE)
+    # Build SuperLU's bundled CBLAS so the backend carries its own BLAS and
+    # needs no external library.
+    set(enable_internal_blaslib ON CACHE BOOL "" FORCE)
     set(enable_tests OFF CACHE BOOL "" FORCE)
     set(enable_doc OFF CACHE BOOL "" FORCE)
     set(enable_examples OFF CACHE BOOL "" FORCE)
@@ -47,9 +44,4 @@ if(NOT TARGET superlu)
     endif()
     target_include_directories(superlu INTERFACE
         "$<BUILD_INTERFACE:${_fortsparse_superlu_incstage}>")
-
-    # SuperLU records the reference BLAS only as a path string, so add the
-    # `blas` target as an explicit link dependency. This both resolves its BLAS
-    # symbols for downstream linkers and orders `blas` to build first.
-    target_link_libraries(superlu PUBLIC blas)
 endif()

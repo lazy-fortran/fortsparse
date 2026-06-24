@@ -1,6 +1,6 @@
 # Fetch and build SuiteSparse/UMFPACK (GPL) from source via ExternalProject,
-# pointed at the fetched reference BLAS/LAPACK so the whole chain needs no system
-# numerical libraries. Builds only the packages UMFPACK requires without CHOLMOD:
+# pointed at the fetched OpenBLAS so the whole chain needs no system numerical
+# libraries. Builds only the packages UMFPACK requires without CHOLMOD:
 # SuiteSparse_config + AMD + CAMD + CCOLAMD + COLAMD + UMFPACK.
 #
 # Exposes IMPORTED targets SuiteSparse::umfpack, SuiteSparse::amd and
@@ -9,8 +9,8 @@
 #
 # Pattern adapted from sparse_draft/cmake/FetchSuiteSparse.cmake: ExternalProject
 # (not FetchContent) so we can restrict the project set and pass an out-of-tree
-# BLAS. include() cmake/deps/reflapack.cmake before this file so the `blas` /
-# `lapack` targets and their archive paths exist.
+# BLAS. include() cmake/deps/openblas.cmake before this file so the `openblas`
+# target and its archive path exist.
 
 include(ExternalProject)
 
@@ -54,8 +54,8 @@ ExternalProject_Add(
         -DUMFPACK_USE_CHOLMOD=OFF
         -DSUITESPARSE_USE_OPENMP=OFF
         -DSUITESPARSE_DEMOS=OFF
-        -DBLAS_LIBRARIES=${FORTSPARSE_REFLAPACK_BLAS_LIB}
-        -DLAPACK_LIBRARIES=${FORTSPARSE_REFLAPACK_LAPACK_LIB}
+        -DBLAS_LIBRARIES=${FORTSPARSE_OPENBLAS_LIB}
+        -DLAPACK_LIBRARIES=${FORTSPARSE_OPENBLAS_LIB}
         -DCMAKE_INSTALL_PREFIX=${SUITESPARSE_INSTALL_PREFIX}
         -DCMAKE_INSTALL_LIBDIR=lib
     BUILD_BYPRODUCTS
@@ -66,14 +66,15 @@ ExternalProject_Add(
         ${COLAMD_LIBRARY_PATH}
         ${SUITESPARSE_CONFIG_LIBRARY_PATH})
 
-# The reference BLAS/LAPACK archives must exist before SuiteSparse configures.
-add_dependencies(SuiteSparse blas lapack)
+# The OpenBLAS archive (BLAS + bundled LAPACK) must exist before SuiteSparse
+# configures.
+add_dependencies(SuiteSparse openblas)
 
 add_library(SuiteSparse::suitesparse_config STATIC IMPORTED)
 set_target_properties(SuiteSparse::suitesparse_config PROPERTIES
     IMPORTED_LOCATION ${SUITESPARSE_CONFIG_LIBRARY_PATH}
     INTERFACE_INCLUDE_DIRECTORIES ${SUITESPARSE_INCLUDE_DIR}
-    INTERFACE_LINK_LIBRARIES "blas;lapack")
+    INTERFACE_LINK_LIBRARIES "openblas")
 add_dependencies(SuiteSparse::suitesparse_config SuiteSparse)
 
 add_library(SuiteSparse::amd STATIC IMPORTED)
