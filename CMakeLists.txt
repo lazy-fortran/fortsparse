@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.22)
 
 project(fortsparse LANGUAGES Fortran C)
 
+# Export compile_commands.json so clangd resolves the C shim include paths.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Detect standalone vs subproject build so testing defaults sanely.
 set(FORTSPARSE_IS_STANDALONE OFF)
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)

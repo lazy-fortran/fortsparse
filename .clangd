@@ -1,0 +1,9 @@
+# clangd configuration. The C shims include project headers from include/ with
+# quotes (e.g. "fsparse_proto.h"), which clangd cannot find from the .c file's
+# own directory. Point clangd at the CMake compile_commands.json for exact
+# flags, and add include/ as a fallback when no build tree is present. System
+# headers (<suitesparse/umfpack.h>, <superlu/slu_ddefs.h>) resolve via the
+# default /usr/include search path and need no extra flags.
+CompileFlags:
+  CompilationDatabase: build
+  Add: [-Iinclude]
