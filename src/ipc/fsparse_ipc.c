@@ -21,6 +21,76 @@ int64_t fsparse_ipc_header_bytes(void)
     return (int64_t) sizeof(fsparse_shm_header);
 }
 
+/* Directory of the current executable, without trailing slash. Writes at most
+ * n bytes (NUL-terminated) into buf and returns the directory length, or 0 on
+ * failure. Lets a program find a helper sitting next to it with no PATH entry
+ * and no environment variable. */
+#if defined(_WIN32)
+
+#include <windows.h>
+
+size_t fsparse_self_dir(char *buf, size_t n)
+{
+    DWORD len;
+    size_t i;
+
+    if (buf == NULL || n == 0) return 0;
+    len = GetModuleFileNameA(NULL, buf, (DWORD) n);
+    if (len == 0 || len >= n) return 0;
+    for (i = len; i > 0; i--) {
+        if (buf[i - 1] == '\\' || buf[i - 1] == '/') {
+            buf[i - 1] = '\0';
+            return i - 1;
+        }
+    }
+    return 0;
+}
+
+#elif defined(__APPLE__)
+
+#include <mach-o/dyld.h>
+
+size_t fsparse_self_dir(char *buf, size_t n)
+{
+    uint32_t size = (uint32_t) n;
+    size_t len, i;
+
+    if (buf == NULL || n == 0) return 0;
+    if (_NSGetExecutablePath(buf, &size) != 0) return 0;
+    len = strlen(buf);
+    for (i = len; i > 0; i--) {
+        if (buf[i - 1] == '/') {
+            buf[i - 1] = '\0';
+            return i - 1;
+        }
+    }
+    return 0;
+}
+
+#else /* Linux and other /proc systems */
+
+#include <unistd.h>
+
+size_t fsparse_self_dir(char *buf, size_t n)
+{
+    ssize_t len;
+    size_t i;
+
+    if (buf == NULL || n == 0) return 0;
+    len = readlink("/proc/self/exe", buf, n - 1);
+    if (len <= 0) return 0;
+    buf[len] = '\0';
+    for (i = (size_t) len; i > 0; i--) {
+        if (buf[i - 1] == '/') {
+            buf[i - 1] = '\0';
+            return i - 1;
+        }
+    }
+    return 0;
+}
+
+#endif
+
 #if defined(_WIN32)
 
 #include <windows.h>

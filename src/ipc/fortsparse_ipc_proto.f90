@@ -4,9 +4,22 @@ module fortsparse_ipc_proto
     ! include/fsparse_proto.h field for field, so the Fortran side and the GPL
     ! helper agree on the layout. Also resolves the helper binary from the
     ! environment or PATH. No UMFPACK symbol appears here.
-    use, intrinsic :: iso_c_binding, only: c_int32_t, c_int64_t
+    use, intrinsic :: iso_c_binding, only: c_int32_t, c_int64_t, c_char, &
+        c_size_t, c_null_char
     implicit none
     private
+
+    ! Directory of the running executable, from the MIT C shim. Lets a program
+    ! find the helper next to it with no PATH entry and no environment variable.
+    interface
+        function fsparse_self_dir(buf, n) result(length) bind(c, &
+                name="fsparse_self_dir")
+            import :: c_char, c_size_t
+            character(kind=c_char), intent(out) :: buf(*)
+            integer(c_size_t), value            :: n
+            integer(c_size_t)                   :: length
+        end function fsparse_self_dir
+    end interface
 
     public :: shm_header_t
     public :: OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, &
@@ -49,16 +62,37 @@ module fortsparse_ipc_proto
 
 contains
 
-    ! Resolve the helper path. Prefer FORTSPARSE_UMFPACK_HELPER; otherwise scan
-    ! the PATH directories for an executable named fortsparse_umfpack_helper.
-    ! Returns an empty string when no helper is found.
+    ! Resolve the helper path. Try, in order, FORTSPARSE_UMFPACK_HELPER, the
+    ! directory of the running executable, then the PATH directories. Returns an
+    ! empty string when no helper is found.
     function find_helper() result(path)
         character(:), allocatable :: path
 
         path = helper_from_env()
         if (len(path) > 0) return
+        path = helper_from_exe_dir()
+        if (len(path) > 0) return
         path = helper_from_path()
     end function find_helper
+
+    ! Build <exe_dir>/fortsparse_umfpack_helper and return it if it exists.
+    function helper_from_exe_dir() result(path)
+        character(:), allocatable :: path
+        character(kind=c_char)    :: buf(4096)
+        integer(c_size_t)         :: n
+        integer                   :: i
+        logical                   :: ok
+
+        path = ""
+        n = fsparse_self_dir(buf, int(size(buf), c_size_t))
+        if (n <= 0_c_size_t) return
+        do i = 1, int(n)
+            path = path//buf(i)
+        end do
+        path = path//"/"//HELPER_NAME
+        inquire (file=path, exist=ok)
+        if (.not. ok) path = ""
+    end function helper_from_exe_dir
 
     ! Read FORTSPARSE_UMFPACK_HELPER if it names an existing file.
     function helper_from_env() result(path)

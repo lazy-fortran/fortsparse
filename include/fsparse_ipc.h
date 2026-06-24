@@ -12,11 +12,18 @@
 #ifndef FSPARSE_IPC_H
 #define FSPARSE_IPC_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* Directory of the current executable, without a trailing slash, written into
+ * buf (NUL-terminated, at most n bytes). Returns the directory length, or 0 on
+ * failure. Lets a program discover a helper sitting next to it with no PATH
+ * entry and no environment variable. */
+size_t fsparse_self_dir(char *buf, size_t n);
 
 /* Size in bytes of the protocol header that prefixes the shared mapping. The
  * Fortran side adds the data region after this many bytes. */
