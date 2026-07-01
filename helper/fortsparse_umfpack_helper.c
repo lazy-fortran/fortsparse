@@ -192,6 +192,18 @@ static int32_t do_factor_complex(fsparse_shm_header *h, void *region,
     return norm_status(st);
 }
 
+/* Fill Control with UMFPACK's defaults, then force off iterative refinement
+ * when the caller asked for none. UMFPACK_IRSTEP defaults to 2; the old
+ * in-process umf4sol wrapper zeroed it for the no-refinement path, and
+ * umf4solr left the default alone. h->refine (set at factor time from the
+ * caller's `refine` argument) must reproduce that choice, or a solve that
+ * asked for no refinement silently gets refined anyway. */
+static void solve_control(const fsparse_shm_header *h, double *Control)
+{
+    umfpack_dl_defaults(Control);
+    if (!h->refine) Control[UMFPACK_IRSTEP] = 0;
+}
+
 static int32_t do_solve_real(fsparse_shm_header *h, void *region, factors_t *f)
 {
     int64_t *colptr = (int64_t *) base(region, h->off_colptr);
@@ -199,14 +211,16 @@ static int32_t do_solve_real(fsparse_shm_header *h, void *region, factors_t *f)
     double *ax = (double *) base(region, h->off_ax);
     double *b = (double *) base(region, h->off_b);
     double *x = (double *) base(region, h->off_x);
+    double Control[UMFPACK_CONTROL];
     int st;
 
     if (f->numeric == NULL) return FSPARSE_ST_ERROR;
+    solve_control(h, Control);
     /* Reads the RHS from off_b and writes the solution to off_x. When both are
      * fortsparse vectors in shared memory, UMFPACK reads and writes the caller's
      * slots directly, so the solve copies nothing. */
     st = umfpack_dl_solve(UMFPACK_A, colptr, rowidx, ax, x, b, f->numeric,
-                          NULL, NULL);
+                          Control, NULL);
     return norm_status(st);
 }
 
@@ -221,11 +235,13 @@ static int32_t do_solve_complex(fsparse_shm_header *h, void *region,
     double *bz = (double *) base(region, h->off_bz);
     double *xx = (double *) base(region, h->off_x);
     double *xz = (double *) base(region, h->off_xz);
+    double Control[UMFPACK_CONTROL];
     int st;
 
     if (f->numeric == NULL) return FSPARSE_ST_ERROR;
+    solve_control(h, Control);
     st = umfpack_zl_solve(UMFPACK_A, colptr, rowidx, ax, az, xx, xz, bx, bz,
-                          f->numeric, NULL, NULL);
+                          f->numeric, Control, NULL);
     return norm_status(st);
 }
 
