@@ -42,10 +42,16 @@ module fortsparse_solver
     public :: sparse_solve_once
     public :: sparse_vector
 
-    ! Factor a real or complex matrix into the solver handle.
+    ! Factor a real or complex matrix into the solver handle. The csc_t forms
+    ! take an assembled matrix; the raw forms take caller-owned 1-based CSC
+    ! arrays directly, which lets a backend stream them into its own storage
+    ! without an intermediate csc_t copy: for a large system that copy is the
+    ! caller's peak-memory overhead.
     interface sparse_factor
         module procedure sparse_factor_real
         module procedure sparse_factor_complex
+        module procedure sparse_factor_real_raw
+        module procedure sparse_factor_complex_raw
     end interface sparse_factor
 
     ! Solve A x = b reusing the factorization; real or complex vectors. The
@@ -89,6 +95,39 @@ contains
         call solver%backend%factor_complex(A, solver%refine, status)
         solver%factored = status_ok(status)
     end subroutine sparse_factor_complex
+
+    ! Factor a real matrix given as raw 1-based CSC arrays: col_ptr(ncol+1),
+    ! row_idx(nz), val(nz).
+    subroutine sparse_factor_real_raw(solver, nrow, ncol, nz, col_ptr, &
+            row_idx, val, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        call ensure_backend(solver, status)
+        if (.not. status_ok(status)) return
+        call solver%backend%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
+            val, solver%refine, status)
+        solver%factored = status_ok(status)
+    end subroutine sparse_factor_real_raw
+
+    ! Factor a complex matrix given as raw 1-based CSC arrays.
+    subroutine sparse_factor_complex_raw(solver, nrow, ncol, nz, col_ptr, &
+            row_idx, val, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        complex(dp),               intent(in)    :: val(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        call ensure_backend(solver, status)
+        if (.not. status_ok(status)) return
+        call solver%backend%factor_complex_raw(nrow, ncol, nz, col_ptr, &
+            row_idx, val, solver%refine, status)
+        solver%factored = status_ok(status)
+    end subroutine sparse_factor_complex_raw
 
     ! Solve A x = b for a real RHS, reusing the stored factorization.
     subroutine sparse_solve_real(solver, b, x, status)
@@ -145,10 +184,10 @@ contains
     end subroutine sparse_solve_complex_inplace
 
     ! Release the current factorization, keeping the backend ready to factor
-    ! again. For the out-of-process backend the helper stays resident, so the
-    ! next factor reuses it. The backend and any resource it owns (the helper
-    ! process) are released when the solver is finalized, or at once by
-    ! sparse_destroy.
+    ! again. For the out-of-process backend this also releases the helper
+    ! process and its matrix-sized shared mapping, so a freed solver holds no
+    ! memory; the next factor spawns a fresh helper. Vectors from sparse_vector
+    ! do not survive a free.
     subroutine sparse_free(solver)
         type(sparse_solver_t), intent(inout) :: solver
 
@@ -159,10 +198,10 @@ contains
     ! Allocate a length-n real solve vector owned by the solver. Used as the RHS
     ! and/or solution of sparse_solve, it avoids copying that vector across the
     ! backend boundary: for the out-of-process backend it is a shared-memory
-    ! slot the helper reads and writes directly. Valid after factorization (it is
-    ! sized to the factorization); released when the solver is finalized, so the
-    ! caller never frees it. Returns null if no backend is active or the pool is
-    ! exhausted.
+    ! slot the helper reads and writes directly. Valid after factorization (it
+    ! is sized to the factorization) and until sparse_free or teardown, so the
+    ! caller never frees it. Returns null if no backend is active or the pool
+    ! is exhausted.
     function sparse_vector(solver, n) result(p)
         type(sparse_solver_t), intent(inout) :: solver
         integer,               intent(in)    :: n
