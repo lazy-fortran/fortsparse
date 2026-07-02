@@ -14,20 +14,22 @@ module fortsparse_umfpack_ipc
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
-        FORTSPARSE_BACKEND_UNAVAILABLE
+        FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX, &
+        FORTSPARSE_NOT_FACTORED
     use fortsparse_ipc_proto, only: shm_header_t, &
         OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, OP_SOLVE_COMPLEX, &
-        OP_FREE, ST_OK, ST_SINGULAR, find_helper
+        ST_OK, ST_SINGULAR, find_helper
     implicit none
     private
 
     public :: umfpack_ipc_backend_t
 
     ! Out-of-process UMFPACK backend. Owns one helper session and the shared
-    ! mapping for this backend's whole lifetime; the resident factorization lives
-    ! in the helper process. The session persists across factor/solve/free cycles
-    ! so the helper (and the UMFPACK and BLAS it loads) spawns once, not once per
-    ! factorization. The FINAL shuts the helper down when the backend is
+    ! mapping while a factorization is live; the resident factorization lives in
+    ! the helper process. sparse_free releases the whole session (helper and
+    ! mapping): the mapping is matrix-sized, so an idle retained session would
+    ! raise the caller's peak footprint for the price of one saved process
+    ! spawn. The FINAL shuts a still-live helper down when the backend is
     ! deallocated, so a solver needs no explicit teardown.
     type, extends(sparse_backend_t) :: umfpack_ipc_backend_t
         type(c_ptr) :: sess = c_null_ptr
@@ -39,6 +41,8 @@ module fortsparse_umfpack_ipc
     contains
         procedure :: factor_real => umf_factor_real
         procedure :: factor_complex => umf_factor_complex
+        procedure :: factor_real_raw => umf_factor_real_raw
+        procedure :: factor_complex_raw => umf_factor_complex_raw
         procedure :: solve_real => umf_solve_real
         procedure :: solve_complex => umf_solve_complex
         procedure :: solve_real_inplace => umf_solve_real_inplace
@@ -99,63 +103,103 @@ module fortsparse_umfpack_ipc
 
 contains
 
-    ! Factor a real matrix in the helper. Lays out the shared region, writes
-    ! the 0-based CSC arrays into it, then issues FACTOR_REAL.
+    ! Factor a real matrix in the helper.
     subroutine umf_factor_real(self, A, refine, status)
         class(umfpack_ipc_backend_t), intent(inout) :: self
         type(csc_t),                  intent(in)    :: A
         logical,                      intent(in)    :: refine
         type(fortsparse_status_t),    intent(out)   :: status
 
-        type(shm_header_t), pointer :: h
-        integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, o_pool, total
-
-        call layout_real(A%ncol, A%nnz, o_b, o_x, o_pool, o_cp, o_ri, o_ax, total)
-        call ensure_session(self, total, status)
-        if (status%code /= FORTSPARSE_OK) return
-        call header_of(self%sess, h)
-        h%n = int(A%ncol, c_int64_t)
-        h%nnz = int(A%nnz, c_int64_t)
-        h%refine = merge(1_c_int32_t, 0_c_int32_t, refine)
-        h%is_complex = 0_c_int32_t
-        call set_offsets(h, o_cp, o_ri, o_ax, 0_i8, o_b, 0_i8, o_x, 0_i8, total)
-        call write_index(self%sess, o_cp, A%col_ptr)
-        call write_index(self%sess, o_ri, A%row_idx)
-        call write_real(self%sess, o_ax, A%val)
-        self%n = A%ncol
-        self%o_pool = o_pool
-        self%pool_next = 0
-        self%is_complex = .false.
-        call run(self, OP_FACTOR_REAL, status)
+        call umf_factor_real_raw(self, A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status)
     end subroutine umf_factor_real
 
-    ! Factor a complex matrix in the helper using split real/imag arrays.
+    ! Factor a complex matrix in the helper.
     subroutine umf_factor_complex(self, A, refine, status)
         class(umfpack_ipc_backend_t), intent(inout) :: self
         type(csc_z_t),                intent(in)    :: A
         logical,                      intent(in)    :: refine
         type(fortsparse_status_t),    intent(out)   :: status
 
+        call umf_factor_complex_raw(self, A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status)
+    end subroutine umf_factor_complex
+
+    ! Factor a real matrix straight from caller-owned CSC arrays. Lays out the
+    ! shared region, streams the arrays into it (the only copy the parent
+    ! makes), then issues FACTOR_REAL. UMFPACK factors square systems only.
+    subroutine umf_factor_real_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        integer,                      intent(in)    :: nrow, ncol, nz
+        integer,                      intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                     intent(in)    :: val(:)
+        logical,                      intent(in)    :: refine
+        type(fortsparse_status_t),    intent(out)   :: status
+
+        type(shm_header_t), pointer :: h
+        integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, o_pool, total
+
+        if (nrow /= ncol) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "umfpack ipc: matrix must be square")
+            return
+        end if
+        call layout_real(ncol, nz, o_b, o_x, o_pool, o_cp, o_ri, o_ax, total)
+        call ensure_session(self, total, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call header_of(self%sess, h)
+        h%n = int(ncol, c_int64_t)
+        h%nnz = int(nz, c_int64_t)
+        h%refine = merge(1_c_int32_t, 0_c_int32_t, refine)
+        h%is_complex = 0_c_int32_t
+        call set_offsets(h, o_cp, o_ri, o_ax, 0_i8, o_b, 0_i8, o_x, 0_i8, total)
+        call write_index(self%sess, o_cp, col_ptr, ncol + 1)
+        call write_index(self%sess, o_ri, row_idx, nz)
+        call write_real(self%sess, o_ax, val(1:nz))
+        self%n = ncol
+        self%o_pool = o_pool
+        self%pool_next = 0
+        self%is_complex = .false.
+        call run(self, OP_FACTOR_REAL, status)
+    end subroutine umf_factor_real_raw
+
+    ! Factor a complex matrix straight from caller-owned CSC arrays, using
+    ! split real/imag value buffers in the shared region.
+    subroutine umf_factor_complex_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        integer,                      intent(in)    :: nrow, ncol, nz
+        integer,                      intent(in)    :: col_ptr(:), row_idx(:)
+        complex(dp),                  intent(in)    :: val(:)
+        logical,                      intent(in)    :: refine
+        type(fortsparse_status_t),    intent(out)   :: status
+
         type(shm_header_t), pointer :: h
         integer(i8) :: o_cp, o_ri, o_ax, o_az, o_b, o_bz, o_x, o_xz, total
 
-        call layout_complex(A%ncol, A%nnz, o_cp, o_ri, o_ax, o_az, o_b, o_bz, &
+        if (nrow /= ncol) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "umfpack ipc: matrix must be square")
+            return
+        end if
+        call layout_complex(ncol, nz, o_cp, o_ri, o_ax, o_az, o_b, o_bz, &
             o_x, o_xz, total)
         call ensure_session(self, total, status)
         if (status%code /= FORTSPARSE_OK) return
         call header_of(self%sess, h)
-        h%n = int(A%ncol, c_int64_t)
-        h%nnz = int(A%nnz, c_int64_t)
+        h%n = int(ncol, c_int64_t)
+        h%nnz = int(nz, c_int64_t)
         h%refine = merge(1_c_int32_t, 0_c_int32_t, refine)
         h%is_complex = 1_c_int32_t
         call set_offsets(h, o_cp, o_ri, o_ax, o_az, o_b, o_bz, o_x, o_xz, total)
-        call write_index(self%sess, o_cp, A%col_ptr)
-        call write_index(self%sess, o_ri, A%row_idx)
-        call write_split(self%sess, o_ax, o_az, A%val)
-        self%n = A%ncol
+        call write_index(self%sess, o_cp, col_ptr, ncol + 1)
+        call write_index(self%sess, o_ri, row_idx, nz)
+        call write_split(self%sess, o_ax, o_az, val(1:nz))
+        self%n = ncol
         self%is_complex = .true.
         call run(self, OP_FACTOR_COMPLEX, status)
-    end subroutine umf_factor_complex
+    end subroutine umf_factor_complex_raw
 
     ! Solve a real RHS through the resident factorization.
     subroutine umf_solve_real(self, b, x, status)
@@ -168,6 +212,7 @@ contains
         integer(i8)                 :: o_b_fixed, o_x_fixed
         integer(c_int64_t)          :: ob, ox
 
+        if (no_session(self, status)) return
         call header_of(self%sess, h)
         o_b_fixed = fsparse_ipc_header_bytes()
         o_x_fixed = o_b_fixed + int(self%n, i8)*8_i8
@@ -202,6 +247,7 @@ contains
 
         type(shm_header_t), pointer :: h
 
+        if (no_session(self, status)) return
         call header_of(self%sess, h)
         call write_split(self%sess, int(h%off_b, i8), int(h%off_bz, i8), b)
         call run(self, OP_SOLVE_COMPLEX, status)
@@ -220,6 +266,7 @@ contains
         type(shm_header_t), pointer :: h
         integer(i8)                 :: o_b_fixed, o_x_fixed
 
+        if (no_session(self, status)) return
         call header_of(self%sess, h)
         o_b_fixed = fsparse_ipc_header_bytes()
         o_x_fixed = o_b_fixed + int(self%n, i8)*8_i8
@@ -239,6 +286,7 @@ contains
 
         type(shm_header_t), pointer :: h
 
+        if (no_session(self, status)) return
         call header_of(self%sess, h)
         call write_split(self%sess, int(h%off_b, i8), int(h%off_bz, i8), b)
         call run(self, OP_SOLVE_COMPLEX, status)
@@ -266,21 +314,18 @@ contains
         self%pool_next = self%pool_next + 1
     end function umf_vector
 
-    ! Release the resident factorization, keeping the helper for the next
-    ! factor. This is the public free: the factorization is gone (a later solve
-    ! without a new factor errors), but the helper process stays resident. The
-    ! helper itself is shut down only when the backend is finalized (umf_final).
+    ! Release the resident factorization together with its session: the helper
+    ! exits and the matrix-sized shared mapping is unmapped, so a freed solver
+    ! holds no memory. The next factor spawns a fresh helper; that spawn is
+    ! milliseconds against factorizations worth keeping out-of-process.
     subroutine umf_free(self)
         class(umfpack_ipc_backend_t), intent(inout) :: self
 
-        type(shm_header_t), pointer :: h
-        integer(c_int)              :: st
-
-        if (c_associated(self%sess)) then
-            call header_of(self%sess, h)
-            h%opcode = OP_FREE
-            st = fsparse_ipc_call(self%sess)
-        end if
+        if (c_associated(self%sess)) call fsparse_ipc_stop(self%sess)
+        self%sess = c_null_ptr
+        self%mapped = 0_i8
+        self%o_pool = 0_i8
+        self%pool_next = 0
         self%n = 0
         self%is_complex = .false.
     end subroutine umf_free
@@ -339,6 +384,23 @@ contains
         self%mapped = want
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine ensure_session
+
+    ! True (with status set) when no helper session is live, i.e. before any
+    ! factor or after free. The solver's factored flag already rejects these
+    ! calls at the public API; this guard keeps a direct backend call from
+    ! dereferencing a torn-down session.
+    logical function no_session(self, status)
+        class(umfpack_ipc_backend_t), intent(in)  :: self
+        type(fortsparse_status_t),    intent(out) :: status
+
+        no_session = .not. c_associated(self%sess)
+        if (no_session) then
+            call status_set(status, FORTSPARSE_NOT_FACTORED, &
+                "umfpack ipc: no live factorization")
+        else
+            call status_set(status, FORTSPARSE_OK, "")
+        end if
+    end function no_session
 
     ! Post an opcode and map the helper's normalized status onto fortsparse.
     subroutine run(self, opcode, status)
@@ -425,16 +487,23 @@ contains
         h%data_bytes = int(total, c_int64_t)
     end subroutine set_offsets
 
-    ! Write a 1-based integer index array into the region as 0-based int64.
-    subroutine write_index(sess, off, idx)
+    ! Write the first n entries of a 1-based integer index array into the
+    ! region as 0-based int64. The explicit loop converts element by element;
+    ! an array expression here would give the compiler license to build an
+    ! n-element temporary, which for a large matrix is hundreds of megabytes.
+    subroutine write_index(sess, off, idx, n)
         type(c_ptr), intent(in) :: sess
         integer(i8), intent(in) :: off
         integer,     intent(in) :: idx(:)
+        integer,     intent(in) :: n
 
         integer(c_int64_t), pointer :: dst(:)
+        integer                     :: i
 
-        call c_f_pointer(region_at(sess, off), dst, [size(idx)])
-        dst = int(idx, c_int64_t) - 1_c_int64_t
+        call c_f_pointer(region_at(sess, off), dst, [n])
+        do i = 1, n
+            dst(i) = int(idx(i), c_int64_t) - 1_c_int64_t
+        end do
     end subroutine write_index
 
     ! Copy a real array into the region.
@@ -444,9 +513,12 @@ contains
         real(dp),    intent(in) :: v(:)
 
         real(c_double), pointer :: dst(:)
+        integer                 :: i
 
         call c_f_pointer(region_at(sess, off), dst, [size(v)])
-        dst = v
+        do i = 1, size(v)
+            dst(i) = v(i)
+        end do
     end subroutine write_real
 
     ! Read a real array out of the region.
@@ -456,23 +528,30 @@ contains
         real(dp),    intent(out) :: v(:)
 
         real(c_double), pointer :: src(:)
+        integer                  :: i
 
         call c_f_pointer(region_at(sess, off), src, [size(v)])
-        v = src
+        do i = 1, size(v)
+            v(i) = src(i)
+        end do
     end subroutine read_real
 
-    ! Split a complex array into separate real and imaginary buffers.
+    ! Split a complex array into separate real and imaginary buffers, element
+    ! by element so no value-sized temporary is materialized.
     subroutine write_split(sess, off_re, off_im, z)
         type(c_ptr), intent(in) :: sess
         integer(i8), intent(in) :: off_re, off_im
         complex(dp), intent(in) :: z(:)
 
         real(c_double), pointer :: re(:), im(:)
+        integer                 :: i
 
         call c_f_pointer(region_at(sess, off_re), re, [size(z)])
         call c_f_pointer(region_at(sess, off_im), im, [size(z)])
-        re = real(z, dp)
-        im = aimag(z)
+        do i = 1, size(z)
+            re(i) = real(z(i), dp)
+            im(i) = aimag(z(i))
+        end do
     end subroutine write_split
 
     ! Reassemble a complex array from separate real and imaginary buffers.
@@ -482,10 +561,13 @@ contains
         complex(dp), intent(out) :: z(:)
 
         real(c_double), pointer :: re(:), im(:)
+        integer                  :: i
 
         call c_f_pointer(region_at(sess, off_re), re, [size(z)])
         call c_f_pointer(region_at(sess, off_im), im, [size(z)])
-        z = cmplx(re, im, dp)
+        do i = 1, size(z)
+            z(i) = cmplx(re(i), im(i), dp)
+        end do
     end subroutine read_split
 
     ! C pointer to the mapped region advanced by off bytes.

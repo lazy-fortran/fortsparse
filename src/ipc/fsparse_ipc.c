@@ -179,7 +179,9 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
         free(s);
         return NULL;
     }
-    memset(s->region, 0, (size_t) bytes);
+    /* Fresh file-mapping pages are zero-initialized; reset only the protocol
+     * header rather than touching (and committing) the whole region. */
+    memset(s->region, 0, sizeof(fsparse_shm_header));
 
     s->sem_req = CreateSemaphoreA(NULL, 0, 1, s->req_name);
     s->sem_done = CreateSemaphoreA(NULL, 0, 1, s->done_name);
@@ -349,7 +351,11 @@ void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
         *err = 1;
         return NULL;
     }
-    memset(s->region, 0, (size_t) bytes);
+    /* ftruncate guarantees zero-filled pages, so only the protocol header
+     * needs an explicit reset. Touching the whole region here would make
+     * every page resident up front, including slack the session never uses;
+     * for a matrix-sized mapping that is real memory, not bookkeeping. */
+    memset(s->region, 0, sizeof(fsparse_shm_header));
 
     s->sem_req = sem_open(s->req_name, O_CREAT | O_EXCL, 0600, 0);
     s->sem_done = sem_open(s->done_name, O_CREAT | O_EXCL, 0600, 0);
