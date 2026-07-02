@@ -16,6 +16,8 @@ module fortsparse_backend
     contains
         procedure(factor_real_i), deferred :: factor_real
         procedure(factor_complex_i), deferred :: factor_complex
+        procedure :: factor_real_raw => backend_factor_real_raw
+        procedure :: factor_complex_raw => backend_factor_complex_raw
         procedure(solve_real_i), deferred :: solve_real
         procedure(solve_complex_i), deferred :: solve_complex
         procedure(solve_real_inplace_i), deferred :: solve_real_inplace
@@ -94,5 +96,53 @@ module fortsparse_backend
         end subroutine free_i
 
     end interface
+
+contains
+
+    ! Factor directly from caller-owned 1-based CSC arrays. The default wraps
+    ! the arrays into a csc_t (one copy) and dispatches to factor_real; a
+    ! backend that can stream the arrays into its own storage overrides this to
+    ! skip that copy. The arrays are trusted as-is: col_ptr(ncol+1),
+    ! row_idx(nz), val(nz).
+    subroutine backend_factor_real_raw(self, nrow, ncol, nz, col_ptr, &
+            row_idx, val, refine, status)
+        class(sparse_backend_t),   intent(inout) :: self
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+
+        type(csc_t) :: A
+
+        A%nrow = nrow
+        A%ncol = ncol
+        A%nnz = nz
+        A%col_ptr = col_ptr(1:ncol + 1)
+        A%row_idx = row_idx(1:nz)
+        A%val = val(1:nz)
+        call self%factor_real(A, refine, status)
+    end subroutine backend_factor_real_raw
+
+    ! Complex twin of backend_factor_real_raw.
+    subroutine backend_factor_complex_raw(self, nrow, ncol, nz, col_ptr, &
+            row_idx, val, refine, status)
+        class(sparse_backend_t),   intent(inout) :: self
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        complex(dp),               intent(in)    :: val(:)
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+
+        type(csc_z_t) :: A
+
+        A%nrow = nrow
+        A%ncol = ncol
+        A%nnz = nz
+        A%col_ptr = col_ptr(1:ncol + 1)
+        A%row_idx = row_idx(1:nz)
+        A%val = val(1:nz)
+        call self%factor_complex(A, refine, status)
+    end subroutine backend_factor_complex_raw
 
 end module fortsparse_backend

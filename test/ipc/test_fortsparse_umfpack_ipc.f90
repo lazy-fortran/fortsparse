@@ -24,6 +24,7 @@ program test_fortsparse_umfpack_ipc
 
     call run_real(nfail)
     call run_complex(nfail)
+    call run_raw(nfail)
     call run_concurrent(nfail)
     call run_reuse(nfail)
     call run_inplace(nfail)
@@ -172,9 +173,61 @@ contains
         call sparse_free(sz)
     end subroutine run_concurrent
 
-    ! Many factor/solve/free cycles reuse pooled helpers without respawning one
-    ! per factorization. Every cycle must still return the right answer: a stale
-    ! reused mapping or leftover resident factors would corrupt a later solve.
+    ! Raw-array factorization: the same systems as run_real/run_complex, but
+    ! factored straight from 1-based CSC arrays with no csc_t, exercising the
+    ! copy-free path NEO-2-sized callers use to keep their peak memory down.
+    subroutine run_raw(nfail)
+        integer, intent(inout) :: nfail
+
+        type(csc_t)               :: ar
+        type(csc_z_t)             :: az
+        type(sparse_solver_t)     :: solver
+        type(fortsparse_status_t) :: status
+        integer                   :: rrows(7), rcols(7), zrows(5), zcols(5)
+        real(dp)                  :: rvals(7), rb(3), rx(3), rxe(3)
+        complex(dp)               :: zvals(5), zb(3), zx(3), zxe(3)
+
+        rrows = [1, 1, 2, 2, 2, 3, 3]
+        rcols = [1, 2, 1, 2, 3, 2, 3]
+        rvals = [4.0_dp, 1.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+        call csc_from_triplet(3, 3, rrows, rcols, rvals, ar, status)
+        rxe = [1.0_dp, 2.0_dp, 3.0_dp]
+        rb = csc_matvec(ar, rxe)
+
+        solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
+        call sparse_factor(solver, ar%nrow, ar%ncol, ar%nnz, ar%col_ptr, &
+            ar%row_idx, ar%val, status)
+        call check_true("raw_real_factor", status_ok(status), nfail)
+        call sparse_solve(solver, rb, rx, status)
+        call check_true("raw_real_solve", status_ok(status), nfail)
+        call check_err("raw_real_x", rx, rxe, nfail)
+        call sparse_free(solver)
+
+        zrows = [1, 2, 2, 3, 3]
+        zcols = [1, 1, 2, 2, 3]
+        zvals = [cmplx(2.0_dp, 1.0_dp, dp), cmplx(1.0_dp, 0.0_dp, dp), &
+            cmplx(3.0_dp, -1.0_dp, dp), cmplx(1.0_dp, 1.0_dp, dp), &
+            cmplx(2.0_dp, 0.0_dp, dp)]
+        call csc_from_triplet(3, 3, zrows, zcols, zvals, az, status)
+        zxe = [cmplx(1.0_dp, -1.0_dp, dp), cmplx(0.0_dp, 2.0_dp, dp), &
+            cmplx(3.0_dp, 0.0_dp, dp)]
+        zb = csc_matvec(az, zxe)
+
+        ! Factor after free on the same solver: the freed session is gone and a
+        ! fresh helper serves the raw complex factorization.
+        call sparse_factor(solver, az%nrow, az%ncol, az%nnz, az%col_ptr, &
+            az%row_idx, az%val, status)
+        call check_true("raw_cplx_factor", status_ok(status), nfail)
+        call sparse_solve(solver, zb, zx, status)
+        call check_true("raw_cplx_solve", status_ok(status), nfail)
+        call check_zerr("raw_cplx_x", zx, zxe, nfail)
+        call sparse_free(solver)
+        call check_no_shm_residue("raw_after_free", nfail)
+    end subroutine run_raw
+
+    ! Many factor/solve/free cycles. Each free releases the session (helper
+    ! and mapping) and each factor spawns a fresh one; every cycle must return
+    ! the right answer, and no cycle may leak sessions or shared memory.
     subroutine run_reuse(nfail)
         integer, intent(inout) :: nfail
 
