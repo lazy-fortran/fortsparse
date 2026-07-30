@@ -10,8 +10,9 @@ module fortsparse_solver
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
     use fortsparse_kinds, only: dp
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
-        FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, FORTSPARSE_BACKEND_UNAVAILABLE
-    use fortsparse_csc, only: csc_t, csc_z_t
+        FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, &
+        FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX
+    use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid, csc_matvec
     use fortsparse_backend, only: sparse_backend_t
 #ifdef FORTSPARSE_HAVE_SUPERLU
     use fortsparse_superlu, only: superlu_backend_t
@@ -40,6 +41,8 @@ module fortsparse_solver
     public :: sparse_free
     public :: sparse_destroy
     public :: sparse_solve_once
+    public :: sparse_solve_jvp
+    public :: sparse_solve_vjp
     public :: sparse_vector
 
     ! Factor a real or complex matrix into the solver handle. The csc_t forms
@@ -156,6 +159,90 @@ contains
         end if
         call solver%backend%solve_complex(b, x, status)
     end subroutine sparse_solve_complex
+
+    subroutine sparse_solve_jvp(solver, A_dot, x, b_dot, x_dot, status)
+        ! Exact implicit tangent for A x = b:
+        ! A x_dot = b_dot - A_dot x.
+        !
+        ! The sparsity pattern may be fixed or changing; A_dot is an ordinary
+        ! CSC matrix. The retained primal factorization is reused.
+        type(sparse_solver_t), intent(inout) :: solver
+        type(csc_t), intent(in) :: A_dot
+        real(dp), target, contiguous, intent(in) :: x(:), b_dot(:)
+        real(dp), target, contiguous, intent(out) :: x_dot(:)
+        type(fortsparse_status_t), intent(out) :: status
+
+        real(dp), allocatable, target :: A_dot_x(:), tangent_rhs(:)
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (.not. csc_is_valid(A_dot)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: invalid matrix tangent")
+            return
+        end if
+        if (A_dot%nrow /= size(b_dot) .or. A_dot%ncol /= size(x)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: incompatible tangent dimensions")
+            return
+        end if
+        if (size(x_dot) /= size(b_dot)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: incompatible output dimension")
+            return
+        end if
+        A_dot_x = csc_matvec(A_dot, x)
+        tangent_rhs = b_dot - A_dot_x
+        call sparse_solve_real(solver, tangent_rhs, x_dot, status)
+    end subroutine sparse_solve_jvp
+
+    subroutine sparse_solve_vjp( &
+            transpose_solver, A, x, x_bar, b_bar, A_values_bar, status)
+        ! Exact implicit adjoint for A x = b:
+        ! A^T b_bar = x_bar, (A_ij)_bar = -b_bar_i*x_j.
+        !
+        ! transpose_solver must retain a factorization of A^T. Returning only
+        ! active CSC values preserves the caller's sparsity contract and avoids
+        ! materializing a dense matrix cotangent.
+        type(sparse_solver_t), intent(inout) :: transpose_solver
+        type(csc_t), intent(in) :: A
+        real(dp), intent(in) :: x(:)
+        real(dp), target, contiguous, intent(in) :: x_bar(:)
+        real(dp), target, contiguous, intent(out) :: b_bar(:)
+        real(dp), intent(out) :: A_values_bar(:)
+        type(fortsparse_status_t), intent(out) :: status
+
+        integer :: column, entry
+
+        if (.not. transpose_solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (.not. csc_is_valid(A)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: invalid primal matrix")
+            return
+        end if
+        if (A%ncol /= size(x) .or. A%ncol /= size(x_bar)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: incompatible primal dimensions")
+            return
+        end if
+        if (A%nrow /= size(b_bar) .or. A%nnz /= size(A_values_bar)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: incompatible cotangent dimensions")
+            return
+        end if
+        call sparse_solve_real(transpose_solver, x_bar, b_bar, status)
+        if (.not. status_ok(status)) return
+        do column = 1, A%ncol
+            do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1
+                A_values_bar(entry) = -b_bar(A%row_idx(entry))*x(column)
+            end do
+        end do
+    end subroutine sparse_solve_vjp
 
     ! In-place real solve: b is the RHS on entry, the solution on return.
     subroutine sparse_solve_real_inplace(solver, b, status)

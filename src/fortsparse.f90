@@ -12,6 +12,7 @@ module fortsparse
         csc_matmul, csc_matvec, csc_transpose
     use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_solve, &
         sparse_free, sparse_destroy, sparse_solve_once, sparse_vector, &
+        sparse_solve_jvp, sparse_solve_vjp, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC
     implicit none
     private
@@ -35,6 +36,7 @@ module fortsparse
     ! Solver
     public :: sparse_solver_t, sparse_factor, sparse_solve, sparse_free
     public :: sparse_destroy, sparse_solve_once, sparse_vector
+    public :: sparse_solve_jvp, sparse_solve_vjp
     public :: FORTSPARSE_BACKEND_SUPERLU
     public :: FORTSPARSE_BACKEND_UMFPACK_IPC
 
