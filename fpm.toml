@@ -18,6 +18,10 @@ auto-tests = true
 # CMake path: configure with -DFORTSPARSE_USE_SYSTEM_DEPS=OFF.
 link = ["superlu"]
 
+[library]
+source-dir = "src"
+include-dir = ["include"]
+
 [fortran]
 implicit-typing = false
 source-form = "free"

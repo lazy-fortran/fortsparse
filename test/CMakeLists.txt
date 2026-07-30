@@ -22,6 +22,8 @@ fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 if(FORTSPARSE_ENABLE_SUPERLU)
     fortsparse_add_test(test_fortsparse_solve_real
         solver/test_fortsparse_solve_real.f90)
+    fortsparse_add_test(test_fortsparse_solve_derivatives
+        solver/test_fortsparse_solve_derivatives.f90)
     fortsparse_add_test(test_fortsparse_solve_complex
         solver/test_fortsparse_solve_complex.f90)
     fortsparse_add_test(test_fortsparse_poisson

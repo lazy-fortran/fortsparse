@@ -108,6 +108,24 @@ solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
 status)` factors, solves, and frees in one call. Every routine reports through
 `status`; check `status%code` against `FORTSPARSE_OK`.
 
+Real solves provide exact implicit derivatives without differentiating the
+backend. For \(A x=b\), `sparse_solve_jvp` reuses the primal factorization to
+solve
+\(A\dot{x}=\dot{b}-\dot{A}x\). `sparse_solve_vjp` solves
+\(A^T\bar{b}=\bar{x}\) through a retained factorization of `transpose(A)` and
+returns the active CSC-value cotangents
+\(\bar{A}_{ij}=-\bar{b}_i x_j\). Thus the derivative path works with GCC and
+every real direct backend:
+
+```fortran
+call sparse_solve_jvp(solver, A_dot, x, b_dot, x_dot, status)
+
+call csc_transpose(A, transpose_A, status)
+call sparse_factor(transpose_solver, transpose_A, status)
+call sparse_solve_vjp(transpose_solver, A, x, x_bar, &
+                      b_bar, A_values_bar, status)
+```
+
 ## Layout
 
 - `src/`: library modules. Kinds, status, version, the CSC types and builders,
