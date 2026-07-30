@@ -9,7 +9,7 @@ module fortsparse
         FORTSPARSE_INTERNAL_ERROR
     use fortsparse_version, only: fortsparse_version_string
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
-        csc_matvec
+        csc_matmul, csc_matvec, csc_transpose
     use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_solve, &
         sparse_free, sparse_destroy, sparse_solve_once, sparse_vector, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC
@@ -29,7 +29,8 @@ module fortsparse
     public :: fortsparse_version_string
 
     ! Storage
-    public :: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, csc_matvec
+    public :: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, csc_matmul
+    public :: csc_matvec, csc_transpose
 
     ! Solver
     public :: sparse_solver_t, sparse_factor, sparse_solve, sparse_free

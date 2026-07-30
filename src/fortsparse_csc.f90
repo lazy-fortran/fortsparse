@@ -30,6 +30,16 @@ module fortsparse_csc
     public :: csc_from_triplet
     public :: csc_is_valid
     public :: csc_matvec
+    public :: csc_matmul
+    public :: csc_transpose
+
+    interface csc_matmul
+        module procedure csc_matmul_real
+    end interface csc_matmul
+
+    interface csc_transpose
+        module procedure csc_transpose_real
+    end interface csc_transpose
 
     ! Sparse matrix-vector product y = A x for real and complex matrices.
     interface csc_matvec
@@ -52,6 +62,141 @@ module fortsparse_csc
     end interface csc_is_valid
 
 contains
+
+    subroutine csc_transpose_real(A, transpose_A, status)
+        type(csc_t), intent(in) :: A
+        type(csc_t), intent(out) :: transpose_A
+        type(fortsparse_status_t), intent(out) :: status
+
+        integer, allocatable :: counts(:), next(:)
+        integer :: column, entry, position, row
+
+        if (.not. csc_is_valid_real(A)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "csc_transpose: invalid input matrix")
+            return
+        end if
+        transpose_A%nrow = A%ncol
+        transpose_A%ncol = A%nrow
+        transpose_A%nnz = A%nnz
+        allocate( &
+            transpose_A%col_ptr(transpose_A%ncol + 1), &
+            transpose_A%row_idx(A%nnz), transpose_A%val(A%nnz), &
+            counts(A%nrow), next(A%nrow))
+        counts = 0
+        do entry = 1, A%nnz
+            counts(A%row_idx(entry)) = counts(A%row_idx(entry)) + 1
+        end do
+        transpose_A%col_ptr(1) = 1
+        do column = 1, transpose_A%ncol
+            transpose_A%col_ptr(column + 1) = &
+                transpose_A%col_ptr(column) + counts(column)
+        end do
+        next = transpose_A%col_ptr(:transpose_A%ncol)
+        do column = 1, A%ncol
+            do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1
+                row = A%row_idx(entry)
+                position = next(row)
+                transpose_A%row_idx(position) = column
+                transpose_A%val(position) = A%val(entry)
+                next(row) = position + 1
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine csc_transpose_real
+
+    subroutine csc_matmul_real(A, B, C, status)
+        type(csc_t), intent(in) :: A, B
+        type(csc_t), intent(out) :: C
+        type(fortsparse_status_t), intent(out) :: status
+
+        integer, allocatable :: marker(:), row_list(:)
+        real(dp), allocatable :: workspace(:)
+        integer :: b_entry, column, entry, list_count, position, row
+
+        if (.not. csc_is_valid_real(A) .or. &
+            .not. csc_is_valid_real(B) .or. A%ncol /= B%nrow) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "csc_matmul: invalid or incompatible input matrices")
+            return
+        end if
+        C%nrow = A%nrow
+        C%ncol = B%ncol
+        C%nnz = 0
+        allocate(C%col_ptr(C%ncol + 1))
+        allocate(C%row_idx(max(1, A%nnz + B%nnz)))
+        allocate(C%val(size(C%row_idx)))
+        allocate(marker(A%nrow), row_list(A%nrow), workspace(A%nrow))
+        marker = 0
+        workspace = 0.0_dp
+        C%col_ptr(1) = 1
+        do column = 1, B%ncol
+            list_count = 0
+            do b_entry = B%col_ptr(column), B%col_ptr(column + 1) - 1
+                do entry = A%col_ptr(B%row_idx(b_entry)), &
+                        A%col_ptr(B%row_idx(b_entry) + 1) - 1
+                    row = A%row_idx(entry)
+                    if (marker(row) /= column) then
+                        marker(row) = column
+                        list_count = list_count + 1
+                        row_list(list_count) = row
+                        workspace(row) = 0.0_dp
+                    end if
+                    workspace(row) = workspace(row) + &
+                        A%val(entry)*B%val(b_entry)
+                end do
+            end do
+            call sort_integer_prefix(row_list, list_count)
+            do position = 1, list_count
+                row = row_list(position)
+                if (workspace(row) == 0.0_dp) cycle
+                call ensure_real_capacity(C, C%nnz + 1)
+                C%nnz = C%nnz + 1
+                C%row_idx(C%nnz) = row
+                C%val(C%nnz) = workspace(row)
+            end do
+            C%col_ptr(column + 1) = C%nnz + 1
+        end do
+        call shrink_real(C, C%nnz)
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine csc_matmul_real
+
+    subroutine ensure_real_capacity(A, required)
+        type(csc_t), intent(inout) :: A
+        integer, intent(in) :: required
+
+        integer, allocatable :: rows(:)
+        real(dp), allocatable :: values(:)
+        integer :: capacity
+
+        if (required <= size(A%row_idx)) return
+        capacity = max(required, 2*size(A%row_idx))
+        allocate(rows(capacity), values(capacity))
+        if (A%nnz > 0) then
+            rows(:A%nnz) = A%row_idx(:A%nnz)
+            values(:A%nnz) = A%val(:A%nnz)
+        end if
+        call move_alloc(rows, A%row_idx)
+        call move_alloc(values, A%val)
+    end subroutine ensure_real_capacity
+
+    pure subroutine sort_integer_prefix(values, count)
+        integer, intent(inout) :: values(:)
+        integer, intent(in) :: count
+
+        integer :: current, index, position
+
+        do index = 2, count
+            current = values(index)
+            position = index - 1
+            do while (position >= 1)
+                if (values(position) <= current) exit
+                values(position + 1) = values(position)
+                position = position - 1
+            end do
+            values(position + 1) = current
+        end do
+    end subroutine sort_integer_prefix
 
     ! Build a real CSC matrix from coordinate triplets.
     subroutine csc_from_triplet_real(nrow, ncol, rows, cols, vals, A, status)
