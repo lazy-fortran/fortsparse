@@ -32,6 +32,7 @@ module fortsparse_csc
     public :: csc_matvec
     public :: csc_matmul
     public :: csc_transpose
+    public :: csc_conjugate_transpose
 
     interface csc_matmul
         module procedure csc_matmul_real
@@ -62,6 +63,48 @@ module fortsparse_csc
     end interface csc_is_valid
 
 contains
+
+    subroutine csc_conjugate_transpose(A, adjoint_A, status)
+        type(csc_z_t), intent(in) :: A
+        type(csc_z_t), intent(out) :: adjoint_A
+        type(fortsparse_status_t), intent(out) :: status
+
+        integer, allocatable :: counts(:), next(:)
+        integer :: column, entry, position, row
+
+        if (.not. csc_is_valid_complex(A)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "csc_conjugate_transpose: invalid input matrix")
+            return
+        end if
+        adjoint_A%nrow = A%ncol
+        adjoint_A%ncol = A%nrow
+        adjoint_A%nnz = A%nnz
+        allocate ( &
+            adjoint_A%col_ptr(adjoint_A%ncol + 1), &
+            adjoint_A%row_idx(A%nnz), adjoint_A%val(A%nnz), &
+            counts(A%nrow), next(A%nrow))
+        counts = 0
+        do entry = 1, A%nnz
+            counts(A%row_idx(entry)) = counts(A%row_idx(entry)) + 1
+        end do
+        adjoint_A%col_ptr(1) = 1
+        do column = 1, adjoint_A%ncol
+            adjoint_A%col_ptr(column + 1) = &
+                adjoint_A%col_ptr(column) + counts(column)
+        end do
+        next = adjoint_A%col_ptr(:adjoint_A%ncol)
+        do column = 1, A%ncol
+            do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1
+                row = A%row_idx(entry)
+                position = next(row)
+                adjoint_A%row_idx(position) = column
+                adjoint_A%val(position) = conjg(A%val(entry))
+                next(row) = position + 1
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine csc_conjugate_transpose
 
     subroutine csc_transpose_real(A, transpose_A, status)
         type(csc_t), intent(in) :: A

@@ -73,6 +73,16 @@ module fortsparse_solver
         module procedure sparse_solve_once_complex
     end interface sparse_solve_once
 
+    interface sparse_solve_jvp
+        module procedure sparse_solve_jvp_real
+        module procedure sparse_solve_jvp_complex
+    end interface sparse_solve_jvp
+
+    interface sparse_solve_vjp
+        module procedure sparse_solve_vjp_real
+        module procedure sparse_solve_vjp_complex
+    end interface sparse_solve_vjp
+
 contains
 
     ! Factor a real matrix. Ensures the concrete backend, then dispatches.
@@ -160,7 +170,7 @@ contains
         call solver%backend%solve_complex(b, x, status)
     end subroutine sparse_solve_complex
 
-    subroutine sparse_solve_jvp(solver, A_dot, x, b_dot, x_dot, status)
+    subroutine sparse_solve_jvp_real(solver, A_dot, x, b_dot, x_dot, status)
         ! Exact implicit tangent for A x = b:
         ! A x_dot = b_dot - A_dot x.
         !
@@ -196,9 +206,9 @@ contains
         A_dot_x = csc_matvec(A_dot, x)
         tangent_rhs = b_dot - A_dot_x
         call sparse_solve_real(solver, tangent_rhs, x_dot, status)
-    end subroutine sparse_solve_jvp
+    end subroutine sparse_solve_jvp_real
 
-    subroutine sparse_solve_vjp( &
+    subroutine sparse_solve_vjp_real( &
             transpose_solver, A, x, x_bar, b_bar, A_values_bar, status)
         ! Exact implicit adjoint for A x = b:
         ! A^T b_bar = x_bar, (A_ij)_bar = -b_bar_i*x_j.
@@ -242,7 +252,85 @@ contains
                 A_values_bar(entry) = -b_bar(A%row_idx(entry))*x(column)
             end do
         end do
-    end subroutine sparse_solve_vjp
+    end subroutine sparse_solve_vjp_real
+
+    subroutine sparse_solve_jvp_complex( &
+            solver, A_dot, x, b_dot, x_dot, status)
+        ! Exact complex implicit tangent for A x = b:
+        ! A x_dot = b_dot - A_dot x.
+        type(sparse_solver_t), intent(inout) :: solver
+        type(csc_z_t), intent(in) :: A_dot
+        complex(dp), intent(in) :: x(:), b_dot(:)
+        complex(dp), intent(out) :: x_dot(:)
+        type(fortsparse_status_t), intent(out) :: status
+
+        complex(dp), allocatable :: A_dot_x(:), tangent_rhs(:)
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (.not. csc_is_valid(A_dot)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: invalid complex matrix tangent")
+            return
+        end if
+        if (A_dot%nrow /= size(b_dot) .or. A_dot%ncol /= size(x)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: incompatible complex tangent dimensions")
+            return
+        end if
+        if (size(x_dot) /= size(b_dot)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_jvp: incompatible complex output dimension")
+            return
+        end if
+        A_dot_x = csc_matvec(A_dot, x)
+        tangent_rhs = b_dot - A_dot_x
+        call sparse_solve_complex(solver, tangent_rhs, x_dot, status)
+    end subroutine sparse_solve_jvp_complex
+
+    subroutine sparse_solve_vjp_complex( &
+            adjoint_solver, A, x, x_bar, b_bar, A_values_bar, status)
+        ! Exact complex implicit adjoint under the real inner product:
+        ! A^H b_bar = x_bar, (A_ij)_bar = -b_bar_i*conjg(x_j).
+        ! adjoint_solver must retain a factorization of A^H.
+        type(sparse_solver_t), intent(inout) :: adjoint_solver
+        type(csc_z_t), intent(in) :: A
+        complex(dp), intent(in) :: x(:), x_bar(:)
+        complex(dp), intent(out) :: b_bar(:), A_values_bar(:)
+        type(fortsparse_status_t), intent(out) :: status
+
+        integer :: column, entry
+
+        if (.not. adjoint_solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (.not. csc_is_valid(A)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: invalid complex primal matrix")
+            return
+        end if
+        if (A%ncol /= size(x) .or. A%ncol /= size(x_bar)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: incompatible complex primal dimensions")
+            return
+        end if
+        if (A%nrow /= size(b_bar) .or. A%nnz /= size(A_values_bar)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_vjp: incompatible complex cotangent dimensions")
+            return
+        end if
+        call sparse_solve_complex(adjoint_solver, x_bar, b_bar, status)
+        if (.not. status_ok(status)) return
+        do column = 1, A%ncol
+            do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1
+                A_values_bar(entry) = &
+                    -b_bar(A%row_idx(entry))*conjg(x(column))
+            end do
+        end do
+    end subroutine sparse_solve_vjp_complex
 
     ! In-place real solve: b is the RHS on entry, the solution on return.
     subroutine sparse_solve_real_inplace(solver, b, status)
