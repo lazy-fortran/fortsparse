@@ -5,6 +5,7 @@ build-*/
 *.o
 *.a
 .cache/
+.provenance/
 
 # fpm build directories
 build/dependencies/
