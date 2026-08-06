@@ -5,7 +5,8 @@ program test_fortsparse_ipc_selflocate
     ! UMFPACK backend must still resolve the helper sitting next to the program,
     ! with no PATH entry and no environment variable. Solves a known real system
     ! and checks the solution.
-    use, intrinsic :: iso_fortran_env, only: error_unit
+    use, intrinsic :: iso_fortran_env, only: error_unit, output_unit
+    use fortsparse_ipc_proto, only: find_helper
     use fortsparse, only: dp, csc_t, csc_from_triplet, &
         sparse_solver_t, sparse_factor, sparse_solve, sparse_free, &
         fortsparse_status_t, status_ok, FORTSPARSE_BACKEND_UMFPACK_IPC
@@ -13,6 +14,16 @@ program test_fortsparse_ipc_selflocate
 
     integer :: nfail
     nfail = 0
+
+    ! The helper is GPL and is built only by the CMake path, so an fpm build
+    ! has nothing to self-locate. Reporting a pass there would hide a genuine
+    ! regression; failing there reports a missing optional component as a
+    ! defect. Say plainly that the case did not run.
+    if (len(find_helper()) == 0) then
+        write (output_unit, "(a)") &
+            "SKIP: no fortsparse_umfpack_helper next to this program"
+        stop 0
+    end if
 
     call run_real(nfail)
 
