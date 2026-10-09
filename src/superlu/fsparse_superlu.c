@@ -7,8 +7,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__has_include)
+#if __has_include(<superlu/slu_ddefs.h>)
 #include <superlu/slu_ddefs.h>
 #include <superlu/slu_zdefs.h>
+#else
+#include <slu_ddefs.h>
+#include <slu_zdefs.h>
+#endif
+#else
+#include <superlu/slu_ddefs.h>
+#include <superlu/slu_zdefs.h>
+#endif
 
 void *fsparse_slu_factor_d(long n, long nnz, const long *colptr1,
                            const long *rowidx1, const double *val, int *info);
