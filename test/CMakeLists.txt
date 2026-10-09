@@ -16,6 +16,15 @@ fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 
+if(UNIX)
+    add_executable(test_fortsparse_ipc_wait ipc/test_fortsparse_ipc_wait.c)
+    target_include_directories(test_fortsparse_ipc_wait PRIVATE
+        ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(test_fortsparse_ipc_wait PRIVATE fortsparse)
+    add_test(NAME test_fortsparse_ipc_wait COMMAND test_fortsparse_ipc_wait)
+    set_tests_properties(test_fortsparse_ipc_wait PROPERTIES TIMEOUT 10)
+endif()
+
 # These cases factor through the default SUPERLU backend, so they only make
 # sense when the SuperLU backend is compiled in. The IPC, selflocate, kinds,
 # status, and csc tests do not depend on it and stay registered always.
