@@ -418,6 +418,38 @@ int64_t fsparse_ipc_offset(void *sess, void *ptr)
     return (int64_t) (p - base);
 }
 
+#if defined(__APPLE__)
+/* Darwin has named POSIX semaphores, but no sem_timedwait. Keep the absolute
+ * deadline across interruptions so signals cannot postpone helper-death polls. */
+static int fsparse_sem_timedwait(sem_t *sem, const struct timespec *deadline)
+{
+    for (;;) {
+        struct timespec now, delay;
+        if (sem_trywait(sem) == 0) return 0;
+        if (errno != EAGAIN && errno != EINTR) return -1;
+        if (clock_gettime(CLOCK_REALTIME, &now) != 0) return -1;
+        if (now.tv_sec > deadline->tv_sec ||
+            (now.tv_sec == deadline->tv_sec && now.tv_nsec >= deadline->tv_nsec)) {
+            errno = ETIMEDOUT;
+            return -1;
+        }
+        delay.tv_sec = deadline->tv_sec - now.tv_sec;
+        delay.tv_nsec = deadline->tv_nsec - now.tv_nsec;
+        if (delay.tv_nsec < 0) {
+            delay.tv_nsec += 1000000000L;
+            delay.tv_sec -= 1;
+        }
+        if (delay.tv_sec > 0 || delay.tv_nsec > 10000000L) {
+            delay.tv_sec = 0;
+            delay.tv_nsec = 10000000L;
+        }
+        if (nanosleep(&delay, NULL) != 0 && errno != EINTR) return -1;
+    }
+}
+#else
+#define fsparse_sem_timedwait sem_timedwait
+#endif
+
 int fsparse_ipc_call(void *sess)
 {
     ipc_session *s = (ipc_session *) sess;
@@ -435,7 +467,7 @@ int fsparse_ipc_call(void *sess)
             ts.tv_nsec -= 1000000000L;
             ts.tv_sec += 1;
         }
-        if (sem_timedwait(s->sem_done, &ts) == 0) return (int) h->status;
+        if (fsparse_sem_timedwait(s->sem_done, &ts) == 0) return (int) h->status;
         if (errno == EINTR) continue;
         if (errno != ETIMEDOUT) return FSPARSE_ST_ERROR;
         if (s->pid <= 0) continue;
