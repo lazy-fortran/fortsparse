@@ -20,7 +20,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(__has_include)
+#if __has_include(<suitesparse/umfpack.h>)
 #include <suitesparse/umfpack.h>
+#else
+#include <umfpack.h>
+#endif
+#else
+#include <suitesparse/umfpack.h>
+#endif
 
 #if defined(_WIN32)
 
