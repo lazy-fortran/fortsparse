@@ -13,7 +13,13 @@ module fortsparse_solver
         FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid, csc_matvec
-    use fortsparse_backend, only: sparse_backend_t
+    use fortsparse_backend, only: sparse_backend_t, sparse_options_t, &
+        sparse_factor_stats_t, &
+        FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
+        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+#ifdef FORTSPARSE_HAVE_MUMPS
+    use fortsparse_mumps, only: mumps_backend_t
+#endif
 #ifdef FORTSPARSE_HAVE_SUPERLU
     use fortsparse_superlu, only: superlu_backend_t
 #endif
@@ -26,6 +32,15 @@ module fortsparse_solver
     ! reserved for later releases.
     integer, parameter, public :: FORTSPARSE_BACKEND_SUPERLU = 1
     integer, parameter, public :: FORTSPARSE_BACKEND_UMFPACK_IPC = 2
+    ! In-process threaded MUMPS: Cholesky/LDL^T/LU, nested dissection, block
+    ! solves (present only when built with FORTSPARSE_ENABLE_MUMPS).
+    integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
+
+    ! Re-exported option and statistics vocabulary.
+    public :: sparse_options_t, sparse_factor_stats_t
+    public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
+        FORTSPARSE_SYM_INDEFINITE
+    public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
 
     ! Solver handle. Holds backend selection, refinement toggle, the factored
     ! flag, and the polymorphic backend that owns the retained factorization.
@@ -33,6 +48,8 @@ module fortsparse_solver
         integer :: backend_id = FORTSPARSE_BACKEND_SUPERLU
         logical :: refine = .false.
         logical :: factored = .false.
+        ! Structure hint, ordering and thread count, applied at the next factor.
+        type(sparse_options_t) :: options
         class(sparse_backend_t), allocatable :: backend
     end type sparse_solver_t
 
@@ -44,6 +61,8 @@ module fortsparse_solver
     public :: sparse_solve_jvp
     public :: sparse_solve_vjp
     public :: sparse_vector
+    public :: sparse_solve_block
+    public :: sparse_factor_stats
 
     ! Factor a real or complex matrix into the solver handle. The csc_t forms
     ! take an assembled matrix; the raw forms take caller-owned 1-based CSC
@@ -332,6 +351,42 @@ contains
         end do
     end subroutine sparse_solve_vjp_complex
 
+    ! Solve A X = B for all columns of B at once, reusing the factorization.
+    ! A backend with a native multi-RHS solve (MUMPS) does it in one call;
+    ! others solve column by column. Results equal repeated single solves to
+    ! rounding.
+    subroutine sparse_solve_block(solver, B, X, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        real(dp), contiguous,      intent(in)    :: B(:, :)
+        real(dp), contiguous,      intent(out)   :: X(:, :)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (size(B, 1) /= size(X, 1) .or. size(B, 2) /= size(X, 2)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_block: B and X shapes differ")
+            return
+        end if
+        call solver%backend%solve_real_block(B, X, status)
+    end subroutine sparse_solve_block
+
+    ! Factor fill, peak factorization memory, flops and threads of the current
+    ! factorization, for backends that report them (MUMPS).
+    subroutine sparse_factor_stats(solver, stats, status)
+        type(sparse_solver_t),       intent(inout) :: solver
+        type(sparse_factor_stats_t), intent(out)   :: stats
+        type(fortsparse_status_t),   intent(out)   :: status
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        call solver%backend%factor_stats(stats, status)
+    end subroutine sparse_factor_stats
+
     ! In-place real solve: b is the RHS on entry, the solution on return.
     subroutine sparse_solve_real_inplace(solver, b, status)
         type(sparse_solver_t),     intent(inout) :: solver
@@ -449,6 +504,7 @@ contains
 
         if (allocated(solver%backend)) then
             if (backend_is(solver%backend, solver%backend_id)) then
+                solver%backend%options = solver%options
                 call status_set(status, FORTSPARSE_OK, "")
                 return
             end if
@@ -461,10 +517,15 @@ contains
 #endif
         case (FORTSPARSE_BACKEND_UMFPACK_IPC)
             allocate (umfpack_ipc_backend_t :: solver%backend)
+#ifdef FORTSPARSE_HAVE_MUMPS
+        case (FORTSPARSE_BACKEND_MUMPS)
+            allocate (mumps_backend_t :: solver%backend)
+#endif
         case default
             call unavailable_backend(solver%backend_id, status)
             return
         end select
+        solver%backend%options = solver%options
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine ensure_backend
 
@@ -481,6 +542,10 @@ contains
 #endif
             type is (umfpack_ipc_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_UMFPACK_IPC)
+#ifdef FORTSPARSE_HAVE_MUMPS
+            type is (mumps_backend_t)
+            backend_is = (backend_id == FORTSPARSE_BACKEND_MUMPS)
+#endif
         end select
     end function backend_is
 

@@ -4,15 +4,51 @@ module fortsparse_backend
     ! fortsparse status codes. The solver holds one of these polymorphically and
     ! dispatches factor/solve/free through the deferred bindings, so adding a
     ! backend never touches client code or the solver dispatch logic.
-    use fortsparse_kinds, only: dp
+    use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_t, csc_z_t
-    use fortsparse_status, only: fortsparse_status_t
+    use fortsparse_status, only: fortsparse_status_t, status_set, &
+        FORTSPARSE_BACKEND_UNAVAILABLE
     implicit none
     private
 
     public :: sparse_backend_t
+    public :: sparse_options_t
+    public :: sparse_factor_stats_t
+
+    ! Matrix structure hint for a factorization (sparse_options_t%symmetry).
+    ! SPD and INDEFINITE factor only the lower triangle of the supplied full
+    ! symmetric CSC matrix; GENERAL factors the matrix as given.
+    integer, parameter, public :: FORTSPARSE_SYM_GENERAL = 0
+    integer, parameter, public :: FORTSPARSE_SYM_SPD = 1
+    integer, parameter, public :: FORTSPARSE_SYM_INDEFINITE = 2
+
+    ! Fill-reducing ordering (sparse_options_t%ordering).
+    integer, parameter, public :: FORTSPARSE_ORDER_DEFAULT = 0
+    integer, parameter, public :: FORTSPARSE_ORDER_AMD = 1
+    integer, parameter, public :: FORTSPARSE_ORDER_ND = 2
+
+    ! Backend tuning, copied from the solver to the backend at every factor.
+    ! Backends that have no use for a field ignore it.
+    type :: sparse_options_t
+        integer :: symmetry = FORTSPARSE_SYM_GENERAL
+        integer :: ordering = FORTSPARSE_ORDER_DEFAULT
+        integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)
+        logical :: verbose = .false.
+    end type sparse_options_t
+
+    ! Factorization statistics; -1 / -1.0 mark a quantity the backend does not
+    ! report.
+    type :: sparse_factor_stats_t
+        integer(i8) :: factor_nnz = -1      ! entries stored in the factors
+        real(dp)    :: factor_mem_mb = -1.0_dp ! peak factorization memory
+        real(dp)    :: flops = -1.0_dp      ! factorization operations
+        real(dp)    :: analysis_s = -1.0_dp ! wall time of ordering + symbolic
+        real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
+        integer     :: nthreads = -1        ! threads requested
+    end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t
+        type(sparse_options_t) :: options
     contains
         procedure(factor_real_i), deferred :: factor_real
         procedure(factor_complex_i), deferred :: factor_complex
@@ -22,6 +58,8 @@ module fortsparse_backend
         procedure(solve_complex_i), deferred :: solve_complex
         procedure(solve_real_inplace_i), deferred :: solve_real_inplace
         procedure(solve_complex_inplace_i), deferred :: solve_complex_inplace
+        procedure :: solve_real_block => backend_solve_real_block
+        procedure :: factor_stats => backend_factor_stats
         procedure(vector_i), deferred :: vector
         procedure(free_i), deferred :: free
     end type sparse_backend_t
@@ -98,6 +136,37 @@ module fortsparse_backend
     end interface
 
 contains
+
+    ! Solve for the columns of B one by one. A backend with a native multi-RHS
+    ! solve overrides this.
+    subroutine backend_solve_real_block(self, B, X, status)
+        class(sparse_backend_t),   intent(inout) :: self
+        real(dp), contiguous,      intent(in)    :: B(:, :)
+        real(dp), contiguous,      intent(out)   :: X(:, :)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        real(dp), allocatable :: bj(:), xj(:)
+        integer :: j
+
+        allocate (bj(size(B, 1)), xj(size(B, 1)))
+        do j = 1, size(B, 2)
+            bj = B(:, j)
+            call self%solve_real(bj, xj, status)
+            if (status%code /= 0) return
+            X(:, j) = xj
+        end do
+    end subroutine backend_solve_real_block
+
+    ! Default: the backend reports no statistics.
+    subroutine backend_factor_stats(self, stats, status)
+        class(sparse_backend_t),    intent(inout) :: self
+        type(sparse_factor_stats_t), intent(out)  :: stats
+        type(fortsparse_status_t),  intent(out)   :: status
+
+        call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+            "factor statistics are not available for this backend")
+        stats%factor_nnz = -1
+    end subroutine backend_factor_stats
 
     ! Factor directly from caller-owned 1-based CSC arrays. The default wraps
     ! the arrays into a csc_t (one copy) and dispatches to factor_real; a

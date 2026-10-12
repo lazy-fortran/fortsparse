@@ -20,6 +20,8 @@ process boundary.
   helper, CSC construction, status API, and solver lifetime rules.
 - [x] Add real and complex solve JVP/VJP products with independent solve and
   adjoint-oracle tests.
+- [x] Add an optional in-process MUMPS (CeCILL-C) backend: nested-dissection
+  Cholesky/LDL^T/LU, factor reuse, block solve, refinement, OpenMP threads.
 - [ ] Add an explicit CSR/ELL view for matrix-free row-owned products without
   changing the CSC direct-solve API.
 - [ ] Add batched sparse MVM/matmat products with resident OpenACC correctness

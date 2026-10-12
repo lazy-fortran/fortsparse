@@ -76,3 +76,15 @@ if(TARGET fortsparse_umfpack_helper AND
     add_test(NAME test_fortsparse_ipc_selflocate
         COMMAND test_fortsparse_ipc_selflocate)
 endif()
+
+# MUMPS backend tests and benchmark. The benchmark is built but not registered
+# as a test: it takes problem size and thread count on the command line.
+if(FORTSPARSE_ENABLE_MUMPS)
+    add_library(fs_test_matrices STATIC mumps/fs_test_matrices.f90)
+    target_link_libraries(fs_test_matrices PUBLIC fortsparse)
+    add_executable(test_fortsparse_mumps mumps/test_fortsparse_mumps.f90)
+    target_link_libraries(test_fortsparse_mumps PRIVATE fs_test_matrices)
+    add_test(NAME test_fortsparse_mumps COMMAND test_fortsparse_mumps)
+    add_executable(bench_fortsparse_mumps mumps/bench_fortsparse_mumps.f90)
+    target_link_libraries(bench_fortsparse_mumps PRIVATE fs_test_matrices)
+endif()

@@ -47,3 +47,24 @@ if(FORTSPARSE_ENABLE_SUPERLU)
         target_link_libraries(fortsparse PUBLIC superlu)
     endif()
 endif()
+
+# The MUMPS backend (CeCILL-C library, MIT binding). Optional; see the top-level
+# FORTSPARSE_ENABLE_MUMPS. The module is compiled with OpenMP when available so
+# the refinement residual runs threaded.
+if(FORTSPARSE_ENABLE_MUMPS)
+    target_sources(fortsparse PRIVATE
+        ../backends/mumps/fortsparse_mumps.f90
+        ../backends/mumps/fsparse_mumps.c)
+    target_compile_definitions(fortsparse PRIVATE FORTSPARSE_HAVE_MUMPS)
+    target_link_libraries(fortsparse PUBLIC MUMPS::DMUMPS)
+    # A static METIS built together with MUMPS needs its GKlib after it on the
+    # link line; the MUMPS-provided FindMETIS module does not add it.
+    find_library(FORTSPARSE_GKLIB NAMES GKlib
+        HINTS "${MUMPS_DIR}/.." "${MUMPS_DIR}/../lib")
+    if(FORTSPARSE_GKLIB)
+        target_link_libraries(fortsparse PUBLIC ${FORTSPARSE_GKLIB})
+    endif()
+    if(OpenMP_Fortran_FOUND)
+        target_link_libraries(fortsparse PUBLIC OpenMP::OpenMP_Fortran)
+    endif()
+endif()
