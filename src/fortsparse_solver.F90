@@ -16,6 +16,7 @@ module fortsparse_solver
     use fortsparse_backend, only: sparse_backend_t, sparse_options_t, &
         sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
+        FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t
@@ -39,7 +40,7 @@ module fortsparse_solver
     ! Re-exported option and statistics vocabulary.
     public :: sparse_options_t, sparse_factor_stats_t
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
-        FORTSPARSE_SYM_INDEFINITE
+        FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
     public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
 
     ! Solver handle. Holds backend selection, refinement toggle, the factored
@@ -87,6 +88,11 @@ module fortsparse_solver
     end interface sparse_solve
 
     ! Convenience: factor, solve one RHS, and free in a single call.
+    interface sparse_solve_block
+        module procedure sparse_solve_block_real
+        module procedure sparse_solve_block_complex
+    end interface sparse_solve_block
+
     interface sparse_solve_once
         module procedure sparse_solve_once_real
         module procedure sparse_solve_once_complex
@@ -355,7 +361,7 @@ contains
     ! A backend with a native multi-RHS solve (MUMPS) does it in one call;
     ! others solve column by column. Results equal repeated single solves to
     ! rounding.
-    subroutine sparse_solve_block(solver, B, X, status)
+    subroutine sparse_solve_block_real(solver, B, X, status)
         type(sparse_solver_t),     intent(inout) :: solver
         real(dp), contiguous,      intent(in)    :: B(:, :)
         real(dp), contiguous,      intent(out)   :: X(:, :)
@@ -371,7 +377,26 @@ contains
             return
         end if
         call solver%backend%solve_real_block(B, X, status)
-    end subroutine sparse_solve_block
+    end subroutine sparse_solve_block_real
+
+    ! Complex block solve with the same contract as the real one.
+    subroutine sparse_solve_block_complex(solver, B, X, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        complex(dp), contiguous,   intent(in)    :: B(:, :)
+        complex(dp), contiguous,   intent(out)   :: X(:, :)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (size(B, 1) /= size(X, 1) .or. size(B, 2) /= size(X, 2)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "sparse_solve_block: B and X shapes differ")
+            return
+        end if
+        call solver%backend%solve_complex_block(B, X, status)
+    end subroutine sparse_solve_block_complex
 
     ! Factor fill, peak factorization memory, flops and threads of the current
     ! factorization, for backends that report them (MUMPS).

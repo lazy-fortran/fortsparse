@@ -21,6 +21,10 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_SYM_GENERAL = 0
     integer, parameter, public :: FORTSPARSE_SYM_SPD = 1
     integer, parameter, public :: FORTSPARSE_SYM_INDEFINITE = 2
+    ! Complex only: A = A^H, lower triangle read (a real matrix treats it as
+    ! INDEFINITE). For complex matrices SPD means Hermitian positive definite,
+    ! and INDEFINITE means complex symmetric, A = A^T (not A^H).
+    integer, parameter, public :: FORTSPARSE_SYM_HERMITIAN = 3
 
     ! Fill-reducing ordering (sparse_options_t%ordering).
     integer, parameter, public :: FORTSPARSE_ORDER_DEFAULT = 0
@@ -59,6 +63,7 @@ module fortsparse_backend
         procedure(solve_real_inplace_i), deferred :: solve_real_inplace
         procedure(solve_complex_inplace_i), deferred :: solve_complex_inplace
         procedure :: solve_real_block => backend_solve_real_block
+        procedure :: solve_complex_block => backend_solve_complex_block
         procedure :: factor_stats => backend_factor_stats
         procedure(vector_i), deferred :: vector
         procedure(free_i), deferred :: free
@@ -156,6 +161,24 @@ contains
             X(:, j) = xj
         end do
     end subroutine backend_solve_real_block
+
+    subroutine backend_solve_complex_block(self, B, X, status)
+        class(sparse_backend_t),   intent(inout) :: self
+        complex(dp), contiguous,   intent(in)    :: B(:, :)
+        complex(dp), contiguous,   intent(out)   :: X(:, :)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        complex(dp), allocatable :: bj(:), xj(:)
+        integer :: j
+
+        allocate (bj(size(B, 1)), xj(size(B, 1)))
+        do j = 1, size(B, 2)
+            bj = B(:, j)
+            call self%solve_complex(bj, xj, status)
+            if (status%code /= 0) return
+            X(:, j) = xj
+        end do
+    end subroutine backend_solve_complex_block
 
     ! Default: the backend reports no statistics.
     subroutine backend_factor_stats(self, stats, status)

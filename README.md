@@ -148,13 +148,51 @@ call sparse_factor_stats(solver, stats, status) ! fill, memory, flops, times
 ```
 
 An indefinite matrix declared `FORTSPARSE_SYM_SPD` fails with
-`FORTSPARSE_SINGULAR`. The backend takes real matrices; complex systems return
-`FORTSPARSE_BACKEND_UNAVAILABLE`. Matrix size and entry count are limited to
-32-bit MUMPS integers.
+`FORTSPARSE_SINGULAR`. Matrix size and entry count are limited to 32-bit MUMPS
+integers.
+
+### Complex matrices (ZMUMPS)
+
+Complex `csc_z_t` systems take the same calls, with the same factor-once,
+solve-many and block-solve shape: `sparse_factor(solver, Az, status)`,
+`sparse_solve(solver, bz, xz, status)` (also in place) and
+`sparse_solve_block(solver, Bz, Xz, status)`. Iterative refinement
+(`solver%refine`) runs against the original complex matrix. The symmetry
+option selects the factorization:
+
+| `options%symmetry` | Complex meaning | Factorization |
+| --- | --- | --- |
+| `FORTSPARSE_SYM_GENERAL` | any matrix, as given | LU |
+| `FORTSPARSE_SYM_HERMITIAN` | `A = A^H`, indefinite allowed | LU of the expanded matrix |
+| `FORTSPARSE_SYM_SPD` | Hermitian positive definite (same as Hermitian) | LU of the expanded matrix |
+| `FORTSPARSE_SYM_INDEFINITE` | complex symmetric, `A = A^T` (not `A^H`) | LDL^T of the lower triangle |
+
+For the Hermitian options the lower triangle of the supplied full CSC matrix is
+read, the upper triangle is rebuilt by conjugation and the diagonal is taken
+real. MUMPS has no Hermitian factorization, so these options cost a general LU;
+they remain valid for indefinite matrices. `FORTSPARSE_SYM_HERMITIAN` on a real
+matrix means real symmetric (LDL^T). A real solve against a complex
+factorization (or the reverse) fails with `FORTSPARSE_INTERNAL_ERROR`.
+
+The complex path is built when the MUMPS installation provides the `z`
+component (`MUMPS_BUILD_COMPLEX16=ON`, i.e. `-DBUILD_COMPLEX16=ON` in the
+`scivision/mumps` wrapper, alongside `-DBUILD_DOUBLE=ON`). Against a
+double-only installation the library still builds, and complex factorizations
+return `FORTSPARSE_BACKEND_UNAVAILABLE`.
+
+Thread safety: MUMPS keeps process-global state, so every MUMPS call (real and
+complex, all solver objects) runs under one process-wide lock. Independent
+solver objects may be used from different OpenMP threads without corrupting
+anything, but they then execute one at a time. One solver object must not be
+shared between threads without the caller ordering its factor and solve calls.
+For parallel speed-up use `options%nthreads` (MUMPS' own OpenMP threads) on one
+solver object rather than user threads.
 
 Build MUMPS without MPI and with OpenMP and METIS, for example with the
 `scivision/mumps` CMake wrapper (it fetches the MUMPS source and METIS), then
-point fortsparse at the install prefix:
+point fortsparse at the install prefix (add `-DBUILD_DOUBLE=ON
+-DBUILD_COMPLEX16=ON -DBUILD_SINGLE=OFF -DBUILD_COMPLEX=OFF` for the complex
+path):
 
 ```
 cmake -S mumps-cmake -B build-mumps -DMUMPS_parallel=OFF -DMUMPS_scalapack=OFF \
@@ -179,7 +217,7 @@ times.
 - `include/`: C headers shared by the library and the helper, the shared-memory
   protocol and the IPC ABI.
 - `backends/mumps/`: the optional MUMPS binding (Fortran module and MIT C
-  shim). Outside `src/` so `fpm` and `fo` never compile it.
+  shims for real and complex, plus a link stub for double-only MUMPS). Outside `src/` so `fpm` and `fo` never compile it.
 - `helper/`: `fortsparse_umfpack_helper.c`, the standalone GPL binary, the only
   file that includes `umfpack.h`. It lives outside `src/` so `fpm` and `fo`
   never compile it.

@@ -86,6 +86,10 @@ if(FORTSPARSE_ENABLE_SUPERLU)
 endif()
 find_package(Threads REQUIRED)
 if(FORTSPARSE_ENABLE_MUMPS)
+    # One config load only (a second find_package(MUMPS) redefines imported
+    # targets). MUMPS::ZMUMPS exists when the installation was built with the
+    # complex library; src/ then links it, else the complex entry points are
+    # stubs returning FORTSPARSE_BACKEND_UNAVAILABLE.
     find_package(MUMPS CONFIG REQUIRED COMPONENTS d)
     find_package(OpenMP COMPONENTS Fortran)
 endif()

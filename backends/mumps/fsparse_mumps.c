@@ -7,14 +7,15 @@
  * headers are only included here. CeCILL-C is a weak-copyleft licence that
  * permits linking from MIT code; the library stays an optional backend.
  *
- * Only real double precision is bound. The matrix is handed to MUMPS in
- * assembled coordinate format (ICNTL(5)=0, ICNTL(18)=0); for a symmetric
+ * This file binds real double precision; fsparse_zmumps.c binds
+ * complex. The matrix is handed to MUMPS in assembled coordinate format (ICNTL(5)=0, ICNTL(18)=0); for a symmetric
  * option only the lower triangle is passed. */
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
 #include "dmumps_c.h"
 
@@ -45,6 +46,14 @@ typedef struct {
     int ok; /* instance initialised (JOB=-1 done, JOB=-2 still owed) */
 } fsparse_mumps_t;
 
+/* MUMPS keeps process-global state, so two threads must never be inside it at
+ * once, even on different instances. Every MUMPS call (real and complex) runs
+ * under this lock; the parallelism comes from MUMPS' own OpenMP threads. */
+static pthread_mutex_t mumps_lock = PTHREAD_MUTEX_INITIALIZER;
+
+void fsparse_mumps_lock(void) { pthread_mutex_lock(&mumps_lock); }
+void fsparse_mumps_unlock(void) { pthread_mutex_unlock(&mumps_lock); }
+
 static double wall(void)
 {
     struct timespec ts;
@@ -55,7 +64,9 @@ static double wall(void)
 static void mumps_call(fsparse_mumps_t *h, int job)
 {
     h->id.job = job;
+    fsparse_mumps_lock();
     dmumps_c(&h->id);
+    fsparse_mumps_unlock();
 }
 
 static void destroy(fsparse_mumps_t *h)

@@ -85,6 +85,18 @@ if(FORTSPARSE_ENABLE_MUMPS)
     add_executable(test_fortsparse_mumps mumps/test_fortsparse_mumps.f90)
     target_link_libraries(test_fortsparse_mumps PRIVATE fs_test_matrices)
     add_test(NAME test_fortsparse_mumps COMMAND test_fortsparse_mumps)
+    if(TARGET MUMPS::ZMUMPS)
+        add_executable(test_fortsparse_mumps_complex
+            mumps/test_fortsparse_mumps_complex.f90)
+        target_link_libraries(test_fortsparse_mumps_complex PRIVATE
+            fortsparse ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
+        if(OpenMP_Fortran_FOUND)
+            target_link_libraries(test_fortsparse_mumps_complex PRIVATE
+                OpenMP::OpenMP_Fortran)
+        endif()
+        add_test(NAME test_fortsparse_mumps_complex
+            COMMAND test_fortsparse_mumps_complex)
+    endif()
     add_executable(bench_fortsparse_mumps mumps/bench_fortsparse_mumps.f90)
     target_link_libraries(bench_fortsparse_mumps PRIVATE fs_test_matrices)
 endif()
