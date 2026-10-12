@@ -45,6 +45,14 @@ option(FORTSPARSE_USE_SYSTEM_DEPS
 option(FORTSPARSE_INSTALL_HELPER
     "Install the UMFPACK helper to CMAKE_INSTALL_BINDIR" ON)
 
+# MUMPS (CeCILL-C) in-process backend: threaded multifrontal Cholesky/LDL^T/LU
+# with METIS nested dissection, factor-once/solve-many and block solves. It is
+# linked, never copied, and stays optional: OFF builds nothing MUMPS-related.
+# Needs a sequential (MPI-free) MUMPS built with OpenMP and METIS, found via
+# find_package(MUMPS CONFIG) (the scivision/mumps CMake build, installed to a
+# prefix on CMAKE_PREFIX_PATH or MUMPS_DIR).
+option(FORTSPARSE_ENABLE_MUMPS "Enable the in-process MUMPS backend" OFF)
+
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
 # offloading land in later releases; the flags document the direction without
 # pulling in any toolchain today.
@@ -77,6 +85,10 @@ if(FORTSPARSE_ENABLE_SUPERLU)
     endif()
 endif()
 find_package(Threads REQUIRED)
+if(FORTSPARSE_ENABLE_MUMPS)
+    find_package(MUMPS CONFIG REQUIRED COMPONENTS d)
+    find_package(OpenMP COMPONENTS Fortran)
+endif()
 
 # BLAS/LAPACK always come from the system: optimized, universally present, and
 # the same OpenBLAS the rest of the stack uses, so numerics stay consistent. The
