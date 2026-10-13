@@ -5,8 +5,8 @@
 
 #include <stddef.h>
 
-void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
-                             const long *rowidx1, const void *val, int mode,
+void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
+                             const int *rowidx1, const void *val, int mode,
                              int ordering, int nthreads, int verbose,
                              int *info1, int *info2)
 {
@@ -17,8 +17,8 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
     return NULL;
 }
 
-int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
-                            const long *rowidx1, const void *val, int *info1,
+int fsparse_mumps_refactor_z(void *handle, long nnz, const int *colptr1,
+                            const int *rowidx1, const void *val, int *info1,
                             int *info2)
 {
     (void) handle; (void) nnz; (void) colptr1; (void) rowidx1; (void) val;

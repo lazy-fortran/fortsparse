@@ -269,7 +269,67 @@ contains
         call check_true(name//" pattern change matches zgesv", &
             maxval(abs(x - Xref(:, 1))) < 1.0e-10_dp*maxval(abs(Xref(:, 1))), nfail)
         call sparse_destroy(solver)
+        call test_raw_ownership(name, sym, A, A2, D, D2, B, nfail)
     end subroutine test_refactor
+
+    ! Exercise the raw entry points against the same independent dense oracle.
+    subroutine test_raw_ownership(name, sym, A, A2, D, D2, B, nfail)
+        character(*), intent(in) :: name
+        integer, intent(in) :: sym
+        type(csc_z_t), intent(in) :: A, A2
+        complex(dp), intent(in) :: D(:, :), D2(:, :), B(:, :)
+        integer, intent(inout) :: nfail
+
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        integer, allocatable :: ptr(:), idx(:)
+        complex(dp), allocatable :: val(:), x(:), Xref(:, :)
+        integer :: n, nz, iref, stride, phase
+        logical :: reused
+
+        n = A%ncol
+        nz = A%nnz
+        allocate (x(n))
+        do iref = 0, 1
+            do stride = 1, 2
+                call make_solver(solver, sym, iref == 1, 2)
+                ! Exercise refinement off -> on -> off on the retained analysis.
+                do phase = 1, 3
+                    allocate (ptr(stride*(n + 2)), idx(stride*(nz + 1)), &
+                        val(stride*(nz + 1)))
+                    ptr = -1; idx = -1; val = (-999.0_dp, 0.0_dp)
+                    ptr(1:stride*n + 1:stride) = A%col_ptr
+                    idx(1:stride*(nz - 1) + 1:stride) = A%row_idx
+                    if (phase == 1) then
+                        val(1:stride*(nz - 1) + 1:stride) = A%val
+                        call zgesv_ref(D, B(:, 1:1), Xref)
+                        call sparse_factor(solver, n, n, nz, ptr(1::stride), &
+                            idx(1::stride), val(1::stride), status)
+                    else
+                        solver%refine = (phase == 2)
+                        val(1:stride*(nz - 1) + 1:stride) = A2%val
+                        call zgesv_ref(D2, B(:, 1:1), Xref)
+                        call sparse_refactor(solver, n, n, nz, ptr(1::stride), &
+                            idx(1::stride), val(1::stride), status, reused)
+                        call check_true(name//" raw refactor reuses saved pattern", &
+                            reused, nfail)
+                    end if
+                    call check_true(name//" raw factor/refactor", &
+                        status_ok(status), nfail)
+                    ptr = 0; idx = 0; val = (0.0_dp, 0.0_dp)
+                    deallocate (ptr, idx, val)
+                    if (.not. status_ok(status)) exit
+                    call sparse_solve(solver, B(:, 1), x, status)
+                    call check_true(name//" raw solve after input release", &
+                        status_ok(status), nfail)
+                    if (status_ok(status)) call check_true(name//" raw matches zgesv", &
+                        maxval(abs(x - Xref(:, 1))) &
+                        < 1.0e-10_dp*maxval(abs(Xref(:, 1))), nfail)
+                end do
+                call sparse_destroy(solver)
+            end do
+        end do
+    end subroutine test_raw_ownership
 
     subroutine test_block_and_inplace(nfail)
         integer, intent(inout) :: nfail
