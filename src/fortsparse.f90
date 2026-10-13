@@ -10,7 +10,8 @@ module fortsparse
     use fortsparse_version, only: fortsparse_version_string
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
         csc_conjugate_transpose, csc_matmul, csc_matvec, csc_transpose
-    use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_solve, &
+    use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_refactor, &
+        sparse_solve, &
         sparse_free, sparse_destroy, sparse_solve_once, sparse_vector, &
         sparse_solve_jvp, sparse_solve_vjp, sparse_solve_block, &
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
@@ -39,7 +40,8 @@ module fortsparse
     public :: csc_conjugate_transpose
 
     ! Solver
-    public :: sparse_solver_t, sparse_factor, sparse_solve, sparse_free
+    public :: sparse_solver_t, sparse_factor, sparse_refactor, sparse_solve, &
+        sparse_free
     public :: sparse_destroy, sparse_solve_once, sparse_vector
     public :: sparse_solve_jvp, sparse_solve_vjp
     public :: FORTSPARSE_BACKEND_SUPERLU

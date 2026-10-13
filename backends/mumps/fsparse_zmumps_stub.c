@@ -17,6 +17,16 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
     return NULL;
 }
 
+int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
+                            const long *rowidx1, const void *val, int *info1,
+                            int *info2)
+{
+    (void) handle; (void) nnz; (void) colptr1; (void) rowidx1; (void) val;
+    *info1 = -2000;
+    *info2 = 0;
+    return -1;
+}
+
 int fsparse_mumps_solve_z(void *handle, int nrhs, void *rhs, long ld,
                           int *info2)
 {

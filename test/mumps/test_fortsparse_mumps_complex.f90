@@ -5,7 +5,7 @@ program test_fortsparse_mumps_complex
     ! concurrent solver objects under OpenMP, and singular detection.
     use, intrinsic :: iso_fortran_env, only: error_unit
     use fortsparse, only: dp, csc_z_t, csc_from_triplet, sparse_solver_t, &
-        sparse_factor, sparse_solve, sparse_solve_block, sparse_destroy, &
+        sparse_factor, sparse_refactor, sparse_solve, sparse_solve_block, sparse_destroy, &
         fortsparse_status_t, status_ok, FORTSPARSE_BACKEND_MUMPS, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_SINGULAR
@@ -19,6 +19,10 @@ program test_fortsparse_mumps_complex
     call test_kind("hermitian-indefinite", FORTSPARSE_SYM_HERMITIAN, 1, 300, nfail)
     call test_kind("hermitian-posdef", FORTSPARSE_SYM_SPD, 2, 300, nfail)
     call test_kind("complex-symmetric", FORTSPARSE_SYM_INDEFINITE, 3, 300, nfail)
+    call test_refactor("general", FORTSPARSE_SYM_GENERAL, 0, 300, nfail)
+    call test_refactor("hermitian-indefinite", FORTSPARSE_SYM_HERMITIAN, 1, 300, nfail)
+    call test_refactor("hermitian-posdef", FORTSPARSE_SYM_SPD, 2, 300, nfail)
+    call test_refactor("complex-symmetric", FORTSPARSE_SYM_INDEFINITE, 3, 300, nfail)
     call test_block_and_inplace(nfail)
     call test_concurrent_objects(nfail)
     call test_singular(nfail)
@@ -205,6 +209,64 @@ contains
             end do
         end do
     end subroutine test_kind
+
+    ! New values on the same pattern (off-diagonals scaled, real diagonal
+    ! shifted, so Hermitian and complex symmetry are kept) reuse the analysis
+    ! and match zgesv; an independent matrix of the same size has another
+    ! pattern, which is detected and handled by a full analysis.
+    subroutine test_refactor(name, sym, kind, n, nfail)
+        character(*), intent(in)    :: name
+        integer,      intent(in)    :: sym, kind, n
+        integer,      intent(inout) :: nfail
+
+        type(csc_z_t) :: A, A2, A3
+        complex(dp), allocatable :: D(:, :), D2(:, :), D3(:, :), B(:, :), &
+            Xref(:, :), x(:)
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        logical :: reused
+        integer :: i, j, e
+        real(dp) :: err
+
+        call build(n, kind, A, D)
+        A2 = A
+        D2 = 0.7_dp*D
+        do j = 1, n
+            do e = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                if (A%row_idx(e) == j) then
+                    A2%val(e) = 0.7_dp*A%val(e) + 2.5_dp
+                else
+                    A2%val(e) = 0.7_dp*A%val(e)
+                end if
+            end do
+            D2(j, j) = D2(j, j) + 2.5_dp
+        end do
+        B = rhs(n, 3)
+        allocate (x(n))
+        call make_solver(solver, sym, .true., 2)
+        call sparse_factor(solver, A, status)
+        call check_true(name//" refactor: initial factor", status_ok(status), nfail)
+        if (.not. status_ok(status)) return
+        call sparse_refactor(solver, A2, status, reused)
+        call check_true(name//" refactor status", status_ok(status), nfail)
+        call check_true(name//" refactor reuses analysis", reused, nfail)
+        call zgesv_ref(D2, B, Xref)
+        err = 0.0_dp
+        do i = 1, 3
+            call sparse_solve(solver, B(:, i), x, status)
+            err = max(err, maxval(abs(x - Xref(:, i)))/maxval(abs(Xref(:, i))))
+        end do
+        call check_true(name//" refactor matches zgesv", err < 1.0e-10_dp, nfail)
+        call build(n, kind, A3, D3)
+        call sparse_refactor(solver, A3, status, reused)
+        call check_true(name//" pattern change status", status_ok(status), nfail)
+        call check_true(name//" pattern change detected", .not. reused, nfail)
+        call zgesv_ref(D3, B, Xref)
+        call sparse_solve(solver, B(:, 1), x, status)
+        call check_true(name//" pattern change matches zgesv", &
+            maxval(abs(x - Xref(:, 1))) < 1.0e-10_dp*maxval(abs(Xref(:, 1))), nfail)
+        call sparse_destroy(solver)
+    end subroutine test_refactor
 
     subroutine test_block_and_inplace(nfail)
         integer, intent(inout) :: nfail
