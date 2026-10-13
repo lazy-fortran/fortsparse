@@ -27,6 +27,7 @@ program test_fortsparse_mumps_refactor
     call test_options_change(nfail)
     call test_failure_recovery(nfail)
     call test_unfactored(nfail)
+    call test_raw_ownership(nfail)
 
     call test_mpi_finalize()
     if (nfail > 0) then
@@ -266,5 +267,69 @@ contains
         call check_true("fresh-solver refactor solves", status_ok(st), nfail)
         call sparse_destroy(s)
     end subroutine test_unfactored
+
+    ! Raw arrays may have extra capacity or strides, and remain caller-owned.
+    subroutine test_raw_ownership(nfail)
+        integer, intent(inout) :: nfail
+
+        integer, parameter :: n = 3, nz = 7
+        integer, parameter :: cp(n + 1) = [1, 3, 6, 8]
+        integer, parameter :: ri(nz) = [1, 2, 1, 2, 3, 2, 3]
+        real(dp), parameter :: values(nz) = [4.0_dp, -2.0_dp, -1.0_dp, &
+            5.0_dp, -0.5_dp, -3.0_dp, 6.0_dp]
+        real(dp), parameter :: dense(n, n) = reshape([4.0_dp, -2.0_dp, 0.0_dp, &
+            -1.0_dp, 5.0_dp, -0.5_dp, 0.0_dp, -3.0_dp, 6.0_dp], [n, n])
+        real(dp), parameter :: exact(n) = [1.0_dp, -2.0_dp, 0.5_dp]
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        integer, allocatable :: ptr(:), idx(:)
+        real(dp), allocatable :: val(:)
+        real(dp) :: b(n), x(n), changed(nz)
+        integer :: iref, stride, phase
+        logical :: reused
+
+        changed = 1.5_dp*values
+        changed([1, 4, 7]) = changed([1, 4, 7]) + 1.0_dp
+        do iref = 0, 1
+            do stride = 1, 2
+                call make_solver(solver, FORTSPARSE_SYM_GENERAL, iref == 1)
+                ! The initially unrefined case switches off -> on -> off.
+                do phase = 1, 3
+                    allocate (ptr(stride*(n + 2)), idx(stride*(nz + 1)), &
+                        val(stride*(nz + 1)))
+                    ptr = -1; idx = -1; val = -999.0_dp
+                    ptr(1:stride*n + 1:stride) = cp
+                    idx(1:stride*(nz - 1) + 1:stride) = ri
+                    if (phase == 1) then
+                        val(1:stride*(nz - 1) + 1:stride) = values
+                        b = matmul(dense, exact)
+                        call sparse_factor(solver, n, n, nz, ptr(1::stride), &
+                            idx(1::stride), val(1::stride), status)
+                    else
+                        solver%refine = (phase == 2)
+                        val(1:stride*(nz - 1) + 1:stride) = changed
+                        b = 1.5_dp*matmul(dense, exact) + exact
+                        call sparse_refactor(solver, n, n, nz, ptr(1::stride), &
+                            idx(1::stride), val(1::stride), status, reused)
+                        call check_true("raw refactor reuses saved pattern", &
+                            reused, nfail)
+                    end if
+                    call check_true("raw factor/refactor status", &
+                        status_ok(status), nfail)
+                    ! Both factors and refinement data must outlive the input.
+                    ptr = 0; idx = 0; val = 0.0_dp
+                    deallocate (ptr, idx, val)
+                    if (.not. status_ok(status)) exit
+                    call sparse_solve(solver, b, x, status)
+                    call check_true("raw solve after input release", &
+                        status_ok(status), nfail)
+                    if (status_ok(status)) &
+                        call check_true("raw nonsymmetric known solution", &
+                            reldiff(x, exact) < 1.0e-12_dp, nfail)
+                end do
+                call sparse_destroy(solver)
+            end do
+        end do
+    end subroutine test_raw_ownership
 
 end program test_fortsparse_mumps_refactor

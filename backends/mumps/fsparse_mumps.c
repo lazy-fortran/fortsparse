@@ -29,15 +29,15 @@
 #define INFOG(k) infog[(k) - 1]
 #define RINFOG(k) rinfog[(k) - 1]
 
-void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
-                             const long *rowidx1, const double *val, int sym,
+void *fsparse_mumps_factor_d(long n, long nnz, const int *colptr1,
+                             const int *rowidx1, const double *val, int sym,
                              int ordering, int nthreads, int verbose,
                              int *info1, int *info2);
 int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
                           int *info2);
 void fsparse_mumps_stats_d(void *handle, long *istat, double *rstat);
-int fsparse_mumps_refactor_d(void *handle, long nnz, const long *colptr1,
-                            const long *rowidx1, const double *val, int *info1,
+int fsparse_mumps_refactor_d(void *handle, long nnz, const int *colptr1,
+                            const int *rowidx1, const double *val, int *info1,
                             int *info2);
 void fsparse_mumps_free_d(void *handle);
 
@@ -139,8 +139,8 @@ static int numeric(fsparse_mumps_t *h, int *info1, int *info2)
     return 0;
 }
 
-void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
-                             const long *rowidx1, const double *val, int sym,
+void *fsparse_mumps_factor_d(long n, long nnz, const int *colptr1,
+                             const int *rowidx1, const double *val, int sym,
                              int ordering, int nthreads, int verbose,
                              int *info1, int *info2)
 {
@@ -240,8 +240,8 @@ void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
  * pattern of the original factorization (the Fortran layer checks it); a
  * differing entry count is still caught here. Returns 0, or the MUMPS error in
  * info1 (the handle then holds no usable factors and must be freed). */
-int fsparse_mumps_refactor_d(void *handle, long nnz, const long *colptr1,
-                            const long *rowidx1, const double *val,
+int fsparse_mumps_refactor_d(void *handle, long nnz, const int *colptr1,
+                            const int *rowidx1, const double *val,
                             int *info1, int *info2)
 {
     fsparse_mumps_t *h = (fsparse_mumps_t *) handle;

@@ -62,8 +62,12 @@ module fortsparse_mumps
     contains
         procedure :: factor_real => mumps_factor_real
         procedure :: factor_complex => mumps_factor_complex
+        procedure :: factor_real_raw => mumps_factor_real_raw
+        procedure :: factor_complex_raw => mumps_factor_complex_raw
         procedure :: refactor_real => mumps_refactor_real
         procedure :: refactor_complex => mumps_refactor_complex
+        procedure :: refactor_real_raw => mumps_refactor_real_raw
+        procedure :: refactor_complex_raw => mumps_refactor_complex_raw
         procedure :: solve_real => mumps_solve_real
         procedure :: solve_complex => mumps_solve_complex
         procedure :: solve_real_inplace => mumps_solve_real_inplace
@@ -83,7 +87,7 @@ module fortsparse_mumps
                 bind(c, name="fsparse_mumps_factor_d") result(h)
             import :: c_ptr, c_int, c_long, c_double
             integer(c_long), value       :: n, nnz
-            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            integer(c_int),  intent(in)  :: colptr1(*), rowidx1(*)
             real(c_double),  intent(in)  :: val(*)
             integer(c_int),  value       :: sym, ordering, nthreads, verbose
             integer(c_int),  intent(out) :: info1, info2
@@ -118,7 +122,7 @@ module fortsparse_mumps
                 bind(c, name="fsparse_mumps_factor_z") result(h)
             import :: c_ptr, c_int, c_long, c_double_complex
             integer(c_long), value       :: n, nnz
-            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            integer(c_int),  intent(in)  :: colptr1(*), rowidx1(*)
             complex(c_double_complex), intent(in) :: val(*)
             integer(c_int),  value       :: mode, ordering, nthreads, verbose
             integer(c_int),  intent(out) :: info1, info2
@@ -149,7 +153,7 @@ module fortsparse_mumps
             import :: c_ptr, c_int, c_long, c_double
             type(c_ptr),     value       :: h
             integer(c_long), value       :: nnz
-            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            integer(c_int),  intent(in)  :: colptr1(*), rowidx1(*)
             real(c_double),  intent(in)  :: val(*)
             integer(c_int),  intent(out) :: info1, info2
         end function fsparse_mumps_refactor_d
@@ -160,7 +164,7 @@ module fortsparse_mumps
             import :: c_ptr, c_int, c_long, c_double_complex
             type(c_ptr),     value       :: h
             integer(c_long), value       :: nnz
-            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            integer(c_int),  intent(in)  :: colptr1(*), rowidx1(*)
             complex(c_double_complex), intent(in) :: val(*)
             integer(c_int),  intent(out) :: info1, info2
         end function fsparse_mumps_refactor_z
@@ -175,17 +179,29 @@ module fortsparse_mumps
 contains
 
     subroutine mumps_factor_real(self, A, refine, status)
+        class(mumps_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+
+        call self%factor_real_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status)
+    end subroutine mumps_factor_real
+
+    subroutine mumps_factor_real_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status)
         class(mumps_backend_t),    intent(inout) :: self
-        type(csc_t),               intent(in)    :: A
+        integer, intent(in) :: nrow, ncol, nz
+        integer, intent(in) :: col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
         logical,                   intent(in)    :: refine
         type(fortsparse_status_t), intent(out)   :: status
 
-        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
         integer(c_int) :: info1, info2, sym, ordering
         character(80)  :: msg
 
         call self%free()
-        if (A%nrow /= A%ncol) then
+        if (nrow /= ncol) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "mumps factor: matrix is not square")
             return
@@ -206,10 +222,8 @@ contains
         else
             ordering = MUMPS_ORDER_METIS
         end if
-        colptr1 = int(A%col_ptr, c_long)
-        rowidx1 = int(A%row_idx, c_long)
-        self%h = fsparse_mumps_factor_d(int(A%ncol, c_long), &
-            int(A%nnz, c_long), colptr1, rowidx1, A%val, sym, ordering, &
+        self%h = fsparse_mumps_factor_d(int(ncol, c_long), &
+            int(nz, c_long), col_ptr, row_idx, val, sym, ordering, &
             int(self%options%nthreads, c_int), &
             merge(1_c_int, 0_c_int, self%options%verbose), info1, info2)
         if (.not. c_associated(self%h)) then
@@ -227,34 +241,45 @@ contains
             end select
             return
         end if
-        self%n = A%ncol
+        self%n = ncol
         self%is_complex = .false.
         self%refine = refine
         self%symmetric = (sym /= 0)
         if (refine) then
-            self%a_real = A
-            self%anorm = inf_norm(A)
+            call retain_real(self, nrow, ncol, nz, col_ptr, row_idx, val)
         end if
-        call save_pattern(self, A%ncol, A%nnz, A%col_ptr, A%row_idx)
+        call save_pattern(self, ncol, nz, col_ptr, row_idx)
         call status_set(status, FORTSPARSE_OK, "")
-    end subroutine mumps_factor_real
+    end subroutine mumps_factor_real_raw
 
     ! Complex symmetry mapping: GENERAL is an LU of the matrix as given;
     ! HERMITIAN and SPD (Hermitian positive definite) read the lower triangle,
     ! mirror it by conjugation and run a general LU; INDEFINITE is the complex
     ! symmetric case A = A^T (not A^H), an LDL^T of the lower triangle.
     subroutine mumps_factor_complex(self, A, refine, status)
+        class(mumps_backend_t), intent(inout) :: self
+        type(csc_z_t), intent(in) :: A
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+
+        call self%factor_complex_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status)
+    end subroutine mumps_factor_complex
+
+    subroutine mumps_factor_complex_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status)
         class(mumps_backend_t),    intent(inout) :: self
-        type(csc_z_t),             intent(in)    :: A
+        integer, intent(in) :: nrow, ncol, nz
+        integer, intent(in) :: col_ptr(:), row_idx(:)
+        complex(dp), intent(in) :: val(:)
         logical,                   intent(in)    :: refine
         type(fortsparse_status_t), intent(out)   :: status
 
-        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
         integer(c_int) :: info1, info2, mode, ordering
         character(80)  :: msg
 
         call self%free()
-        if (A%nrow /= A%ncol) then
+        if (nrow /= ncol) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "mumps factor: matrix is not square")
             return
@@ -276,10 +301,8 @@ contains
         else
             ordering = MUMPS_ORDER_METIS
         end if
-        colptr1 = int(A%col_ptr, c_long)
-        rowidx1 = int(A%row_idx, c_long)
-        self%h = fsparse_mumps_factor_z(int(A%ncol, c_long), &
-            int(A%nnz, c_long), colptr1, rowidx1, A%val, mode, ordering, &
+        self%h = fsparse_mumps_factor_z(int(ncol, c_long), &
+            int(nz, c_long), col_ptr, row_idx, val, mode, ordering, &
             int(self%options%nthreads, c_int), &
             merge(1_c_int, 0_c_int, self%options%verbose), info1, info2)
         if (.not. c_associated(self%h)) then
@@ -300,18 +323,33 @@ contains
             end select
             return
         end if
-        self%n = A%ncol
+        self%n = ncol
         self%is_complex = .true.
         self%zmode = mode
         self%refine = refine
         self%symmetric = (mode /= 0)
         if (refine) then
-            call expand_full(A, mode, self%a_cplx)
+            call expand_full(nrow, ncol, nz, col_ptr, row_idx, val, &
+                mode, self%a_cplx)
             self%anorm = inf_norm_z(self%a_cplx)
         end if
-        call save_pattern(self, A%ncol, A%nnz, A%col_ptr, A%row_idx)
+        call save_pattern(self, ncol, nz, col_ptr, row_idx)
         call status_set(status, FORTSPARSE_OK, "")
-    end subroutine mumps_factor_complex
+    end subroutine mumps_factor_complex_raw
+
+    subroutine retain_real(self, nrow, ncol, nnz, col_ptr, row_idx, val)
+        class(mumps_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nnz, col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
+
+        self%a_real%nrow = nrow
+        self%a_real%ncol = ncol
+        self%a_real%nnz = nnz
+        self%a_real%col_ptr = col_ptr(1:ncol + 1)
+        self%a_real%row_idx = row_idx(1:nnz)
+        self%a_real%val = val(1:nnz)
+        self%anorm = inf_norm(self%a_real)
+    end subroutine retain_real
 
     subroutine save_pattern(self, ncol, nnz, col_ptr, row_idx)
         class(mumps_backend_t), intent(inout) :: self
@@ -371,75 +409,106 @@ contains
     ! Same pattern and options as the last factor: keep the symbolic analysis
     ! and redo only the numerical factorization. Otherwise a full factor.
     subroutine mumps_refactor_real(self, A, refine, status, reused)
-        class(mumps_backend_t),    intent(inout) :: self
-        type(csc_t),               intent(in)    :: A
-        logical,                   intent(in)    :: refine
-        type(fortsparse_status_t), intent(out)   :: status
-        logical,                   intent(out)   :: reused
+        class(mumps_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
 
-        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
-        integer(c_int) :: info1, info2, rc
-
-        reused = .false.
-        if (.not. can_reuse(self, .false., A%nrow, A%ncol, A%nnz, &
-                            A%col_ptr, A%row_idx)) then
-            call self%factor_real(A, refine, status)
-            return
-        end if
-        colptr1 = int(A%col_ptr, c_long)
-        rowidx1 = int(A%row_idx, c_long)
-        rc = fsparse_mumps_refactor_d(self%h, int(A%nnz, c_long), colptr1, &
-            rowidx1, A%val, info1, info2)
-        if (rc /= 0) then
-            call refactor_failed(self, info1, info2, status)
-            return
-        end if
-        self%refine = refine
-        if (refine) then
-            self%a_real = A
-            self%anorm = inf_norm(A)
-        end if
-        reused = .true.
-        call status_set(status, FORTSPARSE_OK, "")
+        call self%refactor_real_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status, reused)
     end subroutine mumps_refactor_real
 
-    subroutine mumps_refactor_complex(self, A, refine, status, reused)
+    subroutine mumps_refactor_real_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status, reused)
         class(mumps_backend_t),    intent(inout) :: self
-        type(csc_z_t),             intent(in)    :: A
+        integer, intent(in) :: nrow, ncol, nz
+        integer, intent(in) :: col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
         logical,                   intent(in)    :: refine
         type(fortsparse_status_t), intent(out)   :: status
         logical,                   intent(out)   :: reused
 
-        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
         integer(c_int) :: info1, info2, rc
 
         reused = .false.
-        if (.not. can_reuse(self, .true., A%nrow, A%ncol, A%nnz, &
-                            A%col_ptr, A%row_idx)) then
-            call self%factor_complex(A, refine, status)
+        if (.not. can_reuse(self, .false., nrow, ncol, nz, &
+                            col_ptr, row_idx)) then
+            call self%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
+                val, refine, status)
             return
         end if
-        colptr1 = int(A%col_ptr, c_long)
-        rowidx1 = int(A%row_idx, c_long)
-        rc = fsparse_mumps_refactor_z(self%h, int(A%nnz, c_long), colptr1, &
-            rowidx1, A%val, info1, info2)
+        rc = fsparse_mumps_refactor_d(self%h, int(nz, c_long), col_ptr, &
+            row_idx, val, info1, info2)
         if (rc /= 0) then
             call refactor_failed(self, info1, info2, status)
             return
         end if
         self%refine = refine
         if (refine) then
-            call expand_full(A, self%zmode, self%a_cplx)
-            self%anorm = inf_norm_z(self%a_cplx)
+            call retain_real(self, nrow, ncol, nz, col_ptr, row_idx, val)
+        else
+            self%a_real = csc_t()
+            self%anorm = 0.0_dp
         end if
         reused = .true.
         call status_set(status, FORTSPARSE_OK, "")
+    end subroutine mumps_refactor_real_raw
+
+    subroutine mumps_refactor_complex(self, A, refine, status, reused)
+        class(mumps_backend_t), intent(inout) :: self
+        type(csc_z_t), intent(in) :: A
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+
+        call self%refactor_complex_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status, reused)
     end subroutine mumps_refactor_complex
+
+    subroutine mumps_refactor_complex_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status, reused)
+        class(mumps_backend_t),    intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz
+        integer, intent(in) :: col_ptr(:), row_idx(:)
+        complex(dp), intent(in) :: val(:)
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+        logical,                   intent(out)   :: reused
+
+        integer(c_int) :: info1, info2, rc
+
+        reused = .false.
+        if (.not. can_reuse(self, .true., nrow, ncol, nz, &
+                            col_ptr, row_idx)) then
+            call self%factor_complex_raw(nrow, ncol, nz, col_ptr, row_idx, &
+                val, refine, status)
+            return
+        end if
+        rc = fsparse_mumps_refactor_z(self%h, int(nz, c_long), col_ptr, &
+            row_idx, val, info1, info2)
+        if (rc /= 0) then
+            call refactor_failed(self, info1, info2, status)
+            return
+        end if
+        self%refine = refine
+        if (refine) then
+            call expand_full(nrow, ncol, nz, col_ptr, row_idx, val, &
+                self%zmode, self%a_cplx)
+            self%anorm = inf_norm_z(self%a_cplx)
+        else
+            self%a_cplx = csc_z_t()
+            self%anorm = 0.0_dp
+        end if
+        reused = .true.
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine mumps_refactor_complex_raw
 
     ! The full matrix MUMPS factored, for the refinement residual: a symmetric
     ! mode rebuilds the full matrix from the lower triangle, as the shim does.
-    subroutine expand_full(A, mode, F)
-        type(csc_z_t), intent(in)  :: A
+    subroutine expand_full(nrow, ncol, nnz, col_ptr, row_idx, val, mode, F)
+        integer, intent(in) :: nrow, ncol, nnz, col_ptr(:), row_idx(:)
+        complex(dp), intent(in) :: val(:)
         integer,       intent(in)  :: mode
         type(csc_z_t), intent(out) :: F
 
@@ -447,47 +516,52 @@ contains
         integer :: j, e, i, k, nz
 
         if (mode == 0) then
-            F = A
+            F%nrow = nrow
+            F%ncol = ncol
+            F%nnz = nnz
+            F%col_ptr = col_ptr(1:ncol + 1)
+            F%row_idx = row_idx(1:nnz)
+            F%val = val(1:nnz)
             return
         end if
-        allocate (cnt(A%ncol + 1), source=0)
-        do j = 1, A%ncol
-            do e = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                i = A%row_idx(e)
+        allocate (cnt(ncol + 1), source=0)
+        do j = 1, ncol
+            do e = col_ptr(j), col_ptr(j + 1) - 1
+                i = row_idx(e)
                 if (i < j) cycle
                 cnt(j) = cnt(j) + 1
                 if (i > j) cnt(i) = cnt(i) + 1
             end do
         end do
         nz = sum(cnt)
-        F%nrow = A%nrow
-        F%ncol = A%ncol
+        F%nrow = nrow
+        F%ncol = ncol
         F%nnz = nz
-        allocate (F%col_ptr(A%ncol + 1), F%row_idx(nz), F%val(nz))
+        allocate (F%col_ptr(ncol + 1), F%row_idx(nz), F%val(nz))
         F%col_ptr(1) = 1
-        do j = 1, A%ncol
+        do j = 1, ncol
             F%col_ptr(j + 1) = F%col_ptr(j) + cnt(j)
         end do
-        nxt = F%col_ptr(1:A%ncol)
-        do j = 1, A%ncol
-            do e = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                i = A%row_idx(e)
+        nxt = F%col_ptr(1:ncol)
+        do j = 1, ncol
+            do e = col_ptr(j), col_ptr(j + 1) - 1
+                i = row_idx(e)
                 if (i < j) cycle
                 k = nxt(j)
                 F%row_idx(k) = i
                 if (i == j .and. mode == 1) then
-                    F%val(k) = cmplx(real(A%val(e), dp), 0.0_dp, dp)
+                    F%val(k) = cmplx(real(val(e), dp), 0.0_dp, dp)
                 else
-                    F%val(k) = A%val(e)
+                    F%val(k) = val(e)
                 end if
                 nxt(j) = k + 1
                 if (i > j) then
                     k = nxt(i)
                     F%row_idx(k) = j
                     if (mode == 1) then
-                        F%val(k) = conjg(A%val(e))
+                        F%val(k) = conjg(val(e))
                     else
-                        F%val(k) = A%val(e)
+                        F%val(k) = val(e)
                     end if
                     nxt(i) = k + 1
                 end if

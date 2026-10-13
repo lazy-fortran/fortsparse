@@ -28,16 +28,16 @@ void fsparse_mumps_lock(void);
 void fsparse_mumps_unlock(void);
 int fsparse_mumps_mpi_ready(void);
 
-void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
-                             const long *rowidx1,
+void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
+                             const int *rowidx1,
                              const mumps_double_complex *val, int mode,
                              int ordering, int nthreads, int verbose,
                              int *info1, int *info2);
 int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
                           long ld, int *info2);
 void fsparse_mumps_stats_z(void *handle, long *istat, double *rstat);
-int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
-                            const long *rowidx1,
+int fsparse_mumps_refactor_z(void *handle, long nnz, const int *colptr1,
+                            const int *rowidx1,
                             const mumps_double_complex *val, int *info1,
                             int *info2);
 void fsparse_mumps_free_z(void *handle);
@@ -115,8 +115,8 @@ static int numeric(fsparse_zmumps_t *h, int *info1, int *info2)
     return 0;
 }
 
-void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
-                             const long *rowidx1,
+void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
+                             const int *rowidx1,
                              const mumps_double_complex *val, int mode,
                              int ordering, int nthreads, int verbose,
                              int *info1, int *info2)
@@ -231,8 +231,8 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
  * pattern of the original factorization (the Fortran layer checks it); a
  * differing entry count is still caught here. Returns 0, or the MUMPS error in
  * info1 (the handle then holds no usable factors and must be freed). */
-int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
-                            const long *rowidx1, const mumps_double_complex *val,
+int fsparse_mumps_refactor_z(void *handle, long nnz, const int *colptr1,
+                            const int *rowidx1, const mumps_double_complex *val,
                             int *info1, int *info2)
 {
     fsparse_zmumps_t *h = (fsparse_zmumps_t *) handle;
