@@ -85,8 +85,16 @@ endif()
 # MUMPS backend tests and benchmark. The benchmark is built but not registered
 # as a test: it takes problem size and thread count on the command line.
 if(FORTSPARSE_ENABLE_MUMPS)
+    add_library(fs_test_mpi STATIC mumps/fs_test_mpi.F90)
+    if(MUMPS_parallel)
+        target_compile_definitions(fs_test_mpi PRIVATE FORTSPARSE_MUMPS_MPI)
+        target_link_libraries(fs_test_mpi PRIVATE MPI::MPI_Fortran)
+        fortsparse_add_test(test_fortsparse_mumps_mpi_lifecycle
+            mumps/test_fortsparse_mumps_mpi_lifecycle.f90)
+        target_link_libraries(test_fortsparse_mumps_mpi_lifecycle PRIVATE fs_test_mpi)
+    endif()
     add_library(fs_test_matrices STATIC mumps/fs_test_matrices.f90)
-    target_link_libraries(fs_test_matrices PUBLIC fortsparse)
+    target_link_libraries(fs_test_matrices PUBLIC fortsparse fs_test_mpi)
     add_executable(test_fortsparse_mumps mumps/test_fortsparse_mumps.f90)
     target_link_libraries(test_fortsparse_mumps PRIVATE fs_test_matrices)
     add_test(NAME test_fortsparse_mumps COMMAND test_fortsparse_mumps)
@@ -100,7 +108,7 @@ if(FORTSPARSE_ENABLE_MUMPS)
         add_executable(test_fortsparse_mumps_complex
             mumps/test_fortsparse_mumps_complex.f90)
         target_link_libraries(test_fortsparse_mumps_complex PRIVATE
-            fortsparse ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
+            fortsparse fs_test_mpi ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
         if(OpenMP_Fortran_FOUND)
             target_link_libraries(test_fortsparse_mumps_complex PRIVATE
                 OpenMP::OpenMP_Fortran)

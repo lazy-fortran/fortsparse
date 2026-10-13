@@ -12,10 +12,12 @@ program test_fortsparse_mumps_refactor
         FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_GENERAL, &
         FORTSPARSE_SINGULAR
     use fs_test_matrices, only: laplace2d
+    use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
     implicit none
 
     integer :: nfail
 
+    call test_mpi_init()
     nfail = 0
     call test_values(FORTSPARSE_SYM_SPD, .false., "spd", nfail)
     call test_values(FORTSPARSE_SYM_SPD, .true., "spd refined", nfail)
@@ -26,6 +28,7 @@ program test_fortsparse_mumps_refactor
     call test_failure_recovery(nfail)
     call test_unfactored(nfail)
 
+    call test_mpi_finalize()
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
         stop 1

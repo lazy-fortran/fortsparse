@@ -48,7 +48,7 @@ option(FORTSPARSE_INSTALL_HELPER
 # MUMPS (CeCILL-C) in-process backend: threaded multifrontal Cholesky/LDL^T/LU
 # with METIS nested dissection, factor-once/solve-many and block solves. It is
 # linked, never copied, and stays optional: OFF builds nothing MUMPS-related.
-# Needs a sequential (MPI-free) MUMPS built with OpenMP and METIS, found via
+# Needs MUMPS built with OpenMP and METIS, found via
 # find_package(MUMPS CONFIG) (the scivision/mumps CMake build, installed to a
 # prefix on CMAKE_PREFIX_PATH or MUMPS_DIR).
 option(FORTSPARSE_ENABLE_MUMPS "Enable the in-process MUMPS backend" OFF)
