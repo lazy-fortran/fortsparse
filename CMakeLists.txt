@@ -91,6 +91,10 @@ if(FORTSPARSE_ENABLE_MUMPS)
     # complex library; src/ then links it, else the complex entry points are
     # stubs returning FORTSPARSE_BACKEND_UNAVAILABLE.
     find_package(MUMPS CONFIG REQUIRED COMPONENTS d)
+endif()
+# OpenMP threads the CSC matvec; without it the matvec is serial.
+option(FORTSPARSE_ENABLE_OPENMP "Thread the CSC matvec with OpenMP" ON)
+if(FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS)
     find_package(OpenMP COMPONENTS Fortran)
 endif()
 
