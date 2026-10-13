@@ -15,6 +15,11 @@ fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
+fortsparse_add_test(test_fortsparse_matvec_omp csc/test_fortsparse_matvec_omp.f90)
+
+# Strong-scaling benchmark of csc_matvec; built, not registered as a test.
+add_executable(bench_fortsparse_matvec ../bench/bench_csc_matvec.f90)
+target_link_libraries(bench_fortsparse_matvec PRIVATE fortsparse)
 
 if(UNIX)
     add_executable(test_fortsparse_ipc_wait ipc/test_fortsparse_ipc_wait.c)

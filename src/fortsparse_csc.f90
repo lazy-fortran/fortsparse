@@ -2,8 +2,14 @@ module fortsparse_csc
     use fortsparse_kinds, only: dp
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX
+    !$ use omp_lib, only: omp_get_thread_num, omp_get_max_threads, omp_get_num_threads
     implicit none
     private
+
+    ! Matrices with fewer stored entries than this are multiplied serially.
+    integer, parameter :: MATVEC_MIN_NNZ = 20000
+    ! Upper bound on the team size used by the matvec.
+    integer, parameter :: MAXT = 512
 
     ! Compressed-sparse-column matrix, real double values.
     ! Indices are 1-based Fortran indices: col_ptr has size ncol+1,
@@ -515,35 +521,159 @@ contains
         end do
     end subroutine iota
 
-    ! Sparse matvec y = A x for a real CSC matrix.
-    pure function csc_matvec_real(A, x) result(y)
+    ! Sparse matvec y = A x for a real CSC matrix. Columns are split into
+    ! nnz-balanced chunks, one per thread; each thread accumulates into a
+    ! private copy of y and the copies are summed row-parallel. Results differ
+    ! from the serial sum by summation-order roundoff only. Small matrices run
+    ! serially (threading cost exceeds the work).
+    function csc_matvec_real(A, x) result(y)
         type(csc_t), intent(in) :: A
-        real(dp),    intent(in) :: x(:)
-        real(dp)                :: y(A%nrow)
-        integer                 :: j, p
+        real(dp), intent(in) :: x(:)
+        real(dp) :: y(A%nrow)
+        real(dp), allocatable :: yp(:, :)
+        integer :: j, p, i, t, nt, nta, jlo, jhi, nrow, rlo, rhi
+        integer :: rmin(MAXT), rmax(MAXT)
 
+        nrow = A%nrow
         y = 0.0_dp
-        do j = 1, A%ncol
+        nt = min(matvec_thread_count(A%nnz), MAXT)
+        if (nt <= 1) then
+            do j = 1, A%ncol
+                do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                    y(A%row_idx(p)) = y(A%row_idx(p)) + A%val(p)*x(j)
+                end do
+            end do
+            return
+        end if
+        allocate (yp(nrow, nt))
+        !$omp parallel num_threads(nt) default(shared) &
+        !$omp private(t, nta, j, p, i, jlo, jhi, rlo, rhi)
+        t = 1
+        nta = 1
+        !$ t = omp_get_thread_num() + 1
+        !$ nta = omp_get_num_threads()
+        call column_chunk(A%col_ptr, A%ncol, A%nnz, t, nta, jlo, jhi)
+        rlo = nrow + 1
+        rhi = 0
+        do p = A%col_ptr(jlo), A%col_ptr(max(jlo, jhi + 1)) - 1
+            rlo = min(rlo, A%row_idx(p))
+            rhi = max(rhi, A%row_idx(p))
+        end do
+        rmin(t) = rlo
+        rmax(t) = rhi
+        yp(rlo:rhi, t) = 0.0_dp
+        do j = jlo, jhi
             do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                y(A%row_idx(p)) = y(A%row_idx(p)) + A%val(p)*x(j)
+                yp(A%row_idx(p), t) = yp(A%row_idx(p), t) + A%val(p)*x(j)
             end do
         end do
+        !$omp barrier
+        !$omp do schedule(static)
+        do i = 1, nrow
+            y(i) = 0.0_dp
+            do j = 1, nta
+                if (i >= rmin(j) .and. i <= rmax(j)) y(i) = y(i) + yp(i, j)
+            end do
+        end do
+        !$omp end do
+        !$omp end parallel
     end function csc_matvec_real
 
-    ! Sparse matvec y = A x for a complex CSC matrix.
-    pure function csc_matvec_complex(A, x) result(y)
+    ! Sparse matvec y = A x for a complex CSC matrix; see csc_matvec_real.
+    function csc_matvec_complex(A, x) result(y)
         type(csc_z_t), intent(in) :: A
-        complex(dp),   intent(in) :: x(:)
-        complex(dp)               :: y(A%nrow)
-        integer                   :: j, p
+        complex(dp), intent(in) :: x(:)
+        complex(dp) :: y(A%nrow)
+        complex(dp), allocatable :: yp(:, :)
+        integer :: j, p, i, t, nt, nta, jlo, jhi, nrow, rlo, rhi
+        integer :: rmin(MAXT), rmax(MAXT)
 
+        nrow = A%nrow
         y = (0.0_dp, 0.0_dp)
-        do j = 1, A%ncol
+        nt = min(matvec_thread_count(A%nnz), MAXT)
+        if (nt <= 1) then
+            do j = 1, A%ncol
+                do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                    y(A%row_idx(p)) = y(A%row_idx(p)) + A%val(p)*x(j)
+                end do
+            end do
+            return
+        end if
+        allocate (yp(nrow, nt))
+        !$omp parallel num_threads(nt) default(shared) &
+        !$omp private(t, nta, j, p, i, jlo, jhi, rlo, rhi)
+        t = 1
+        nta = 1
+        !$ t = omp_get_thread_num() + 1
+        !$ nta = omp_get_num_threads()
+        call column_chunk(A%col_ptr, A%ncol, A%nnz, t, nta, jlo, jhi)
+        rlo = nrow + 1
+        rhi = 0
+        do p = A%col_ptr(jlo), A%col_ptr(max(jlo, jhi + 1)) - 1
+            rlo = min(rlo, A%row_idx(p))
+            rhi = max(rhi, A%row_idx(p))
+        end do
+        rmin(t) = rlo
+        rmax(t) = rhi
+        yp(rlo:rhi, t) = (0.0_dp, 0.0_dp)
+        do j = jlo, jhi
             do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                y(A%row_idx(p)) = y(A%row_idx(p)) + A%val(p)*x(j)
+                yp(A%row_idx(p), t) = yp(A%row_idx(p), t) + A%val(p)*x(j)
             end do
         end do
+        !$omp barrier
+        !$omp do schedule(static)
+        do i = 1, nrow
+            y(i) = 0.0_dp
+            do j = 1, nta
+                if (i >= rmin(j) .and. i <= rmax(j)) y(i) = y(i) + yp(i, j)
+            end do
+        end do
+        !$omp end do
+        !$omp end parallel
     end function csc_matvec_complex
+
+    ! Threads used for a matvec with nnz stored entries: serial below
+    ! MATVEC_MIN_NNZ, else the OpenMP team size (one thread per
+    ! MATVEC_MIN_NNZ/4 entries at most).
+    function matvec_thread_count(nnz) result(nt)
+        integer, intent(in) :: nnz
+        integer             :: nt
+
+        nt = 1
+        !$ nt = min(omp_get_max_threads(), max(1, nnz/(MATVEC_MIN_NNZ/4)))
+        if (nnz < MATVEC_MIN_NNZ) nt = 1
+    end function matvec_thread_count
+
+    ! Columns jlo:jhi of chunk t of nt, balanced by stored entries (bisection
+    ! on col_ptr). Empty chunks give jlo > jhi.
+    subroutine column_chunk(col_ptr, ncol, nnz, t, nt, jlo, jhi)
+        integer, intent(in)  :: col_ptr(:), ncol, nnz, t, nt
+        integer, intent(out) :: jlo, jhi
+
+        jlo = first_column_at(col_ptr, ncol, int((int(t - 1, 8)*nnz)/nt) + 1)
+        jhi = first_column_at(col_ptr, ncol, int((int(t, 8)*nnz)/nt) + 1) - 1
+        if (t == nt) jhi = ncol
+    end subroutine column_chunk
+
+    ! Smallest column j in [1, ncol+1] whose entries reach position target
+    ! (ncol+1 if none).
+    pure function first_column_at(col_ptr, ncol, target) result(j)
+        integer, intent(in) :: col_ptr(:), ncol, target
+        integer             :: j, lo, hi, mid
+
+        lo = 1
+        hi = ncol + 1
+        do while (lo < hi)
+            mid = (lo + hi)/2
+            if (col_ptr(mid + 1) > col_ptr(1) + target - 1) then
+                hi = mid
+            else
+                lo = mid + 1
+            end if
+        end do
+        j = lo
+    end function first_column_at
 
     ! Structural validity for a real CSC matrix.
     pure logical function csc_is_valid_real(A) result(ok)
