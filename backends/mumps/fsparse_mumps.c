@@ -33,6 +33,9 @@ void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
 int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
                           int *info2);
 void fsparse_mumps_stats_d(void *handle, long *istat, double *rstat);
+int fsparse_mumps_refactor_d(void *handle, long nnz, const long *colptr1,
+                            const long *rowidx1, const double *val, int *info1,
+                            int *info2);
 void fsparse_mumps_free_d(void *handle);
 
 typedef struct {
@@ -43,6 +46,8 @@ typedef struct {
     long n;
     double t_analysis; /* wall seconds of the symbolic analysis */
     double t_factor;   /* wall seconds of the numerical factorization */
+    int pct;   /* MUMPS ICNTL(14) slack that last worked */
+    int sym;   /* MUMPS SYM used */
     int ok; /* instance initialised (JOB=-1 done, JOB=-2 still owed) */
 } fsparse_mumps_t;
 
@@ -79,6 +84,40 @@ static void destroy(fsparse_mumps_t *h)
     free(h);
 }
 
+/* Numerical factorization with ICNTL(14) slack that grows until MUMPS stops
+ * asking for more workspace (INFOG(1) = -9 / -8 / -17 / -20). Returns 0 or -1
+ * with info1/info2 set. The handle stays valid; the caller decides whether to
+ * destroy it. */
+static int numeric(fsparse_mumps_t *h, int *info1, int *info2)
+{
+    int attempt, pct = h->pct;
+    double t0 = wall();
+
+    for (attempt = 0; attempt < 6; ++attempt) {
+        h->id.ICN(14) = pct;
+        mumps_call(h, 2); /* numerical factorization */
+        if (h->id.INFOG(1) != -9 && h->id.INFOG(1) != -8 &&
+            h->id.INFOG(1) != -17 && h->id.INFOG(1) != -20)
+            break;
+        pct *= 2;
+    }
+    h->pct = pct;
+    h->t_factor = wall() - t0;
+    if (h->id.INFOG(1) < 0) {
+        *info1 = h->id.INFOG(1);
+        *info2 = h->id.INFOG(2);
+        return -1;
+    }
+    /* SYM=1 factors without pivoting and does not itself reject a matrix that
+     * is not positive definite; INFOG(12) counts the negative pivots. */
+    if (h->sym == 1 && h->id.INFOG(12) > 0) {
+        *info1 = -40;
+        *info2 = h->id.INFOG(12);
+        return -1;
+    }
+    return 0;
+}
+
 void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
                              const long *rowidx1, const double *val, int sym,
                              int ordering, int nthreads, int verbose,
@@ -86,7 +125,6 @@ void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
 {
     fsparse_mumps_t *h;
     long col, e, cnt = 0;
-    int attempt, pct;
     double t0;
 
     *info1 = 0;
@@ -161,42 +199,51 @@ void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
         destroy(h);
         return NULL;
     }
-    pct = 20;
-    t0 = wall();
-    for (attempt = 0; attempt < 6; ++attempt) {
-        h->id.ICN(14) = pct;
-        mumps_call(h, 2); /* numerical factorization */
-        if (h->id.INFOG(1) != -9 && h->id.INFOG(1) != -8 &&
-            h->id.INFOG(1) != -17 && h->id.INFOG(1) != -20)
-            break;
-        pct *= 2;
-    }
-    h->t_factor = wall() - t0;
-    if (h->id.INFOG(1) < 0) {
-        *info1 = h->id.INFOG(1);
-        *info2 = h->id.INFOG(2);
+    h->pct = 20;
+    h->sym = sym;
+    if (numeric(h, info1, info2) != 0) {
         destroy(h);
         return NULL;
     }
-    /* SYM=1 factors without pivoting and does not itself reject a matrix that
-     * is not positive definite; INFOG(12) counts the negative pivots. */
-    if (sym == 1 && h->id.INFOG(12) > 0) {
-        *info1 = -40;
-        *info2 = h->id.INFOG(12);
-        destroy(h);
-        return NULL;
-    }
-    /* The coordinate arrays are no longer needed for the solve. */
-    free(h->irn);
-    free(h->jcn);
-    free(h->a);
-    h->irn = NULL;
-    h->jcn = NULL;
-    h->a = NULL;
-    h->id.irn = NULL;
-    h->id.jcn = NULL;
-    h->id.a = NULL;
+    /* The coordinate arrays stay: fsparse_mumps_refactor_d refills the values
+     * and reuses this analysis. */
     return h;
+}
+
+/* Numerical refactorization of the same sparsity pattern with new values: the
+ * symbolic analysis is kept. The caller guarantees colptr1/rowidx1 equal the
+ * pattern of the original factorization (the Fortran layer checks it); a
+ * differing entry count is still caught here. Returns 0, or the MUMPS error in
+ * info1 (the handle then holds no usable factors and must be freed). */
+int fsparse_mumps_refactor_d(void *handle, long nnz, const long *colptr1,
+                            const long *rowidx1, const double *val,
+                            int *info1, int *info2)
+{
+    fsparse_mumps_t *h = (fsparse_mumps_t *) handle;
+    long col, e, cnt = 0;
+
+    *info1 = 0;
+    *info2 = 0;
+    (void) nnz;
+    if (h == NULL || h->a == NULL) {
+        *info1 = -1003;
+        return -1;
+    }
+    for (col = 0; col < h->n; ++col) {
+        for (e = colptr1[col] - 1; e < colptr1[col + 1] - 1; ++e) {
+            long row = rowidx1[e];
+            if (h->sym != 0 && row < col + 1) continue;
+            if (cnt >= h->id.nnz) goto mismatch;
+            h->a[cnt++] = val[e];
+        }
+    }
+    if (cnt != h->id.nnz) goto mismatch;
+    h->id.a = h->a;
+    h->t_analysis = 0.0; /* statistics describe this call: no analysis */
+    return numeric(h, info1, info2);
+mismatch:
+    *info1 = -1003; /* pattern does not match the analysed one */
+    return -1;
 }
 
 /* Solve with nrhs columns stored contiguously with leading dimension ld.

@@ -85,6 +85,12 @@ if(FORTSPARSE_ENABLE_MUMPS)
     add_executable(test_fortsparse_mumps mumps/test_fortsparse_mumps.f90)
     target_link_libraries(test_fortsparse_mumps PRIVATE fs_test_matrices)
     add_test(NAME test_fortsparse_mumps COMMAND test_fortsparse_mumps)
+    add_executable(test_fortsparse_mumps_refactor
+        mumps/test_fortsparse_mumps_refactor.f90)
+    target_link_libraries(test_fortsparse_mumps_refactor PRIVATE
+        fs_test_matrices)
+    add_test(NAME test_fortsparse_mumps_refactor
+        COMMAND test_fortsparse_mumps_refactor)
     if(TARGET MUMPS::ZMUMPS)
         add_executable(test_fortsparse_mumps_complex
             mumps/test_fortsparse_mumps_complex.f90)

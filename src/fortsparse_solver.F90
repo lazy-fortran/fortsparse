@@ -55,6 +55,7 @@ module fortsparse_solver
     end type sparse_solver_t
 
     public :: sparse_factor
+    public :: sparse_refactor
     public :: sparse_solve
     public :: sparse_free
     public :: sparse_destroy
@@ -64,6 +65,19 @@ module fortsparse_solver
     public :: sparse_vector
     public :: sparse_solve_block
     public :: sparse_factor_stats
+
+    ! Refactor after the matrix values changed. When the sparsity pattern (and
+    ! the symmetry and ordering options) equal those of the last factorization
+    ! and the backend supports it (MUMPS), the symbolic analysis is kept and
+    ! only the numerical factorization is redone; otherwise this is a full
+    ! sparse_factor. The optional reused is .true. when the analysis was kept.
+    ! A numerical failure (singular) leaves the solver unfactored.
+    interface sparse_refactor
+        module procedure sparse_refactor_real
+        module procedure sparse_refactor_complex
+        module procedure sparse_refactor_real_raw
+        module procedure sparse_refactor_complex_raw
+    end interface sparse_refactor
 
     ! Factor a real or complex matrix into the solver handle. The csc_t forms
     ! take an assembled matrix; the raw forms take caller-owned 1-based CSC
@@ -166,6 +180,82 @@ contains
             row_idx, val, solver%refine, status)
         solver%factored = status_ok(status)
     end subroutine sparse_factor_complex_raw
+
+    subroutine sparse_refactor_real(solver, A, status, reused)
+        type(sparse_solver_t),     intent(inout) :: solver
+        type(csc_t),               intent(in)    :: A
+        type(fortsparse_status_t), intent(out)   :: status
+        logical, optional,         intent(out)   :: reused
+
+        logical :: r
+
+        r = .false.
+        call ensure_backend(solver, status)
+        if (status_ok(status)) then
+            call solver%backend%refactor_real(A, solver%refine, status, r)
+            solver%factored = status_ok(status)
+        end if
+        if (present(reused)) reused = r
+    end subroutine sparse_refactor_real
+
+    subroutine sparse_refactor_complex(solver, A, status, reused)
+        type(sparse_solver_t),     intent(inout) :: solver
+        type(csc_z_t),             intent(in)    :: A
+        type(fortsparse_status_t), intent(out)   :: status
+        logical, optional,         intent(out)   :: reused
+
+        logical :: r
+
+        r = .false.
+        call ensure_backend(solver, status)
+        if (status_ok(status)) then
+            call solver%backend%refactor_complex(A, solver%refine, status, r)
+            solver%factored = status_ok(status)
+        end if
+        if (present(reused)) reused = r
+    end subroutine sparse_refactor_complex
+
+    subroutine sparse_refactor_real_raw(solver, nrow, ncol, nz, col_ptr, &
+            row_idx, val, status, reused)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        type(fortsparse_status_t), intent(out)   :: status
+        logical, optional,         intent(out)   :: reused
+
+        logical :: r
+
+        r = .false.
+        call ensure_backend(solver, status)
+        if (status_ok(status)) then
+            call solver%backend%refactor_real_raw(nrow, ncol, nz, col_ptr, &
+                row_idx, val, solver%refine, status, r)
+            solver%factored = status_ok(status)
+        end if
+        if (present(reused)) reused = r
+    end subroutine sparse_refactor_real_raw
+
+    subroutine sparse_refactor_complex_raw(solver, nrow, ncol, nz, col_ptr, &
+            row_idx, val, status, reused)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        complex(dp),               intent(in)    :: val(:)
+        type(fortsparse_status_t), intent(out)   :: status
+        logical, optional,         intent(out)   :: reused
+
+        logical :: r
+
+        r = .false.
+        call ensure_backend(solver, status)
+        if (status_ok(status)) then
+            call solver%backend%refactor_complex_raw(nrow, ncol, nz, col_ptr, &
+                row_idx, val, solver%refine, status, r)
+            solver%factored = status_ok(status)
+        end if
+        if (present(reused)) reused = r
+    end subroutine sparse_refactor_complex_raw
 
     ! Solve A x = b for a real RHS, reusing the stored factorization.
     subroutine sparse_solve_real(solver, b, x, status)

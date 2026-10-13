@@ -56,9 +56,14 @@ module fortsparse_mumps
         logical     :: is_complex = .false.
         integer     :: zmode = 0
         type(csc_z_t) :: a_cplx ! full matrix; kept only when refinement is on
+        ! Pattern and options of the analysed matrix, for refactor reuse.
+        integer, allocatable :: pat_ptr(:), pat_idx(:)
+        integer     :: pat_sym = -1, pat_ord = -1
     contains
         procedure :: factor_real => mumps_factor_real
         procedure :: factor_complex => mumps_factor_complex
+        procedure :: refactor_real => mumps_refactor_real
+        procedure :: refactor_complex => mumps_refactor_complex
         procedure :: solve_real => mumps_solve_real
         procedure :: solve_complex => mumps_solve_complex
         procedure :: solve_real_inplace => mumps_solve_real_inplace
@@ -138,6 +143,28 @@ module fortsparse_mumps
             real(c_double),  intent(out) :: rstat(5)
         end subroutine fsparse_mumps_stats_z
 
+        integer(c_int) function fsparse_mumps_refactor_d(h, nnz, colptr1, &
+                rowidx1, val, info1, info2) &
+                bind(c, name="fsparse_mumps_refactor_d")
+            import :: c_ptr, c_int, c_long, c_double
+            type(c_ptr),     value       :: h
+            integer(c_long), value       :: nnz
+            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            real(c_double),  intent(in)  :: val(*)
+            integer(c_int),  intent(out) :: info1, info2
+        end function fsparse_mumps_refactor_d
+
+        integer(c_int) function fsparse_mumps_refactor_z(h, nnz, colptr1, &
+                rowidx1, val, info1, info2) &
+                bind(c, name="fsparse_mumps_refactor_z")
+            import :: c_ptr, c_int, c_long, c_double_complex
+            type(c_ptr),     value       :: h
+            integer(c_long), value       :: nnz
+            integer(c_long), intent(in)  :: colptr1(*), rowidx1(*)
+            complex(c_double_complex), intent(in) :: val(*)
+            integer(c_int),  intent(out) :: info1, info2
+        end function fsparse_mumps_refactor_z
+
         subroutine fsparse_mumps_free_z(h) bind(c, name="fsparse_mumps_free_z")
             import :: c_ptr
             type(c_ptr), value :: h
@@ -204,6 +231,7 @@ contains
             self%a_real = A
             self%anorm = inf_norm(A)
         end if
+        call save_pattern(self, A%ncol, A%nnz, A%col_ptr, A%row_idx)
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine mumps_factor_real
 
@@ -273,8 +301,129 @@ contains
             call expand_full(A, mode, self%a_cplx)
             self%anorm = inf_norm_z(self%a_cplx)
         end if
+        call save_pattern(self, A%ncol, A%nnz, A%col_ptr, A%row_idx)
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine mumps_factor_complex
+
+    subroutine save_pattern(self, ncol, nnz, col_ptr, row_idx)
+        class(mumps_backend_t), intent(inout) :: self
+        integer,                intent(in)    :: ncol, nnz
+        integer,                intent(in)    :: col_ptr(:), row_idx(:)
+
+        self%pat_ptr = col_ptr(1:ncol + 1)
+        self%pat_idx = row_idx(1:nnz)
+        self%pat_sym = self%options%symmetry
+        self%pat_ord = self%options%ordering
+    end subroutine save_pattern
+
+    ! True when a live factorization of the requested kind exists whose
+    ! analysed pattern and structure options equal the new matrix's.
+    logical function can_reuse(self, cplx, nrow, ncol, nnz, col_ptr, row_idx)
+        class(mumps_backend_t), intent(in) :: self
+        logical,                intent(in) :: cplx
+        integer,                intent(in) :: nrow, ncol, nnz
+        integer,                intent(in) :: col_ptr(:), row_idx(:)
+
+        can_reuse = .false.
+        if (.not. c_associated(self%h)) return
+        if (self%is_complex .neqv. cplx) return
+        if (.not. allocated(self%pat_ptr)) return
+        if (.not. allocated(self%pat_idx)) return
+        if (nrow /= ncol .or. ncol /= self%n) return
+        if (nnz /= size(self%pat_idx)) return
+        if (self%pat_sym /= self%options%symmetry) return
+        if (self%pat_ord /= self%options%ordering) return
+        if (any(col_ptr(1:ncol + 1) /= self%pat_ptr)) return
+        if (any(row_idx(1:nnz) /= self%pat_idx)) return
+        can_reuse = .true.
+    end function can_reuse
+
+    ! Map a failed refactor like a failed factor and drop the dead handle.
+    subroutine refactor_failed(self, info1, info2, status)
+        class(mumps_backend_t),    intent(inout) :: self
+        integer(c_int),            intent(in)    :: info1, info2
+        type(fortsparse_status_t), intent(out)   :: status
+
+        character(80) :: msg
+
+        write (msg, '(a,i0,a,i0)') "mumps refactor failed: INFOG(1)=", &
+            info1, " INFOG(2)=", info2
+        select case (info1)
+        case (-6, -10, -40)
+            call status_set(status, FORTSPARSE_SINGULAR, trim(msg))
+        case default
+            call status_set(status, FORTSPARSE_INTERNAL_ERROR, trim(msg))
+        end select
+        call self%free()
+    end subroutine refactor_failed
+
+    ! Same pattern and options as the last factor: keep the symbolic analysis
+    ! and redo only the numerical factorization. Otherwise a full factor.
+    subroutine mumps_refactor_real(self, A, refine, status, reused)
+        class(mumps_backend_t),    intent(inout) :: self
+        type(csc_t),               intent(in)    :: A
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+        logical,                   intent(out)   :: reused
+
+        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
+        integer(c_int) :: info1, info2, rc
+
+        reused = .false.
+        if (.not. can_reuse(self, .false., A%nrow, A%ncol, A%nnz, &
+                            A%col_ptr, A%row_idx)) then
+            call self%factor_real(A, refine, status)
+            return
+        end if
+        colptr1 = int(A%col_ptr, c_long)
+        rowidx1 = int(A%row_idx, c_long)
+        rc = fsparse_mumps_refactor_d(self%h, int(A%nnz, c_long), colptr1, &
+            rowidx1, A%val, info1, info2)
+        if (rc /= 0) then
+            call refactor_failed(self, info1, info2, status)
+            return
+        end if
+        self%refine = refine
+        if (refine) then
+            self%a_real = A
+            self%anorm = inf_norm(A)
+        end if
+        reused = .true.
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine mumps_refactor_real
+
+    subroutine mumps_refactor_complex(self, A, refine, status, reused)
+        class(mumps_backend_t),    intent(inout) :: self
+        type(csc_z_t),             intent(in)    :: A
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+        logical,                   intent(out)   :: reused
+
+        integer(c_long), allocatable :: colptr1(:), rowidx1(:)
+        integer(c_int) :: info1, info2, rc
+
+        reused = .false.
+        if (.not. can_reuse(self, .true., A%nrow, A%ncol, A%nnz, &
+                            A%col_ptr, A%row_idx)) then
+            call self%factor_complex(A, refine, status)
+            return
+        end if
+        colptr1 = int(A%col_ptr, c_long)
+        rowidx1 = int(A%row_idx, c_long)
+        rc = fsparse_mumps_refactor_z(self%h, int(A%nnz, c_long), colptr1, &
+            rowidx1, A%val, info1, info2)
+        if (rc /= 0) then
+            call refactor_failed(self, info1, info2, status)
+            return
+        end if
+        self%refine = refine
+        if (refine) then
+            call expand_full(A, self%zmode, self%a_cplx)
+            self%anorm = inf_norm_z(self%a_cplx)
+        end if
+        reused = .true.
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine mumps_refactor_complex
 
     ! The full matrix MUMPS factored, for the refinement residual: a symmetric
     ! mode rebuilds the full matrix from the lower triangle, as the shim does.
@@ -683,6 +832,8 @@ contains
         self%n = 0
         self%refine = .false.
         self%symmetric = .false.
+        if (allocated(self%pat_ptr)) deallocate (self%pat_ptr)
+        if (allocated(self%pat_idx)) deallocate (self%pat_idx)
         if (allocated(self%a_real%col_ptr)) deallocate (self%a_real%col_ptr)
         if (allocated(self%a_real%row_idx)) deallocate (self%a_real%row_idx)
         if (allocated(self%a_real%val)) deallocate (self%a_real%val)

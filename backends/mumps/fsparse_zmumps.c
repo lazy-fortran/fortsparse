@@ -35,6 +35,10 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
 int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
                           long ld, int *info2);
 void fsparse_mumps_stats_z(void *handle, long *istat, double *rstat);
+int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
+                            const long *rowidx1,
+                            const mumps_double_complex *val, int *info1,
+                            int *info2);
 void fsparse_mumps_free_z(void *handle);
 
 typedef struct {
@@ -45,6 +49,9 @@ typedef struct {
     long n;
     double t_analysis;
     double t_factor;
+    int mode;  /* fsparse_mumps_factor_z mode */
+    int pct;   /* MUMPS ICNTL(14) slack that last worked */
+    int sym;   /* MUMPS SYM used */
     int ok;
 } fsparse_zmumps_t;
 
@@ -73,6 +80,40 @@ static void destroy(fsparse_zmumps_t *h)
     free(h);
 }
 
+/* Numerical factorization with ICNTL(14) slack that grows until MUMPS stops
+ * asking for more workspace (INFOG(1) = -9 / -8 / -17 / -20). Returns 0 or -1
+ * with info1/info2 set. The handle stays valid; the caller decides whether to
+ * destroy it. */
+static int numeric(fsparse_zmumps_t *h, int *info1, int *info2)
+{
+    int attempt, pct = h->pct;
+    double t0 = wall();
+
+    for (attempt = 0; attempt < 6; ++attempt) {
+        h->id.ICN(14) = pct;
+        mumps_call(h, 2); /* numerical factorization */
+        if (h->id.INFOG(1) != -9 && h->id.INFOG(1) != -8 &&
+            h->id.INFOG(1) != -17 && h->id.INFOG(1) != -20)
+            break;
+        pct *= 2;
+    }
+    h->pct = pct;
+    h->t_factor = wall() - t0;
+    if (h->id.INFOG(1) < 0) {
+        *info1 = h->id.INFOG(1);
+        *info2 = h->id.INFOG(2);
+        return -1;
+    }
+    /* SYM=1 factors without pivoting and does not itself reject a matrix that
+     * is not positive definite; INFOG(12) counts the negative pivots. */
+    if (h->sym == 1 && h->id.INFOG(12) > 0) {
+        *info1 = -40;
+        *info2 = h->id.INFOG(12);
+        return -1;
+    }
+    return 0;
+}
+
 void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
                              const long *rowidx1,
                              const mumps_double_complex *val, int mode,
@@ -81,7 +122,7 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
 {
     fsparse_zmumps_t *h;
     long col, e, cnt = 0, cap;
-    int attempt, pct, sym;
+    int sym;
     double t0;
 
     *info1 = 0;
@@ -168,33 +209,60 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
         destroy(h);
         return NULL;
     }
-    pct = 20;
-    t0 = wall();
-    for (attempt = 0; attempt < 6; ++attempt) {
-        h->id.ICN(14) = pct;
-        mumps_call(h, 2);
-        if (h->id.INFOG(1) != -9 && h->id.INFOG(1) != -8 &&
-            h->id.INFOG(1) != -17 && h->id.INFOG(1) != -20)
-            break;
-        pct *= 2;
-    }
-    h->t_factor = wall() - t0;
-    if (h->id.INFOG(1) < 0) {
-        *info1 = h->id.INFOG(1);
-        *info2 = h->id.INFOG(2);
+    h->pct = 20;
+    h->sym = sym;
+    h->mode = mode;
+    if (numeric(h, info1, info2) != 0) {
         destroy(h);
         return NULL;
     }
-    free(h->irn);
-    free(h->jcn);
-    free(h->a);
-    h->irn = NULL;
-    h->jcn = NULL;
-    h->a = NULL;
-    h->id.irn = NULL;
-    h->id.jcn = NULL;
-    h->id.a = NULL;
+    /* The coordinate arrays stay: fsparse_mumps_refactor_z refills the values
+     * and reuses this analysis. */
     return h;
+}
+
+/* Numerical refactorization of the same sparsity pattern with new values: the
+ * symbolic analysis is kept. The caller guarantees colptr1/rowidx1 equal the
+ * pattern of the original factorization (the Fortran layer checks it); a
+ * differing entry count is still caught here. Returns 0, or the MUMPS error in
+ * info1 (the handle then holds no usable factors and must be freed). */
+int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
+                            const long *rowidx1, const mumps_double_complex *val,
+                            int *info1, int *info2)
+{
+    fsparse_zmumps_t *h = (fsparse_zmumps_t *) handle;
+    long col, e, cnt = 0;
+
+    *info1 = 0;
+    *info2 = 0;
+    (void) nnz;
+    if (h == NULL || h->a == NULL) {
+        *info1 = -1003;
+        return -1;
+    }
+    for (col = 0; col < h->n; ++col) {
+        for (e = colptr1[col] - 1; e < colptr1[col + 1] - 1; ++e) {
+            long row = rowidx1[e];
+            if (h->mode != 0 && row < col + 1) continue;
+            if (cnt >= h->id.nnz) goto mismatch;
+            h->a[cnt] = val[e];
+            if (h->mode == 1 && row == col + 1) h->a[cnt].i = 0.0;
+            ++cnt;
+            if (h->mode == 1 && row != col + 1) {
+                if (cnt >= h->id.nnz) goto mismatch;
+                h->a[cnt].r = val[e].r;
+                h->a[cnt].i = -val[e].i;
+                ++cnt;
+            }
+        }
+    }
+    if (cnt != h->id.nnz) goto mismatch;
+    h->id.a = h->a;
+    h->t_analysis = 0.0; /* statistics describe this call: no analysis */
+    return numeric(h, info1, info2);
+mismatch:
+    *info1 = -1003; /* pattern does not match the analysed one */
+    return -1;
 }
 
 int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
