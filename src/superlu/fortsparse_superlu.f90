@@ -1,7 +1,7 @@
 module fortsparse_superlu
     ! SuperLU (BSD) in-process backend. Binds the MIT C shim
     ! (src/superlu/fsparse_superlu.c) through iso_c_binding. CSC index arrays
-    ! are passed 1-based as 64-bit integers; the shim converts to SuperLU's
+    ! are passed 1-based; the shim converts to SuperLU's
     ! 0-based int_t internally. The opaque factorization lives behind a c_ptr
     ! held in the backend object and is reused for every solve.
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
@@ -41,6 +41,7 @@ module fortsparse_superlu
         integer                   :: nvec = 0
     contains
         procedure :: factor_real => slu_factor_real
+        procedure :: factor_real_raw => slu_factor_real_raw
         procedure :: factor_complex => slu_factor_complex
         procedure :: solve_real => slu_solve_real
         procedure :: solve_complex => slu_solve_complex
@@ -55,9 +56,9 @@ module fortsparse_superlu
 
         function fsparse_slu_factor_d(n, nnz, colptr1, rowidx1, val, info) &
                 bind(c, name="fsparse_slu_factor_d") result(h)
-            import :: c_ptr, c_int, c_int64_t, c_double
-            integer(c_int64_t), value       :: n, nnz
-            integer(c_int64_t), intent(in)  :: colptr1(*), rowidx1(*)
+            import :: c_ptr, c_int, c_double
+            integer(c_int), value          :: n, nnz
+            integer(c_int), intent(in)     :: colptr1(*), rowidx1(*)
             real(c_double),     intent(in)  :: val(*)
             integer(c_int),     intent(out) :: info
             type(c_ptr)                     :: h
@@ -112,21 +113,37 @@ contains
         logical,                   intent(in)    :: refine
         type(fortsparse_status_t), intent(out)   :: status
 
-        integer(i8), allocatable :: colptr1(:), rowidx1(:)
-        integer(c_int)           :: info
+        call self%factor_real_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status)
+    end subroutine slu_factor_real
+
+    ! Convert caller-owned CSC directly into the C factor storage. Retain a
+    ! Fortran copy only when it is needed for refinement residuals.
+    subroutine slu_factor_real_raw(self, nrow, ncol, nz, col_ptr, &
+            row_idx, val, refine, status)
+        class(superlu_backend_t),  intent(inout) :: self
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+
+        integer(c_int) :: info
 
         call self%free()
-        colptr1 = int(A%col_ptr, i8)
-        rowidx1 = int(A%row_idx, i8)
-        self%h_real = fsparse_slu_factor_d(int(A%ncol, i8), int(A%nnz, i8), &
-            colptr1, rowidx1, A%val, info)
+        self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, info)
         call map_factor_status(info, status)
-        if (info == 0) then
-            self%is_complex = .false.
-            self%refine = refine
-            self%a_real = A
+        if (info /= 0) return
+        self%refine = refine
+        if (refine) then
+            self%a_real%nrow = nrow
+            self%a_real%ncol = ncol
+            self%a_real%nnz = nz
+            self%a_real%col_ptr = col_ptr(1:ncol + 1)
+            self%a_real%row_idx = row_idx(1:nz)
+            self%a_real%val = val(1:nz)
         end if
-    end subroutine slu_factor_real
+    end subroutine slu_factor_real_raw
 
     ! Factor a complex matrix. complex(dp) maps onto SuperLU's interleaved
     ! doublecomplex directly, so values pass through as a real(dp) buffer.
@@ -150,7 +167,7 @@ contains
         if (info == 0) then
             self%is_complex = .true.
             self%refine = refine
-            self%a_cplx = A
+            if (refine) self%a_cplx = A
         end if
     end subroutine slu_factor_complex
 
@@ -275,6 +292,8 @@ contains
         self%h_cplx = c_null_ptr
         self%is_complex = .false.
         self%refine = .false.
+        self%a_real = csc_t()
+        self%a_cplx = csc_z_t()
     end subroutine slu_free
 
     ! Free the retained factorization when the backend is destroyed. Runs

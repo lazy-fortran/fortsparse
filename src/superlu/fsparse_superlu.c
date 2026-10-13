@@ -20,8 +20,8 @@
 #include <superlu/slu_zdefs.h>
 #endif
 
-void *fsparse_slu_factor_d(long n, long nnz, const long *colptr1,
-                           const long *rowidx1, const double *val, int *info);
+void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
+                           const int *rowidx1, const double *val, int *info);
 int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n);
 void fsparse_slu_free_d(void *handle);
 void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
@@ -74,8 +74,19 @@ static int_t *copy_to_int_t0(const long *src, long count)
     return dst;
 }
 
-void *fsparse_slu_factor_d(long n, long nnz, const long *colptr1,
-                           const long *rowidx1, const double *val, int *info)
+/* The public real CSC uses default Fortran integers. Convert directly into
+ * SuperLU storage without a matrix-sized intermediate long array. */
+static int_t *copy_int_to_int_t0(const int *src, int count)
+{
+    int_t *dst = (int_t *) malloc((size_t) count * sizeof(int_t));
+    int k;
+    if (dst == NULL) return NULL;
+    for (k = 0; k < count; ++k) dst[k] = (int_t) (src[k] - 1);
+    return dst;
+}
+
+void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
+                           const int *rowidx1, const double *val, int *info)
 {
     slu_real_t *h;
     SuperMatrix B; /* dummy, unused by dgstrf */
@@ -88,8 +99,8 @@ void *fsparse_slu_factor_d(long n, long nnz, const long *colptr1,
     if (h == NULL) { *info = -1; return NULL; }
 
     h->n = (int) n;
-    h->colptr0 = copy_to_int_t0(colptr1, n + 1);
-    h->rowidx0 = copy_to_int_t0(rowidx1, nnz);
+    h->colptr0 = copy_int_to_int_t0(colptr1, n + 1);
+    h->rowidx0 = copy_int_to_int_t0(rowidx1, nnz);
     h->aval = (double *) malloc((size_t) nnz * sizeof(double));
     h->perm_c = (int *) malloc((size_t) n * sizeof(int));
     h->perm_r = (int *) malloc((size_t) n * sizeof(int));

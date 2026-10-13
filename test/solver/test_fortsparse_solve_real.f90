@@ -12,6 +12,7 @@ program test_fortsparse_solve_real
     nfail = 0
 
     call run(nfail)
+    call raw_factor(nfail)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -61,6 +62,37 @@ contains
         call check_true("once_ok", status_ok(status), nfail)
         call check_err("once_x", x, xe, nfail)
     end subroutine run
+
+    subroutine raw_factor(nfail)
+        integer, intent(inout) :: nfail
+
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        integer :: colptr(4), rowidx(7), pass
+        real(dp) :: val(7), b(3), x(3)
+
+        ! Nonsymmetric matrix; the backend must own everything it needs after
+        ! factor returns, including the original matrix when refining.
+        do pass = 1, 3
+            colptr = [1, 3, 6, 8]
+            rowidx = [1, 2, 1, 2, 3, 2, 3]
+            val = [4.0_dp, -2.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 2.0_dp, 5.0_dp]
+            solver%refine = pass == 2
+            call sparse_factor(solver, 3, 3, 7, colptr, rowidx, val, status)
+            call check_true("raw_factor", status_ok(status), nfail)
+            val = 0.0_dp
+            rowidx = 1
+            colptr = 1
+            b = [6.0_dp, 10.0_dp, 17.0_dp]
+            call sparse_solve(solver, b, x, status)
+            call check_true("raw_solve", status_ok(status), nfail)
+            call check_err("raw_x", x, [1.0_dp, 2.0_dp, 3.0_dp], nfail)
+            call sparse_solve(solver, 2.0_dp*b, x, status)
+            call check_true("raw_solve_again", status_ok(status), nfail)
+            call check_err("raw_x_again", x, [2.0_dp, 4.0_dp, 6.0_dp], nfail)
+        end do
+        call sparse_free(solver)
+    end subroutine raw_factor
 
     subroutine check_err(label, got, want, nfail)
         character(*), intent(in)    :: label
