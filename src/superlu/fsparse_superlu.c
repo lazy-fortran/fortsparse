@@ -21,7 +21,7 @@
 #endif
 
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int *info);
+                           const int *rowidx1, const double *val, int ilu, int *info);
 int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n);
 void fsparse_slu_free_d(void *handle);
 void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
@@ -42,6 +42,8 @@ typedef struct {
     int_t *colptr0; /* 0-based CSC, owned by A */
     int_t *rowidx0;
     double *aval;
+    double *rscale, *cscale;
+    char equed;
     superlu_options_t options;
     GlobalLU_t glu;
 } slu_real_t;
@@ -86,13 +88,15 @@ static int_t *copy_int_to_int_t0(const int *src, int count)
 }
 
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int *info)
+                           const int *rowidx1, const double *val, int ilu, int *info)
 {
     slu_real_t *h;
     SuperMatrix B; /* dummy, unused by dgstrf */
     SuperLUStat_t stat;
     int panel_size, relax;
     int_t lu_info = 0;
+    double rowcnd, colcnd, amax;
+    int equ_info;
 
     *info = 0;
     h = (slu_real_t *) calloc(1, sizeof(slu_real_t));
@@ -117,6 +121,28 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
                            h->rowidx0, h->colptr0, SLU_NC, SLU_D, SLU_GE);
 
     set_default_options(&h->options);
+    h->equed = 'N';
+    if (ilu) {
+        ilu_set_default_options(&h->options);
+        /* Use SuperLU equilibration without the optional MC64 dependency. */
+        h->options.RowPerm = NOROWPERM;
+        h->options.ILU_DropTol = 1e-4;
+        h->options.ILU_FillFactor = 10.0;
+        h->rscale = (double *) malloc((size_t) n * sizeof(double));
+        h->cscale = (double *) malloc((size_t) n * sizeof(double));
+        if (h->rscale == NULL || h->cscale == NULL) {
+            *info = -1;
+            fsparse_slu_free_d(h);
+            return NULL;
+        }
+        dgsequ(&h->A, h->rscale, h->cscale, &rowcnd, &colcnd, &amax, &equ_info);
+        if (equ_info != 0) {
+            *info = 1;
+            fsparse_slu_free_d(h);
+            return NULL;
+        }
+        dlaqgs(&h->A, h->rscale, h->cscale, rowcnd, colcnd, amax, &h->equed);
+    }
     h->options.ColPerm = COLAMD;
     get_perm_c(COLAMD, &h->A, h->perm_c);
     sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
@@ -125,10 +151,20 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     relax = sp_ienv(2);
     StatInit(&stat);
     memset(&B, 0, sizeof(B));
-    dgstrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
-           h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
+    if (ilu)
+        dgsitrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
+                h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
+    else
+        dgstrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
+               h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
     StatFree(&stat);
 
+    if (ilu && lu_info > 0 && lu_info <= n) {
+        /* dgsitrf replaces these zero pivots; the preconditioner is usable.
+         * Expose the count as a warning, not an exact-factor singularity. */
+        *info = (int) lu_info;
+        return h;
+    }
     if (lu_info != 0) {
         /* lu_info > 0: zero pivot at column lu_info (singular). < 0: bad arg. */
         *info = (lu_info > 0) ? 1 : -1;
@@ -144,14 +180,19 @@ int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n)
     SuperMatrix B;
     SuperLUStat_t stat;
     int info = 0;
+    long i;
 
     if (h == NULL) return -1;
     memcpy(x, b, (size_t) n * sizeof(double));
+    if (h->equed == 'R' || h->equed == 'B')
+        for (i = 0; i < n; ++i) x[i] *= h->rscale[i];
     dCreate_Dense_Matrix(&B, (int) n, 1, x, (int) n, SLU_DN, SLU_D, SLU_GE);
     StatInit(&stat);
     dgstrs(NOTRANS, &h->L, &h->U, h->perm_c, h->perm_r, &B, &stat, &info);
     StatFree(&stat);
     Destroy_SuperMatrix_Store(&B);
+    if (h->equed == 'C' || h->equed == 'B')
+        for (i = 0; i < n; ++i) x[i] *= h->cscale[i];
     return info;
 }
 
@@ -169,6 +210,8 @@ void fsparse_slu_free_d(void *handle)
     free(h->colptr0);
     free(h->rowidx0);
     free(h->aval);
+    free(h->rscale);
+    free(h->cscale);
     free(h);
 }
 

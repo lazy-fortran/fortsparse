@@ -10,7 +10,8 @@ module fortsparse_superlu
     use fortsparse_backend, only: sparse_backend_t
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
-        FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR
+        FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
+        FORTSPARSE_BACKEND_UNAVAILABLE
     implicit none
     private
 
@@ -33,6 +34,7 @@ module fortsparse_superlu
         type(c_ptr) :: h_cplx = c_null_ptr
         logical     :: is_complex = .false.
         logical     :: refine = .false.
+        logical     :: incomplete = .false.
         type(csc_t)   :: a_real
         type(csc_z_t) :: a_cplx
         real(dp),    allocatable :: xbuf(:)
@@ -54,10 +56,10 @@ module fortsparse_superlu
 
     interface
 
-        function fsparse_slu_factor_d(n, nnz, colptr1, rowidx1, val, info) &
+        function fsparse_slu_factor_d(n, nnz, colptr1, rowidx1, val, ilu, info) &
                 bind(c, name="fsparse_slu_factor_d") result(h)
             import :: c_ptr, c_int, c_double
-            integer(c_int), value          :: n, nnz
+            integer(c_int), value          :: n, nnz, ilu
             integer(c_int), intent(in)     :: colptr1(*), rowidx1(*)
             real(c_double),     intent(in)  :: val(*)
             integer(c_int),     intent(out) :: info
@@ -131,9 +133,22 @@ contains
         integer(c_int) :: info
 
         call self%free()
-        self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, info)
+        if (self%incomplete .and. refine) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "SuperLU ILU is an approximate inverse; refinement is unsupported")
+            return
+        end if
+        self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, &
+            merge(1_c_int, 0_c_int, self%incomplete), info)
         call map_factor_status(info, status)
-        if (info /= 0) return
+        if (self%incomplete) then
+            if (c_associated(self%h_real)) then
+                call status_set(status, FORTSPARSE_OK, "")
+                if (info > 0) write (status%msg, '(a,i0)') &
+                    "SuperLU ILU perturbed zero pivots: ", info
+            end if
+        end if
+        if (status%code /= FORTSPARSE_OK) return
         self%refine = refine
         if (refine) then
             self%a_real%nrow = nrow
@@ -158,6 +173,11 @@ contains
         integer(c_int)           :: info
 
         call self%free()
+        if (self%incomplete) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "SuperLU ILU currently supports real matrices only")
+            return
+        end if
         colptr1 = int(A%col_ptr, i8)
         rowidx1 = int(A%row_idx, i8)
         val = interleave_complex(A%val)

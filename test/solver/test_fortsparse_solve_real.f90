@@ -3,9 +3,11 @@ program test_fortsparse_solve_real
     ! reusing the factorization, and exercise sparse_solve_once. Checks the
     ! solution against the known answer and the residual A x - b.
     use, intrinsic :: iso_fortran_env, only: error_unit
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use fortsparse, only: dp, csc_t, csc_from_triplet, csc_matvec, &
         sparse_solver_t, sparse_factor, sparse_solve, sparse_free, &
-        sparse_solve_once, fortsparse_status_t, status_ok
+        sparse_solve_once, fortsparse_status_t, status_ok, &
+        FORTSPARSE_BACKEND_SUPERLU_ILU, FORTSPARSE_BACKEND_SUPERLU
     implicit none
 
     integer :: nfail
@@ -13,6 +15,7 @@ program test_fortsparse_solve_real
 
     call run(nfail)
     call raw_factor(nfail)
+    call ilu_scaling(nfail)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -93,6 +96,63 @@ contains
         end do
         call sparse_free(solver)
     end subroutine raw_factor
+
+    subroutine ilu_scaling(nfail)
+        integer, intent(inout) :: nfail
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        integer :: colptr(4), rowidx(7), pass, j, k
+        real(dp) :: val(7), dense(3,3), base(3,3), rs(3), cs(3)
+        real(dp) :: want(3), b(3), x(3), scale
+
+        base = reshape([4.0_dp, -2.0_dp, 0.0_dp, 1.0_dp, 3.0_dp, &
+            1.0_dp, 0.0_dp, 2.0_dp, 5.0_dp], [3,3])
+        colptr = [1, 3, 6, 8]
+        rowidx = [1, 2, 1, 2, 3, 2, 3]
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU_ILU
+        do pass = 1, 4
+            rs = 1.0_dp
+            cs = 1.0_dp
+            if (pass == 2 .or. pass == 4) rs = [1.0e-8_dp, 1.0_dp, 1.0e8_dp]
+            if (pass == 3 .or. pass == 4) cs = [1.0e6_dp, 1.0e-3_dp, 1.0e3_dp]
+            do j = 1, 3
+                dense(:,j) = rs*base(:,j)*cs(j)
+                do k = colptr(j), colptr(j + 1) - 1
+                    val(k) = dense(rowidx(k),j)
+                end do
+            end do
+            want = [1.0_dp, 2.0_dp, 3.0_dp]/cs
+            b = matmul(dense, want)
+            call sparse_factor(solver, 3, 3, 7, colptr, rowidx, val, status)
+            call check_true("ilu_factor", status_ok(status), nfail)
+            call sparse_solve(solver, b, x, status)
+            call check_true("ilu_solve", status_ok(status), nfail)
+            call check_true("ilu_scaled_solution", &
+                maxval(abs((x - want)/want)) < 1.0e-12_dp, nfail)
+            scale = maxval(sum(abs(dense), dim=2))*maxval(abs(x)) + maxval(abs(b))
+            call check_true("ilu_original_residual", &
+                maxval(abs(matmul(dense, x) - b))/scale < 1.0e-14_dp, nfail)
+            call sparse_solve(solver, 2.0_dp*b, x, status)
+            call check_true("ilu_repeated", status_ok(status), nfail)
+            call check_true("ilu_repeated_solution", &
+                maxval(abs((x - 2.0_dp*want)/want)) < 1.0e-12_dp, nfail)
+        end do
+        ! An ILU zero pivot is perturbed by SuperLU, so its approximate inverse
+        ! remains applicable even when the original matrix is rank deficient.
+        call sparse_factor(solver, 2, 2, 4, [1,3,5], [1,2,1,2], &
+            [1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp], status)
+        call check_true("ilu_perturbed_factor", status_ok(status), nfail)
+        call sparse_solve(solver, [2.0_dp, 2.0_dp], x(1:2), status)
+        call check_true("ilu_perturbed_apply", status_ok(status), nfail)
+        call check_true("ilu_perturbed_finite", all(ieee_is_finite(x(1:2))), nfail)
+        ! Changing from an incomplete to an exact factor must reset its mode.
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
+        call sparse_factor(solver, 3, 3, 7, colptr, rowidx, val, status)
+        call check_true("ilu_to_lu_factor", status_ok(status), nfail)
+        call sparse_solve(solver, b, x, status)
+        call check_true("ilu_to_lu_solve", status_ok(status), nfail)
+        call sparse_free(solver)
+    end subroutine ilu_scaling
 
     subroutine check_err(label, got, want, nfail)
         character(*), intent(in)    :: label
