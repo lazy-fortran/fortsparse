@@ -36,6 +36,8 @@ module fortsparse_solver
     ! In-process threaded MUMPS: Cholesky/LDL^T/LU, nested dissection, block
     ! solves (present only when built with FORTSPARSE_ENABLE_MUMPS).
     integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
+    ! Approximate inverse for real nonsymmetric systems; not an exact solve.
+    integer, parameter, public :: FORTSPARSE_BACKEND_SUPERLU_ILU = 4
 
     ! Re-exported option and statistics vocabulary.
     public :: sparse_options_t, sparse_factor_stats_t
@@ -627,8 +629,12 @@ contains
         end if
         select case (solver%backend_id)
 #ifdef FORTSPARSE_HAVE_SUPERLU
-        case (FORTSPARSE_BACKEND_SUPERLU)
+        case (FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_SUPERLU_ILU)
             allocate (superlu_backend_t :: solver%backend)
+            select type (backend => solver%backend)
+            type is (superlu_backend_t)
+                backend%incomplete = solver%backend_id == FORTSPARSE_BACKEND_SUPERLU_ILU
+            end select
 #endif
         case (FORTSPARSE_BACKEND_UMFPACK_IPC)
             allocate (umfpack_ipc_backend_t :: solver%backend)
@@ -653,7 +659,11 @@ contains
         select type (backend)
 #ifdef FORTSPARSE_HAVE_SUPERLU
             type is (superlu_backend_t)
-            backend_is = (backend_id == FORTSPARSE_BACKEND_SUPERLU)
+            if (backend%incomplete) then
+                backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU_ILU
+            else
+                backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU
+            end if
 #endif
             type is (umfpack_ipc_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_UMFPACK_IPC)
