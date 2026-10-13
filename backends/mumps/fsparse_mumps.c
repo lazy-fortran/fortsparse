@@ -62,6 +62,18 @@ static pthread_mutex_t mumps_lock = PTHREAD_MUTEX_INITIALIZER;
 void fsparse_mumps_lock(void) { pthread_mutex_lock(&mumps_lock); }
 void fsparse_mumps_unlock(void) { pthread_mutex_unlock(&mumps_lock); }
 
+/* Each process factors its own matrices: with MPI-parallel MUMPS the
+ * instance runs on MPI_COMM_SELF, so ranks never enter a collective call
+ * together and may solve different systems independently. */
+MUMPS_INT fsparse_mumps_comm(void)
+{
+#ifdef FORTSPARSE_MUMPS_MPI
+    return (MUMPS_INT) MPI_Comm_c2f(MPI_COMM_SELF);
+#else
+    return USE_COMM_WORLD;
+#endif
+}
+
 /* The application owns MPI. Never enter MUMPS before MPI_Init or after
  * MPI_Finalize: implementations otherwise abort the whole process. */
 int fsparse_mumps_mpi_ready(void)
@@ -183,7 +195,7 @@ void *fsparse_mumps_factor_d(long n, long nnz, const int *colptr1,
         }
     }
 
-    h->id.comm_fortran = USE_COMM_WORLD;
+    h->id.comm_fortran = fsparse_mumps_comm();
     h->id.par = 1;
     h->id.sym = sym;
     mumps_call(h, JOB_INIT);

@@ -92,6 +92,16 @@ if(FORTSPARSE_ENABLE_MUMPS)
         fortsparse_add_test(test_fortsparse_mumps_mpi_lifecycle
             mumps/test_fortsparse_mumps_mpi_lifecycle.f90)
         target_link_libraries(test_fortsparse_mumps_mpi_lifecycle PRIVATE fs_test_mpi)
+        add_executable(test_fortsparse_mumps_mpi_ranks
+            mumps/test_fortsparse_mumps_mpi_ranks.f90)
+        target_link_libraries(test_fortsparse_mumps_mpi_ranks PRIVATE
+            fortsparse fs_test_mpi MPI::MPI_Fortran)
+        add_test(NAME test_fortsparse_mumps_mpi_ranks
+            COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2
+                ${MPIEXEC_PREFLAGS} $<TARGET_FILE:test_fortsparse_mumps_mpi_ranks>)
+        set_tests_properties(test_fortsparse_mumps_mpi_ranks PROPERTIES
+            PASS_REGULAR_EXPRESSION "PASS" FAIL_REGULAR_EXPRESSION "FAIL"
+            TIMEOUT 60 PROCESSORS 2)
     endif()
     add_library(fs_test_matrices STATIC mumps/fs_test_matrices.f90)
     target_link_libraries(fs_test_matrices PUBLIC fortsparse fs_test_mpi)

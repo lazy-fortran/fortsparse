@@ -19,7 +19,6 @@
 
 #define JOB_INIT (-1)
 #define JOB_END (-2)
-#define USE_COMM_WORLD (-987654)
 #define ICN(k) icntl[(k) - 1]
 #define INFOG(k) infog[(k) - 1]
 #define RINFOG(k) rinfog[(k) - 1]
@@ -27,6 +26,7 @@
 void fsparse_mumps_lock(void);
 void fsparse_mumps_unlock(void);
 int fsparse_mumps_mpi_ready(void);
+MUMPS_INT fsparse_mumps_comm(void);
 
 void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
                              const int *rowidx1,
@@ -176,7 +176,7 @@ void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
     }
 
     sym = (mode == 2) ? 2 : 0;
-    h->id.comm_fortran = USE_COMM_WORLD;
+    h->id.comm_fortran = fsparse_mumps_comm();
     h->id.par = 1;
     h->id.sym = sym;
     mumps_call(h, JOB_INIT);
