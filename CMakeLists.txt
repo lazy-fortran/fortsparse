@@ -48,9 +48,10 @@ option(FORTSPARSE_INSTALL_HELPER
 # MUMPS (CeCILL-C) in-process backend: threaded multifrontal Cholesky/LDL^T/LU
 # with METIS nested dissection, factor-once/solve-many and block solves. It is
 # linked, never copied, and stays optional: OFF builds nothing MUMPS-related.
-# Needs MUMPS built with OpenMP and METIS, found via
-# find_package(MUMPS CONFIG) (the scivision/mumps CMake build, installed to a
-# prefix on CMAKE_PREFIX_PATH or MUMPS_DIR).
+# Needs MUMPS built with OpenMP and METIS, found via find_package(MUMPS CONFIG)
+# (the scivision/mumps CMake build, installed to a prefix on CMAKE_PREFIX_PATH or
+# MUMPS_DIR) or else by cmake/FindMUMPS.cmake (distribution packages, sequential
+# or MPI-parallel).
 option(FORTSPARSE_ENABLE_MUMPS "Enable the in-process MUMPS backend" OFF)
 
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
@@ -86,11 +87,19 @@ if(FORTSPARSE_ENABLE_SUPERLU)
 endif()
 find_package(Threads REQUIRED)
 if(FORTSPARSE_ENABLE_MUMPS)
-    # One config load only (a second find_package(MUMPS) redefines imported
-    # targets). MUMPS::ZMUMPS exists when the installation was built with the
-    # complex library; src/ then links it, else the complex entry points are
-    # stubs returning FORTSPARSE_BACKEND_UNAVAILABLE.
-    find_package(MUMPS CONFIG REQUIRED COMPONENTS d)
+    # One load only (a second find_package(MUMPS) redefines imported targets).
+    # MUMPS::ZMUMPS exists when the installation was built with the complex
+    # library; src/ then links it, else the complex entry points are stubs
+    # returning FORTSPARSE_BACKEND_UNAVAILABLE. A sequential scivision/mumps
+    # config defines MPI::MPI_C and MPI::MPI_Fortran itself (as its mpiseq
+    # shim), which fails when a parent project already ran find_package(MPI);
+    # the find module, which reuses existing MPI targets, is used then.
+    if(NOT TARGET MPI::MPI_C AND NOT TARGET MPI::MPI_Fortran)
+        find_package(MUMPS CONFIG QUIET COMPONENTS d)
+    endif()
+    if(NOT MUMPS_FOUND)
+        find_package(MUMPS MODULE REQUIRED)
+    endif()
 endif()
 # OpenMP threads the CSC matvec; without it the matvec is serial.
 option(FORTSPARSE_ENABLE_OPENMP "Thread the CSC matvec with OpenMP" ON)
