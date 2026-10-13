@@ -1,4 +1,4 @@
-/* Thin C shim over sequential, OpenMP-threaded MUMPS (CeCILL-C). Exposes a
+/* Thin C shim over OpenMP-threaded MUMPS (CeCILL-C). Exposes a
  * factor/solve/free C ABI that Fortran binds through iso_c_binding. The
  * analysis and numerical factorization live in an opaque handle so repeated
  * (and multi-column) solves reuse them.
@@ -18,6 +18,9 @@
 #include <pthread.h>
 
 #include "dmumps_c.h"
+#ifdef FORTSPARSE_MUMPS_MPI
+#include <mpi.h>
+#endif
 
 #define JOB_INIT (-1)
 #define JOB_END (-2)
@@ -59,6 +62,22 @@ static pthread_mutex_t mumps_lock = PTHREAD_MUTEX_INITIALIZER;
 void fsparse_mumps_lock(void) { pthread_mutex_lock(&mumps_lock); }
 void fsparse_mumps_unlock(void) { pthread_mutex_unlock(&mumps_lock); }
 
+/* The application owns MPI. Never enter MUMPS before MPI_Init or after
+ * MPI_Finalize: implementations otherwise abort the whole process. */
+int fsparse_mumps_mpi_ready(void)
+{
+#ifdef FORTSPARSE_MUMPS_MPI
+    int initialized = 0, finalized = 0;
+    fsparse_mumps_lock();
+    MPI_Initialized(&initialized);
+    MPI_Finalized(&finalized);
+    fsparse_mumps_unlock();
+    return initialized && !finalized;
+#else
+    return 1;
+#endif
+}
+
 static double wall(void)
 {
     struct timespec ts;
@@ -77,7 +96,9 @@ static void mumps_call(fsparse_mumps_t *h, int job)
 static void destroy(fsparse_mumps_t *h)
 {
     if (h == NULL) return;
-    if (h->ok) mumps_call(h, JOB_END);
+    /* MUMPS cannot release its internal allocations after MPI_Finalize.
+     * The caller must free first; still release our buffers without aborting. */
+    if (h->ok && fsparse_mumps_mpi_ready()) mumps_call(h, JOB_END);
     free(h->irn);
     free(h->jcn);
     free(h->a);
@@ -129,6 +150,10 @@ void *fsparse_mumps_factor_d(long n, long nnz, const long *colptr1,
 
     *info1 = 0;
     *info2 = 0;
+    if (!fsparse_mumps_mpi_ready()) {
+        *info1 = -1004;
+        return NULL;
+    }
     if (n > 2147483647L || nnz > 2147483647L) {
         *info1 = -1000; /* beyond 32-bit MUMPS integers */
         return NULL;
@@ -224,6 +249,10 @@ int fsparse_mumps_refactor_d(void *handle, long nnz, const long *colptr1,
 
     *info1 = 0;
     *info2 = 0;
+    if (!fsparse_mumps_mpi_ready()) {
+        *info1 = -1004;
+        return -1;
+    }
     (void) nnz;
     if (h == NULL || h->a == NULL) {
         *info1 = -1003;
@@ -253,6 +282,10 @@ int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
 {
     fsparse_mumps_t *h = (fsparse_mumps_t *) handle;
 
+    if (!fsparse_mumps_mpi_ready()) {
+        *info2 = 0;
+        return -1004;
+    }
     h->id.nrhs = nrhs;
     h->id.lrhs = (MUMPS_INT) ld;
     h->id.rhs = rhs;

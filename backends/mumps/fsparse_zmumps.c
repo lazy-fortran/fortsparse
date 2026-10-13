@@ -26,6 +26,7 @@
 
 void fsparse_mumps_lock(void);
 void fsparse_mumps_unlock(void);
+int fsparse_mumps_mpi_ready(void);
 
 void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
                              const long *rowidx1,
@@ -73,7 +74,7 @@ static void mumps_call(fsparse_zmumps_t *h, int job)
 static void destroy(fsparse_zmumps_t *h)
 {
     if (h == NULL) return;
-    if (h->ok) mumps_call(h, JOB_END);
+    if (h->ok && fsparse_mumps_mpi_ready()) mumps_call(h, JOB_END);
     free(h->irn);
     free(h->jcn);
     free(h->a);
@@ -127,6 +128,10 @@ void *fsparse_mumps_factor_z(long n, long nnz, const long *colptr1,
 
     *info1 = 0;
     *info2 = 0;
+    if (!fsparse_mumps_mpi_ready()) {
+        *info1 = -1004;
+        return NULL;
+    }
     if (mode < 0 || mode > 2) {
         *info1 = -1002;
         return NULL;
@@ -235,6 +240,10 @@ int fsparse_mumps_refactor_z(void *handle, long nnz, const long *colptr1,
 
     *info1 = 0;
     *info2 = 0;
+    if (!fsparse_mumps_mpi_ready()) {
+        *info1 = -1004;
+        return -1;
+    }
     (void) nnz;
     if (h == NULL || h->a == NULL) {
         *info1 = -1003;
@@ -270,6 +279,10 @@ int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
 {
     fsparse_zmumps_t *h = (fsparse_zmumps_t *) handle;
 
+    if (!fsparse_mumps_mpi_ready()) {
+        *info2 = 0;
+        return -1004;
+    }
     h->id.nrhs = nrhs;
     h->id.lrhs = (MUMPS_INT) ld;
     h->id.rhs = rhs;

@@ -31,7 +31,7 @@ Options, all set with `-D`:
 | --- | --- | --- |
 | `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU entirely; the library then needs only the UMFPACK helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | `ON` finds SuperLU and UMFPACK with `find_package` instead of fetching them. BLAS/LAPACK always come from the system. |
-| `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs a sequential, OpenMP-enabled MUMPS found by `find_package(MUMPS CONFIG)`; see [MUMPS backend](#mumps-backend). |
+| `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs an OpenMP-enabled MUMPS found by `find_package(MUMPS CONFIG)`; see [MUMPS backend](#mumps-backend). |
 | `FORTSPARSE_INSTALL_HELPER` | `ON` | Install the UMFPACK helper to `bin/`. See [Use in your project](#use-in-your-project). |
 
 The UMFPACK helper builds whenever the SuiteSparse chain is available (fetched,
@@ -187,6 +187,11 @@ anything, but they then execute one at a time. One solver object must not be
 shared between threads without the caller ordering its factor and solve calls.
 For parallel speed-up use `options%nthreads` (MUMPS' own OpenMP threads) on one
 solver object rather than user threads.
+
+An MPI-enabled MUMPS can share the application's MPI runtime. The application
+must initialize MPI before factorization and free every solver before finalizing
+MPI; inactive MPI returns `FORTSPARSE_BACKEND_UNAVAILABLE`. Use this build when
+the application already links MPI, to avoid the sequential MPI shim's symbols.
 
 Build MUMPS without MPI and with OpenMP and METIS, for example with the
 `scivision/mumps` CMake wrapper (it fetches the MUMPS source and METIS), then

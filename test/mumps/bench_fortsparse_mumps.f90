@@ -12,6 +12,7 @@ program bench_fortsparse_mumps
         sparse_factor_stats, sparse_factor_stats_t, fortsparse_status_t, &
         status_ok, FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_SYM_SPD
     use fs_test_matrices, only: laplace2d, p3_poisson, inf_residual
+    use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
     implicit none
 
     character(16) :: kind, arg
@@ -25,6 +26,7 @@ program bench_fortsparse_mumps
     logical :: refine
     integer :: nv, j
 
+    call test_mpi_init()
     call get_command_argument(1, kind)
     call get_command_argument(2, arg); read (arg, *) size_
     call get_command_argument(3, arg); read (arg, *) nthreads
@@ -98,6 +100,8 @@ program bench_fortsparse_mumps
             " factor_storage_MB=", real(st%factor_nnz, dp)*8.0_dp/1.0e6_dp, ""
         call sparse_destroy(solver)
     end do
+
+    call test_mpi_finalize()
 
 contains
 
