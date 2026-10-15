@@ -19,6 +19,22 @@ fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 fortsparse_add_test(test_fortsparse_matvec_omp csc/test_fortsparse_matvec_omp.f90)
 
+if(FORTSPARSE_USE_SYSTEM_DEPS AND FORTSPARSE_ENABLE_SUPERLU)
+    add_test(NAME test_fortsparse_parent_blas
+        COMMAND ${CMAKE_CTEST_COMMAND} --build-and-test
+            ${PROJECT_SOURCE_DIR}/test-cmake/blas_parent
+            ${PROJECT_BINARY_DIR}/test-parent-blas
+            --build-generator "${CMAKE_GENERATOR}"
+            --build-options
+                -DCMAKE_Fortran_COMPILER=${CMAKE_Fortran_COMPILER}
+                -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+            --test-command ${CMAKE_CTEST_COMMAND} -R ^parent_blas_solve$
+                --output-on-failure)
+    set_tests_properties(test_fortsparse_parent_blas PROPERTIES
+        ENVIRONMENT "CMAKE_BUILD_PARALLEL_LEVEL=2;OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1"
+        PROCESSORS 2)
+endif()
+
 # Strong-scaling benchmark of csc_matvec; built, not registered as a test.
 add_executable(bench_fortsparse_matvec ../bench/bench_csc_matvec.f90)
 target_link_libraries(bench_fortsparse_matvec PRIVATE fortsparse)
