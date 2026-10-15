@@ -1,0 +1,128 @@
+{
+  "workload": "rhs1",
+  "cases": [
+    [
+      "grid2",
+      7
+    ],
+    [
+      "grid3",
+      7
+    ]
+  ],
+  "scaling_cases": [
+    [
+      "grid2",
+      7
+    ],
+    [
+      "grid3",
+      7
+    ]
+  ],
+  "gpu_cases": [
+    [
+      "grid2",
+      1
+    ],
+    [
+      "grid2",
+      3
+    ]
+  ],
+  "variant": "training",
+  "script_sha256": "158647f4a14d8a4899cb06089a4bb322c1cbada44ac70ecbe97f5be25b168199",
+  "numeric_input_sha256": "a28c98f8e50c31dd6fc9367d2566cfb3a26be85ddac2bf520873c9a81736783f",
+  "configuration_selection": "Latest binary wins for a complete backend/case/workload thread series; identical binaries may merge disjoint thread configurations; latest duplicate wins",
+  "notes": [
+    "Empirical ranges, not confidence intervals.",
+    "UMFPACK aggregate peak memory unavailable; parent/helper shown separately.",
+    "CPU frontier excludes CUDA device memory and UMFPACK's unknown aggregate.",
+    "Whole-workflow CPU includes setup/checks/cleanup and warmup where applicable."
+  ],
+  "status": "Preliminary historical checkpoints; external large-case calibration has one trial per configuration, native has five. Not MVP admission.",
+  "sources": [
+    {
+      "name": "supernodal-small",
+      "path": "/var/tmp/fortsparse-mvp/supernodal-small.json",
+      "sha256": "bccce7f5c024e542b60d5c2db1c656f15841b106bb9bcb620f25c3cd8ea1af46",
+      "revision": "9d499fd0cb396b903a7cb1f2b411247314dbfcfe",
+      "dirty": true,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "b6d2862eb78ddcd7a6f57e7c4460ed8b475c8d7a7b2bc0b3218d3001725150e3",
+        "bench_spd_pardiso": "68604748ec58ff7c79d455a69477c4704c15eb6729afd0bfe5e7543f153956c8"
+      }
+    },
+    {
+      "name": "scaling-calibration-fixed",
+      "path": "/var/tmp/fortsparse-mvp/scaling-calibration-fixed.json",
+      "sha256": "5efc7526b8b24572de337d86b31a4aa681fca54add3e694626fc9ee22ac3d53b",
+      "revision": "9d499fd0cb396b903a7cb1f2b411247314dbfcfe",
+      "dirty": true,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "b6d2862eb78ddcd7a6f57e7c4460ed8b475c8d7a7b2bc0b3218d3001725150e3",
+        "bench_spd_pardiso": "68604748ec58ff7c79d455a69477c4704c15eb6729afd0bfe5e7543f153956c8"
+      }
+    },
+    {
+      "name": "inlined-scaling",
+      "path": "/var/tmp/fortsparse-mvp/inlined-scaling.json",
+      "sha256": "e19aa7ebfc8c9ea58589ca9b486b080e3848fd47d0055a8a1605b71d6e727c16",
+      "revision": "4a84d1240e4320fc9344df250a1a1bfb81da7dc0",
+      "dirty": true,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "2352d408a826a75b38f8d13523d45e5d18ff54a35211f4b7cfd326dc92d75c38",
+        "bench_spd_pardiso": "e05624852b4be9cda700aa0af0978cd03387e0de9d7ec34b7f32349d5c750de8"
+      }
+    },
+    {
+      "name": "compact-first",
+      "path": "/var/tmp/fortsparse-mvp/compact-first.json",
+      "sha256": "35899c17d06b4c5f5ad2c7ba54c7f9f84f79645719bb93669a87152712b1f5e9",
+      "revision": "e2b4f6905a4af10c27b5a28a98916cb8b2d65f2a",
+      "dirty": true,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "3ba916b34837da970cbfc0880a575005ee1665eba49f8e6054428152faa33346",
+        "bench_spd_pardiso": "e05624852b4be9cda700aa0af0978cd03387e0de9d7ec34b7f32349d5c750de8"
+      }
+    },
+    {
+      "name": "cuda-first",
+      "path": "/var/tmp/fortsparse-mvp/cuda-first.json",
+      "sha256": "ae8d28384ad8ade72a1b2ee98d16ea02ee42aad02605d9a09f3ac2dcaebaa9ac",
+      "revision": "28db1b0be2887dca89d12d48c56571c5f899afc5",
+      "dirty": true,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "b03a577eea0a858363e54cb47ffd26cd796c461a1f9bf9727ab58d0eced2352d"
+      }
+    }
+  ],
+  "units": {
+    "wall": "ms",
+    "cpu": "ms (whole workflow)",
+    "rss": "MiB (parent peak)",
+    "helper": "MiB (separate peak)",
+    "device": "MiB (attributed allocation)"
+  },
+  "artifacts": {
+    "pareto.png": {
+      "sha256": "99a5bd3400fc4f20304ee775ccec12124d6299c6345704ff696d0e43bfed269c",
+      "url": "https://box.sloppy.at/62035.png"
+    },
+    "scaling.png": {
+      "sha256": "59c4815ea44122f9345aa15f8342b48665267554a9d1bc9914e48c79057300f3",
+      "url": "https://box.sloppy.at/34066.png"
+    },
+    "cpu-vs-gpu.png": {
+      "sha256": "ce88efecbf6ed73c26392ce54722c5a3cc5604d3c5a69a0bcb7512be1d73cca4",
+      "url": "https://box.sloppy.at/84934.png"
+    }
+  },
+  "url_lifetime": "Three days; public to anyone with the opaque URL.",
+  "recipe": "python3 bench/plot_spd.py /var/tmp/fortsparse-mvp/supernodal-small.json /var/tmp/fortsparse-mvp/scaling-calibration-fixed.json /var/tmp/fortsparse-mvp/inlined-scaling.json /var/tmp/fortsparse-mvp/compact-first.json /var/tmp/fortsparse-mvp/cuda-first.json --outdir /var/tmp/fortsparse-mvp/plots/progress-1 --workload rhs1 --cases grid2:7,grid3:7 --gpu-cases grid2:1,grid2:3 --scaling-cases grid2:7,grid3:7 --title \"Preliminary checkpoints: CPU development and first CUDA run\" --retain-csv bench/results/plot-inputs-progress.csv"
+}
