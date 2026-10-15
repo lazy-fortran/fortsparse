@@ -1,0 +1,27 @@
+# Included explicitly by the owning root when benchmark builds are requested.
+find_package(Threads REQUIRED)
+add_library(fortsparse_spd_fixtures STATIC spd_fixtures.f90 process_metrics.c)
+set_target_properties(fortsparse_spd_fixtures PROPERTIES
+    Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
+target_include_directories(fortsparse_spd_fixtures PUBLIC
+    "${CMAKE_CURRENT_BINARY_DIR}/modules")
+add_executable(bench_spd bench_spd.f90)
+target_link_libraries(bench_spd PRIVATE fortsparse fortsparse_spd_fixtures)
+fortsparse_colocate_helper(bench_spd)
+if(FORTSPARSE_BUILD_TESTING)
+    add_executable(test_spd_fixtures test_spd_fixtures.f90)
+    target_link_libraries(test_spd_fixtures PRIVATE fortsparse_spd_fixtures)
+    add_test(NAME spd_fixtures COMMAND test_spd_fixtures)
+    set_tests_properties(spd_fixtures PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+endif()
+
+set(FORTSPARSE_BENCH_MKL_ROOT "$ENV{MKLROOT}" CACHE PATH
+    "Optional oneMKL prefix for the isolated PARDISO benchmark")
+if(FORTSPARSE_BENCH_MKL_ROOT)
+    find_library(FORTSPARSE_BENCH_MKL_RT NAMES mkl_rt
+        PATHS "${FORTSPARSE_BENCH_MKL_ROOT}/lib" NO_DEFAULT_PATH REQUIRED)
+    add_executable(bench_spd_pardiso bench_spd_pardiso.f90)
+    # No fortsparse, BLAS or LAPACK target: keep Intel/OpenBLAS isolated.
+    target_link_libraries(bench_spd_pardiso PRIVATE fortsparse_spd_fixtures
+        "${FORTSPARSE_BENCH_MKL_RT}" ${CMAKE_DL_LIBS} Threads::Threads m)
+endif()
