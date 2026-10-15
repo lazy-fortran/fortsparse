@@ -49,6 +49,8 @@ if(FORTSPARSE_ENABLE_SUPERLU)
         solver/test_fortsparse_poisson.f90)
     fortsparse_add_test(test_fortsparse_superlu_symmetric
         solver/test_fortsparse_superlu_symmetric.f90)
+    fortsparse_add_test(test_fortsparse_superlu_refactor
+        solver/test_fortsparse_superlu_refactor.f90)
     fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
     # Forces a real SuperLU allocation failure under an address-space limit.
     fortsparse_add_test(test_fortsparse_superlu_status

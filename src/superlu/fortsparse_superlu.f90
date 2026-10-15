@@ -44,6 +44,8 @@ module fortsparse_superlu
     contains
         procedure :: factor_real => slu_factor_real
         procedure :: factor_real_raw => slu_factor_real_raw
+        procedure :: refactor_real => slu_refactor_real
+        procedure :: refactor_real_raw => slu_refactor_real_raw
         procedure :: factor_complex => slu_factor_complex
         procedure :: solve_real => slu_solve_real
         procedure :: solve_complex => slu_solve_complex
@@ -67,6 +69,16 @@ module fortsparse_superlu
             integer(c_int),     intent(out) :: info
             type(c_ptr)                     :: h
         end function fsparse_slu_factor_d
+
+        integer(c_int) function fsparse_slu_refactor_d(h, n, nnz, colptr1, &
+                rowidx1, val, symmetric) bind(c, name="fsparse_slu_refactor_d")
+            import :: c_ptr, c_int, c_double
+            type(c_ptr),    value      :: h
+            integer(c_int), value      :: n, nnz
+            integer(c_int), intent(in) :: colptr1(*), rowidx1(*)
+            real(c_double), intent(in) :: val(*)
+            integer(c_int), value      :: symmetric
+        end function fsparse_slu_refactor_d
 
         integer(c_int) function fsparse_slu_solve_d(h, b, x, n) &
                 bind(c, name="fsparse_slu_solve_d")
@@ -152,6 +164,61 @@ contains
             self%a_real%val = val(1:nz)
         end if
     end subroutine slu_factor_real_raw
+
+    ! Same pattern and symmetry hint as the retained real factorization: keep
+    ! the column ordering (pattern-only, the minimum-degree cost) and redo the
+    ! numerical factorization; the factor equals a fresh one on the same input.
+    ! Otherwise a full factor.
+    subroutine slu_refactor_real(self, A, refine, status, reused)
+        class(superlu_backend_t),  intent(inout) :: self
+        type(csc_t),               intent(in)    :: A
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+        logical,                   intent(out)   :: reused
+
+        call self%refactor_real_raw(A%nrow, A%ncol, A%nnz, A%col_ptr, &
+            A%row_idx, A%val, refine, status, reused)
+    end subroutine slu_refactor_real
+
+    subroutine slu_refactor_real_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+            val, refine, status, reused)
+        class(superlu_backend_t),  intent(inout) :: self
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        logical,                   intent(in)    :: refine
+        type(fortsparse_status_t), intent(out)   :: status
+        logical,                   intent(out)   :: reused
+
+        integer(c_int) :: info
+
+        reused = .false.
+        info = 4
+        if (c_associated(self%h_real)) info = fsparse_slu_refactor_d( &
+            self%h_real, ncol, nz, col_ptr, row_idx, val, symmetric_hint(self))
+        if (info == 4) then
+            call self%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, val, &
+                refine, status)
+            return
+        end if
+        call slu_map_factor_status(info, status)
+        if (info /= 0) then
+            call self%free()
+            return
+        end if
+        reused = .true.
+        self%refine = refine
+        if (refine) then
+            self%a_real%nrow = nrow
+            self%a_real%ncol = ncol
+            self%a_real%nnz = nz
+            self%a_real%col_ptr = col_ptr(1:ncol + 1)
+            self%a_real%row_idx = row_idx(1:nz)
+            self%a_real%val = val(1:nz)
+        else
+            self%a_real = csc_t()
+        end if
+    end subroutine slu_refactor_real_raw
 
     ! Factor a complex matrix. complex(dp) maps onto SuperLU's interleaved
     ! doublecomplex directly, so values pass through as a real(dp) buffer.

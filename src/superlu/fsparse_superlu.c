@@ -24,6 +24,8 @@
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
                            const int *rowidx1, const double *val, int symmetric,
                            int *info);
+int fsparse_slu_refactor_d(void *handle, int n, int nnz, const int *colptr1,
+                           const int *rowidx1, const double *val, int symmetric);
 int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n);
 void fsparse_slu_free_d(void *handle);
 void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
@@ -169,6 +171,51 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
         return NULL;
     }
     return h;
+}
+
+/* Numerical refactorization of a retained real handle with new values on the
+ * same CSC pattern and symmetry hint. The column ordering perm_c depends on
+ * the pattern only, so it is kept and the minimum-degree ordering (the
+ * dominant cost of a small factorization) is skipped; the column elimination
+ * tree, row pivoting and L/U are recomputed exactly as in a fresh factor, so
+ * the result is identical to fsparse_slu_factor_d on the same input.
+ * Returns 4 (handle unchanged) when the pattern or hint differs, otherwise the
+ * fsparse_slu_factor_d info codes; on a nonzero code other than 4 the handle
+ * holds no factorization and must be freed. */
+int fsparse_slu_refactor_d(void *handle, int n, int nnz, const int *colptr1,
+                           const int *rowidx1, const double *val, int symmetric)
+{
+    slu_real_t *h = (slu_real_t *) handle;
+    SuperLUStat_t stat;
+    int panel_size, relax;
+    int_t lu_info = 0;
+    int k;
+
+    if (h == NULL || h->n != n) return 4;
+    if ((h->options.SymmetricMode == YES) != (symmetric != 0)) return 4;
+    if (((NCformat *) h->A.Store)->nnz != (int_t) nnz) return 4;
+    for (k = 0; k <= n; ++k)
+        if (h->colptr0[k] != (int_t) (colptr1[k] - 1)) return 4;
+    for (k = 0; k < nnz; ++k)
+        if (h->rowidx0[k] != (int_t) (rowidx1[k] - 1)) return 4;
+
+    if (h->AC.Store != NULL) Destroy_CompCol_Permuted(&h->AC);
+    if (h->L.Store != NULL) Destroy_SuperNode_Matrix(&h->L);
+    if (h->U.Store != NULL) Destroy_CompCol_Matrix(&h->U);
+    h->AC.Store = NULL;
+    h->L.Store = NULL;
+    h->U.Store = NULL;
+    memcpy(h->aval, val, (size_t) nnz * sizeof(double));
+    sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
+
+    panel_size = sp_ienv(1);
+    relax = sp_ienv(2);
+    StatInit(&stat);
+    dgstrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
+           h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
+    StatFree(&stat);
+    if (lu_info != 0) return classify_lu_info((long) lu_info, (long) n);
+    return 0;
 }
 
 int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n)
