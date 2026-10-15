@@ -16,6 +16,12 @@ endfunction()
 fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
+fortsparse_add_test(test_fortsparse_spd_leaves
+    solver/test_fortsparse_spd_leaves.f90)
+fortsparse_add_test(test_fortsparse_native
+    solver/test_fortsparse_native.f90)
+set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
+    PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 fortsparse_add_test(test_fortsparse_matvec_omp csc/test_fortsparse_matvec_omp.f90)
 
