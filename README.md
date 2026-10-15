@@ -10,14 +10,20 @@ The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
 
 `FORTSPARSE_BACKEND_NATIVE` selects the developing project-owned real SPD
-Cholesky reference. Set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
+Cholesky solver. Set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
 supply full symmetric CSC with strictly sorted, unique row indices and finite
 values; `csc_from_triplet` canonicalizes duplicates and ordering. The reference
-uses natural ordering and returns `FORTSPARSE_NOT_POSITIVE_DEFINITE` for a
+uses a simplicial path for low fill and blocked OpenMP tasks for larger fronts.
+Optional METIS provides nested dissection for larger non-banded systems;
+explicit `FORTSPARSE_ORDER_ND` requires METIS. The solver returns
+`FORTSPARSE_NOT_POSITIVE_DEFINITE` for a
 nonpositive or nonfinite pivot. It retains analysis for same-pattern
 refactorization and supports block solves and the existing implicit JVP/VJP.
 It currently reports factor/storage statistics, not a rigorous forward-error
 certificate. AUTO selection remains based on the existing external backends.
+`FORTSPARSE_BACKEND_NATIVE_REFERENCE` explicitly selects the serial simplicial
+reference for independent comparisons. Statistics distinguish requested and
+actual active factorization threads.
 
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is

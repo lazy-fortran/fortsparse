@@ -15,6 +15,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_version.f90
     generated/fortsparse_spd_leaves.f90
     native/fortsparse_native.f90
+    native/fortsparse_native_supernodes.f90
     ipc/fortsparse_ipc_proto.f90
     ipc/fortsparse_umfpack_ipc.f90
     # MIT C shims
@@ -41,7 +42,7 @@ target_include_directories(fortsparse
 # Threads are always needed; SuperLU (BSD) only when its backend is enabled.
 # The SuperLU target differs by provisioning: the system FindSuperLU module
 # exports SuperLU::SuperLU, the fetched in-tree build exports superlu.
-target_link_libraries(fortsparse PUBLIC Threads::Threads)
+target_link_libraries(fortsparse PUBLIC Threads::Threads BLAS::BLAS)
 if(FORTSPARSE_ENABLE_SUPERLU)
     if(FORTSPARSE_USE_SYSTEM_DEPS)
         target_link_libraries(fortsparse PUBLIC SuperLU::SuperLU)
@@ -72,13 +73,31 @@ if(FORTSPARSE_ENABLE_MUMPS)
         target_sources(fortsparse PRIVATE
             ../backends/mumps/fsparse_zmumps_stub.c)
     endif()
-    # A static METIS built together with MUMPS needs its GKlib after it on the
-    # link line; the MUMPS-provided FindMETIS module does not add it.
-    find_library(FORTSPARSE_GKLIB NAMES GKlib
-        HINTS "${MUMPS_DIR}/.." "${MUMPS_DIR}/../lib")
-    if(FORTSPARSE_GKLIB)
-        target_link_libraries(fortsparse PUBLIC ${FORTSPARSE_GKLIB})
-    endif()
+    # Add GKlib only for a static METIS selected by a find module that omits
+    # that dependency. Exporting a different GKlib next to shared METIS can
+    # preempt its allocator symbols and corrupt its memory pool.
+    foreach(_metis_target METIS::METIS METIS::metis)
+        if(TARGET ${_metis_target})
+            get_target_property(_metis_location ${_metis_target} IMPORTED_LOCATION)
+            if(NOT _metis_location)
+                get_target_property(_metis_location ${_metis_target}
+                    IMPORTED_LOCATION_RELEASE)
+            endif()
+            if(NOT _metis_location)
+                get_target_property(_metis_location ${_metis_target}
+                    INTERFACE_LINK_LIBRARIES)
+            endif()
+            if(_metis_location MATCHES "\\.a(;|$)")
+                find_library(FORTSPARSE_GKLIB NAMES GKlib
+                    HINTS "${MUMPS_DIR}/.." "${MUMPS_DIR}/../lib")
+                if(FORTSPARSE_GKLIB)
+                    set_property(TARGET ${_metis_target} APPEND PROPERTY
+                        INTERFACE_LINK_LIBRARIES ${FORTSPARSE_GKLIB})
+                endif()
+            endif()
+            break()
+        endif()
+    endforeach()
 endif()
 if((FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS) AND OpenMP_Fortran_FOUND)
     target_link_libraries(fortsparse PUBLIC OpenMP::OpenMP_Fortran)

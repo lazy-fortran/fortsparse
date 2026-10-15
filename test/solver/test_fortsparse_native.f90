@@ -89,6 +89,27 @@ program test_fortsparse_native
     call sparse_destroy(solver)
     call sparse_solve(other, b, x, status)
     call close(x, exact, 'independent handles')
+    ! An explicit ND request either exercises its permutation or reports the
+    ! optional dependency absent. Default builds retain the natural path.
+    other%options%ordering = FORTSPARSE_ORDER_ND
+    call sparse_factor(other, A, status)
+    if (status%code /= FORTSPARSE_BACKEND_UNAVAILABLE) then
+        call require(status_ok(status), 'nested dissection')
+        call sparse_solve(other, b, x, status)
+        call close(x, exact, 'permuted solve')
+        call sparse_refactor(other, changed, status, reused)
+        call require(status_ok(status) .and. reused, 'permuted refactor')
+        call sparse_solve(other, 2*b, x, status)
+        call close(x, exact, 'permuted refactor solve')
+    end if
+    other%options%ordering = FORTSPARSE_ORDER_DEFAULT
+    other%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
+    call sparse_factor(other, A, status)
+    call require(status_ok(status), 'explicit reference selection')
+    call sparse_solve(other, b, x, status)
+    call close(x, exact, 'reference factory switch')
+    other%backend_id = FORTSPARSE_BACKEND_NATIVE
+    call sparse_factor(other, A, status)
     invalid = A
     invalid%val(1) = ieee_value(0.0_dp, ieee_quiet_nan)
     call sparse_factor(other, invalid, status)

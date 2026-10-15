@@ -50,6 +50,7 @@ module fortsparse_backend
         real(dp)    :: flops = -1.0_dp      ! factorization operations
         real(dp)    :: analysis_s = -1.0_dp ! wall time of ordering + symbolic
         real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
+        integer     :: active_threads = -1 ! actual native factor team size
         integer     :: nthreads = -1        ! threads requested
     end type sparse_factor_stats_t
 

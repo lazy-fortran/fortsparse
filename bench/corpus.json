@@ -6,7 +6,7 @@
     ],
     [
       "grid3",
-      5
+      7
     ]
   ],
   "revision": "5288d4a16ce634595984a97e74aa490eaa2d9015",
@@ -67,5 +67,9 @@
       3
     ]
   ],
-  "rule": "Largest external-only candidate passing every backend/thread configuration below 0.5 s process wall; timeouts and failures retained separately."
+  "rule": "Largest external-only candidate passing every backend/thread configuration below 0.5 s process wall; timeouts and failures retained separately.",
+  "calibration_samples": 160,
+  "calibration_successes": 160,
+  "matched_metis_library": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+  "matched_metis_include": "/mnt/storage/fs1-envs/mumps-local/include"
 }

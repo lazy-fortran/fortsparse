@@ -16,7 +16,7 @@ auto-tests = true
 # numerical libraries from source. The zero-system-dependency build (fetch and
 # build reference BLAS/LAPACK, SuperLU and the SuiteSparse/UMFPACK chain) is the
 # CMake path: configure with -DFORTSPARSE_USE_SYSTEM_DEPS=OFF.
-link = ["superlu"]
+link = ["superlu", "blas"]
 
 [library]
 source-dir = "src"
