@@ -20,7 +20,7 @@ module fortsparse_native_supernodes
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
     private
-    integer, parameter :: WIDTH = 16, NOT_SPD = 8
+    integer, parameter :: EXACT_WIDTH = 64, RELAXED_WIDTH = 32, NOT_SPD = 8
 
     type :: panel_t
         integer :: first = 0, width = 0, m = 0
@@ -39,6 +39,8 @@ module fortsparse_native_supernodes
         integer :: n = 0, node_count = 0, active_threads = 1
         integer(i8) :: factor_nnz = 0_i8
         integer(i8) :: device_bytes = 0_i8
+        integer(i8) :: symbolic_nnz = 0_i8
+        integer(i8) :: factor_storage_bytes = 0_i8, workspace_bytes = 0_i8
         real(dp) :: flops = 0.0_dp, numeric_s = 0.0_dp
         logical, private :: ready = .false.
         type(panel_t), allocatable, private :: panels(:)
@@ -89,9 +91,10 @@ contains
         integer, intent(in) :: n, lp(:), li(:), nthreads
         type(fortsparse_status_t), intent(out) :: status
         integer, optional, intent(in) :: device
-        integer, allocatable :: mark(:)
+        integer, allocatable :: mark(:), starts(:), ends(:), counts(:), rowlist(:)
         integer :: s, j, p, row, m, first, last, group, q, dest, ierr, maxwork, maxrows
-        integer(i8) :: update_size
+        integer :: candidate_m, candidate_w
+        integer(i8) :: update_size, original_count, candidate_count, padded
 
         call self%free()
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid symbolic Cholesky pattern')
@@ -114,10 +117,52 @@ contains
             end do
         end do
         self%n = n
-        self%node_count = n/WIDTH
-        if (mod(n,WIDTH) /= 0) self%node_count = self%node_count+1
+        self%symbolic_nnz = size(li,kind=i8)
+        allocate(mark(n), starts(n), ends(n), counts(n), rowlist(n), stat=ierr)
+        if (ierr /= 0) then
+            call allocation_error(self, status)
+            return
+        end if
+        mark = 0
+        first = 1
+        do while (first <= n)
+            self%node_count = self%node_count+1
+            s = self%node_count
+            last = first
+            m = lp(first+1)-lp(first)
+            original_count = m
+            mark(li(lp(first):lp(first+1)-1)) = s
+            do while (last < n)
+                ! A merge follows the elimination-tree parent chain.
+                if (lp(last+1)-lp(last) < 2) exit
+                if (li(lp(last)+1) /= last+1) exit
+                candidate_w = last-first+2
+                if (candidate_w > EXACT_WIDTH) exit
+                candidate_m = m
+                do p = lp(last+1), lp(last+2)-1
+                    row = li(p)
+                    if (mark(row) == s) cycle
+                    mark(row) = s
+                    candidate_m = candidate_m+1
+                end do
+                candidate_count = original_count+lp(last+2)-lp(last+1)
+                padded = int(candidate_m,i8)*candidate_w &
+                    -int(candidate_w,i8)*(candidate_w-1)/2
+                if (padded /= candidate_count) then
+                    if (candidate_w > RELAXED_WIDTH) exit
+                    if (4_i8*padded > 5_i8*candidate_count) exit
+                end if
+                last = last+1
+                m = candidate_m
+                original_count = candidate_count
+            end do
+            starts(s) = first
+            ends(s) = last
+            counts(s) = m
+            first = last+1
+        end do
         allocate(self%panels(self%node_count), self%colnode(n), &
-            self%tokens(self%node_count), self%failures(self%node_count), mark(n), stat=ierr)
+            self%tokens(self%node_count), self%failures(self%node_count), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
             return
@@ -125,18 +170,23 @@ contains
         mark = 0
         self%tokens = 0
         self%failures = 0
-        do j = 1, n
-            self%colnode(j) = 1+(j-1)/WIDTH
-        end do
         maxrows = 0
         do s = 1, self%node_count
-            first = 1+(s-1)*WIDTH
-            last = min(n, first+WIDTH-1)
-            mark(first:last) = s
+            first = starts(s)
+            last = ends(s)
+            m = counts(s)
+            q = 0
             do j = first, last
-                mark(li(lp(j):lp(j+1)-1)) = s
+                self%colnode(j) = s
+                do p = lp(j), lp(j+1)-1
+                    row = li(p)
+                    if (mark(row) == s) cycle
+                    mark(row) = s
+                    q = q+1
+                    rowlist(q) = row
+                end do
             end do
-            m = count(mark(first:n) == s)
+            call sort_rows(rowlist, 1, m)
             self%panels(s)%first = first
             self%panels(s)%width = last-first+1
             self%panels(s)%m = m
@@ -145,12 +195,7 @@ contains
                 call allocation_error(self, status)
                 return
             end if
-            p = 0
-            do row = first, n
-                if (mark(row) /= s) cycle
-                p = p+1
-                self%panels(s)%rows(p) = row
-            end do
+            self%panels(s)%rows = rowlist(1:m)
             self%factor_nnz = self%factor_nnz + int(m,i8)*(last-first+1) &
                 -int(last-first+1,i8)*(last-first)/2
             self%panels(s)%offset = self%numeric_count
@@ -158,6 +203,7 @@ contains
             self%flops = self%flops+real(m,dp)*(last-first+1)**2
             maxrows = max(maxrows, m)
         end do
+        self%factor_storage_bytes = 8_i8*int(self%numeric_count,i8)
         allocate(self%host_values(self%numeric_count), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
@@ -208,10 +254,12 @@ contains
             call allocation_error(self, status)
             return
         end if
+        self%rowmap = 0
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         if (self%device >= 0) then
             call setup_cuda(self, maxwork, status)
             if (status%code /= FORTSPARSE_OK) call self%free()
+            self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
             return
         end if
 #endif
@@ -220,6 +268,7 @@ contains
             call allocation_error(self, status)
             return
         end if
+        self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine build
 
@@ -239,9 +288,9 @@ contains
         if (.not. all(ieee_is_finite(a%val))) return
         started = seconds()
         self%failures = 0
+        self%rowmap = 0
         do s = 1, self%node_count
             self%panels(s)%values = 0.0_dp
-            self%rowmap(:,1) = 0
             do p = 1, self%panels(s)%m
                 self%rowmap(self%panels(s)%rows(p),1) = p
             end do
@@ -254,6 +303,9 @@ contains
                     self%panels(s)%values(position,j) = a%val(p)
                 end do
             end do
+            do p = 1, self%panels(s)%m
+                self%rowmap(self%panels(s)%rows(p),1) = 0
+            end do
         end do
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         if (self%device >= 0) then
@@ -263,31 +315,30 @@ contains
         end if
 #endif
         token => self%tokens
-        !$omp parallel num_threads(self%active_threads) default(shared)
-        !$omp single
-        !$ self%active_threads = omp_get_num_threads()
-        do s = 1, self%node_count
-            !$omp task firstprivate(s) depend(inout:token(s))
-            call factor_panel(self, s)
-            !$omp end task
-            first = self%panels(s)%width+1
-            do while (first <= self%panels(s)%m)
-                dest = self%colnode(self%panels(s)%rows(first))
-                group = first+1
-                do while (group <= self%panels(s)%m)
-                    if (self%colnode(self%panels(s)%rows(group)) /= dest) exit
-                    group = group+1
-                end do
-                q = group-first
-                !$omp task firstprivate(s,dest,first,q) &
-                !$omp depend(in:token(s)) depend(inout:token(dest))
-                call update_panel(self, s, dest, first, q)
+        if (self%active_threads == 1) then
+            call factor_serial(self)
+        else
+            !$omp parallel num_threads(self%active_threads) default(shared)
+            !$omp single
+            !$ self%active_threads = omp_get_num_threads()
+            do s = 1, self%node_count
+                !$omp task firstprivate(s) depend(inout:token(s))
+                call factor_panel(self, s)
                 !$omp end task
-                first = group
+                first = self%panels(s)%width+1
+                do while (first <= self%panels(s)%m)
+                    call update_group(self, s, first, group, dest)
+                    q = group-first
+                    !$omp task firstprivate(s,dest,first,q) &
+                    !$omp depend(in:token(s)) depend(inout:token(dest))
+                    call update_panel(self, s, dest, first, q)
+                    !$omp end task
+                    first = group
+                end do
             end do
-        end do
-        !$omp end single
-        !$omp end parallel
+            !$omp end single
+            !$omp end parallel
+        end if
         self%numeric_s = seconds()-started
         if (any(self%failures /= 0)) then
             call status_set(status, NOT_SPD, 'supernode: nonpositive or nonfinite pivot')
@@ -296,6 +347,20 @@ contains
         self%ready = .true.
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine factor
+
+    subroutine factor_serial(self)
+        class(supernodes_t), intent(inout) :: self
+        integer :: s, first, group, dest
+        do s = 1, self%node_count
+            call factor_panel(self, s)
+            first = self%panels(s)%width+1
+            do while (first <= self%panels(s)%m)
+                call update_group(self, s, first, group, dest)
+                call update_panel(self, s, dest, first, group-first)
+                first = group
+            end do
+        end do
+    end subroutine factor_serial
 
     subroutine factor_panel(self, s)
         class(supernodes_t), intent(inout) :: self
@@ -324,7 +389,9 @@ contains
         if (self%failures(source) /= 0) self%failures(dest) = self%failures(source)
         if (self%failures(dest) /= 0) return
         thread = 1
-        !$ thread = 1+omp_get_thread_num()
+        if (self%active_threads > 1) then
+            !$ thread = 1+omp_get_thread_num()
+        end if
         m = self%panels(source)%m
         w = self%panels(source)%width
         m2 = m-first+1
@@ -332,7 +399,6 @@ contains
         call dgemm('N', 'T', m2, q, w, -1.0_dp, &
             source_values, m, source_values, m, &
             0.0_dp, self%update_work(1,thread), m2)
-        self%rowmap(:,thread) = 0
         do p = 1, self%panels(dest)%m
             self%rowmap(self%panels(dest)%rows(p),thread) = p
         end do
@@ -343,6 +409,9 @@ contains
             call spd_scatter_mapped_update(dest_values, &
                 self%panels(source)%rows(first+j-1:), self%rowmap(:,thread), &
                 self%update_work(offset:,thread), m2-j+1, -1.0_dp)
+        end do
+        do p = 1, self%panels(dest)%m
+            self%rowmap(self%panels(dest)%rows(p),thread) = 0
         end do
     end subroutine update_panel
 
@@ -408,6 +477,9 @@ contains
         self%node_count = 0
         self%active_threads = 1
         self%factor_nnz = 0_i8
+        self%symbolic_nnz = 0_i8
+        self%factor_storage_bytes = 0_i8
+        self%workspace_bytes = 0_i8
         self%numeric_count = 0_c_size_t
         self%device_bytes = 0_i8
         self%device = -1
@@ -441,6 +513,46 @@ contains
         if (allocated(self%updates)) &
             bytes = bytes+int(storage_size(self%updates)/8,i8)*size(self%updates,kind=i8)
     end function memory_bytes
+
+    subroutine update_group(self, s, first, group, dest)
+        class(supernodes_t), intent(in) :: self
+        integer, intent(in) :: s, first
+        integer, intent(out) :: group, dest
+        dest = self%colnode(self%panels(s)%rows(first))
+        group = first+1
+        do while (group <= self%panels(s)%m)
+            if (self%colnode(self%panels(s)%rows(group)) /= dest) exit
+            group = group+1
+        end do
+    end subroutine update_group
+
+    recursive subroutine sort_rows(rows, lo, hi)
+        integer, intent(inout) :: rows(:)
+        integer, intent(in) :: lo, hi
+        integer :: pivot, i, j, saved
+        if (lo >= hi) return
+        pivot = rows(lo+(hi-lo)/2)
+        i = lo
+        j = hi
+        do
+            do while (i <= hi)
+                if (rows(i) >= pivot) exit
+                i = i+1
+            end do
+            do while (j >= lo)
+                if (rows(j) <= pivot) exit
+                j = j-1
+            end do
+            if (i > j) exit
+            saved = rows(i)
+            rows(i) = rows(j)
+            rows(j) = saved
+            i = i+1
+            j = j-1
+        end do
+        if (lo < j) call sort_rows(rows, lo, j)
+        if (i < hi) call sort_rows(rows, i, hi)
+    end subroutine sort_rows
 
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
     subroutine setup_cuda(self, maxwork, status)
@@ -486,7 +598,6 @@ contains
                 self%updates(u)%first = first
                 self%updates(u)%q = q
                 self%updates(u)%row_map = int(base,c_size_t)
-                self%rowmap(:,1) = 0
                 do p = 1, self%panels(dest)%m
                     self%rowmap(self%panels(dest)%rows(p),1) = p
                 end do
@@ -498,6 +609,9 @@ contains
                 maps(base+1:base+q) = self%panels(s)%rows(first:group-1) &
                     -self%panels(dest)%first+1
                 base = base+q
+                do p = 1, self%panels(dest)%m
+                    self%rowmap(self%panels(dest)%rows(p),1) = 0
+                end do
                 first = group
             end do
             self%panels(s)%update_last = u
@@ -511,18 +625,6 @@ contains
         call cuda_status(code, status)
         if (code == 0) self%device_bytes = int(spd_cuda_allocated_bytes(self%cuda),i8)
     end subroutine setup_cuda
-
-    subroutine update_group(self, s, first, group, dest)
-        class(supernodes_t), intent(in) :: self
-        integer, intent(in) :: s, first
-        integer, intent(out) :: group, dest
-        dest = self%colnode(self%panels(s)%rows(first))
-        group = first+1
-        do while (group <= self%panels(s)%m)
-            if (self%colnode(self%panels(s)%rows(group)) /= dest) exit
-            group = group+1
-        end do
-    end subroutine update_group
 
     subroutine factor_cuda(self, status)
         class(supernodes_t), intent(inout) :: self

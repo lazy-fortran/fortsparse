@@ -22,6 +22,7 @@ program test_fortsparse_native_supernodes
         end do
     end if
     call run_grid(17, 17)
+    call run_scattered()
     print '(a)', 'Native supernode block boundaries, task execution, refactor and errors pass'
 contains
     subroutine run_case(n, dense)
@@ -70,6 +71,26 @@ contains
         end do
         call verify(matrix, .false.)
     end subroutine run_grid
+
+    subroutine run_scattered()
+        integer, parameter :: n = 97
+        real(dp) :: matrix(n,n)
+        integer :: i, j
+        matrix = 0.0_dp
+        do j = 1, n
+            if (mod(j,7) == 0) cycle
+            do i = j+1, n
+                if (mod(i,7) == 0) cycle
+                if (i /= j+2 .and. i /= j+9) cycle
+                matrix(i,j) = -0.125_dp
+                matrix(j,i) = matrix(i,j)
+            end do
+        end do
+        do j = 1, n
+            matrix(j,j) = 1.0_dp+sum(abs(matrix(:,j)))
+        end do
+        call verify(matrix, .false.)
+    end subroutine run_scattered
 
     subroutine verify(matrix, parallel_expected)
         real(dp), intent(in) :: matrix(:,:)
@@ -124,6 +145,15 @@ contains
         call solver%build(n, lp, li, 4, status, device)
         call checked(status)
         if (solver%memory_bytes() < 8_i8*solver%factor_nnz) error stop 'factor memory accounting'
+        if (solver%symbolic_nnz /= size(li,kind=i8)) error stop 'symbolic factor diagnostics'
+        if (4_i8*solver%factor_nnz > 5_i8*solver%symbolic_nnz) &
+            error stop 'amalgamation exceeds the numeric factor padding budget'
+        if (parallel_expected) then
+            if (solver%factor_nnz /= solver%symbolic_nnz) &
+                error stop 'complete dense pattern gained structural zeros'
+        end if
+        if (solver%factor_storage_bytes+solver%workspace_bytes /= solver%memory_bytes()) &
+            error stop 'factor/workspace attribution does not cover owned payload'
         if (device < 0) then
             !$ if (parallel_expected .and. solver%active_threads /= 4) error stop 'missing parallel plan'
         else
@@ -165,6 +195,8 @@ contains
         if (maxval(abs(x-expected)) > 3.0e-12_dp) error stop 'recovery after failed factor'
         call solver%free()
         if (solver%memory_bytes() /= 0_i8) error stop 'supernode workspace retained after free'
+        if (solver%factor_storage_bytes /= 0_i8 .or. solver%workspace_bytes /= 0_i8) &
+            error stop 'stale supernode memory diagnostics after free'
     end subroutine verify
 
     subroutine checked(status)
