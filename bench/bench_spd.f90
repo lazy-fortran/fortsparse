@@ -218,5 +218,5 @@ program bench_spd
         total_s, rss, child_rss, child_cpu, stats%factor_nnz, &
         stats%factor_mem_mb, stats%analysis_s, stats%factor_s, error, jvp_s, &
         vjp_s, cold_factor_s, threads, stats%active_threads, &
-        solver%options%device, -1, profile_iterations, profile_s
+        solver%options%device, stats%active_device, profile_iterations, profile_s
 end program

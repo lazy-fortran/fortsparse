@@ -13,6 +13,7 @@ module fortsparse_native
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_native_supernodes, only: supernodes_t
+    use fortsparse_native_cuda, only: native_cuda_available
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
     implicit none
@@ -31,7 +32,7 @@ module fortsparse_native
     type, extends(sparse_backend_t) :: native_backend_t
         integer :: n = 0
         logical :: reference_only = .false.
-        integer :: analyzed_order = 0, analyzed_threads = 0
+        integer :: analyzed_order = 0, analyzed_threads = 0, analyzed_device = -1
         integer, allocatable :: perm(:), inverse(:), source(:), op(:), oi(:)
         type(csc_t) :: ordered
         logical :: ready = .false., blocked = .false.
@@ -71,6 +72,7 @@ contains
         start = wall_time()
         self%analyzed_order = self%options%ordering
         self%analyzed_threads = self%options%nthreads
+        self%analyzed_device = self%options%device
         call prepare_ordering(self, A, status)
         if (.not. status_ok(status)) return
         if (allocated(self%perm)) then
@@ -214,10 +216,11 @@ contains
             end do
         end do
         self%blocked = .not. self%reference_only .and. &
-            self%n >= 64 .and. maxval(self%count) > 12
+            ((self%n >= 64 .and. maxval(self%count) > 12) .or. &
+            self%options%device >= 0)
         if (self%blocked) then
             call self%panels%build(self%n, self%lp, self%li, &
-                self%options%nthreads, status)
+                self%options%nthreads, status, self%options%device)
             if (.not. status_ok(status)) return
         else
             allocate (self%lv(int(nz)), stat=ierr)
@@ -249,6 +252,12 @@ contains
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'native SPD: require finite, full symmetric, canonical square CSC')
+        if (self%options%device >= 0 .and. &
+            (.not. native_cuda_available .or. self%reference_only)) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'native SPD: CUDA sparse factorization not enabled')
+            return
+        end if
         if (self%options%symmetry /= FORTSPARSE_SYM_SPD) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'native backend supports real SPD matrices only')
@@ -327,12 +336,16 @@ contains
 
         start = wall_time()
         self%ready = .false.
+        self%stats%device_bytes = 0_i8
+        self%stats%active_device = -1
         if (self%blocked) then
             call self%panels%factor(A, status)
             self%stats%factor_s = self%panels%numeric_s
             self%stats%flops = self%panels%flops
             self%stats%nthreads = self%options%nthreads
             self%stats%active_threads = self%panels%active_threads
+            self%stats%device_bytes = self%panels%device_bytes
+            self%stats%active_device = self%options%device
             self%ready = status_ok(status)
             return
         end if
@@ -387,7 +400,8 @@ contains
         self%ready = .false.
         if (.not. status_ok(status)) return
         if (self%analyzed_order /= self%options%ordering .or. &
-            self%analyzed_threads /= self%options%nthreads) then
+            self%analyzed_threads /= self%options%nthreads .or. &
+            self%analyzed_device /= self%options%device) then
             call self%factor_real(A, refine, status)
             return
         end if
