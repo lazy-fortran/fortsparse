@@ -64,3 +64,28 @@
             end do
         end do
     end subroutine spd_schur_update
+
+    ! Unique, valid indices are owned and checked by sparse symbolic analysis.
+    ! Keep scalar leaves inside one compiled loop rather than cross-module
+    ! calls per sparse entry. These kernels allocate no scratch.
+    pure subroutine spd_scatter_update(x, indices, values, n, v)
+        integer, intent(in) :: n, indices(*)
+        real(dp), intent(inout) :: x(*)
+        real(dp), intent(in) :: values(*), v
+        integer :: i
+        !$omp simd
+        do i = 1, n
+            x(indices(i)) = spd_update(x(indices(i)), values(i), v)
+        end do
+    end subroutine spd_scatter_update
+
+    pure subroutine spd_gather_update(value, indices, values, x, n)
+        integer, intent(in) :: n, indices(*)
+        real(dp), intent(inout) :: value
+        real(dp), intent(in) :: values(*), x(*)
+        integer :: i
+        !$omp simd reduction(+:value)
+        do i = 1, n
+            value = spd_update(value, values(i), x(indices(i)))
+        end do
+    end subroutine spd_gather_update
