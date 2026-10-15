@@ -341,7 +341,8 @@ def numeric_rows(groups):
 def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=sorted({key for row in rows for key in row}))
+        writer = csv.DictWriter(stream, fieldnames=sorted({key for row in rows for key in row}),
+                                lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

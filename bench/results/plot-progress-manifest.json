@@ -31,8 +31,8 @@
     ]
   ],
   "variant": "training",
-  "script_sha256": "158647f4a14d8a4899cb06089a4bb322c1cbada44ac70ecbe97f5be25b168199",
-  "numeric_input_sha256": "a28c98f8e50c31dd6fc9367d2566cfb3a26be85ddac2bf520873c9a81736783f",
+  "script_sha256": "ad77dda78d3305fb1e7bd98e18fdff0aa8c5ff1c69c1901bcdbfd8c6c9d88f6b",
+  "numeric_input_sha256": "a0ae3aed17177ffd981e9b430f594836c409c8c8412d2b96892f3a500ad366f3",
   "configuration_selection": "Latest binary wins for a complete backend/case/workload thread series; identical binaries may merge disjoint thread configurations; latest duplicate wins",
   "notes": [
     "Empirical ranges, not confidence intervals.",
