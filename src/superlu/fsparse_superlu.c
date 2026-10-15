@@ -6,6 +6,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #if defined(__has_include)
 #if __has_include(<superlu/slu_ddefs.h>)
@@ -85,6 +86,18 @@ static int_t *copy_int_to_int_t0(const int *src, int count)
     return dst;
 }
 
+/* Shim factor codes: 0 ok, 1 singular, 2 allocation failure, 3 index
+ * overflow (size exceeds SuperLU's int_t), -1 internal.
+ * SuperLU gstrf: 0 < info <= n means U(info,info) is exactly zero; info > n
+ * means a memory allocation failed (info = bytes allocated so far + n);
+ * info < 0 is an invalid argument. */
+static int classify_lu_info(long lu_info, long n)
+{
+    if (lu_info == 0) return 0;
+    if (lu_info < 0) return -1;
+    return (lu_info <= n) ? 1 : 2;
+}
+
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
                            const int *rowidx1, const double *val, int *info)
 {
@@ -96,7 +109,7 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
 
     *info = 0;
     h = (slu_real_t *) calloc(1, sizeof(slu_real_t));
-    if (h == NULL) { *info = -1; return NULL; }
+    if (h == NULL) { *info = 2; return NULL; }
 
     h->n = (int) n;
     h->colptr0 = copy_int_to_int_t0(colptr1, n + 1);
@@ -107,7 +120,7 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     h->etree = (int *) malloc((size_t) n * sizeof(int));
     if (h->colptr0 == NULL || h->rowidx0 == NULL || h->aval == NULL ||
         h->perm_c == NULL || h->perm_r == NULL || h->etree == NULL) {
-        *info = -1;
+        *info = 2;
         fsparse_slu_free_d(h);
         return NULL;
     }
@@ -130,8 +143,7 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     StatFree(&stat);
 
     if (lu_info != 0) {
-        /* lu_info > 0: zero pivot at column lu_info (singular). < 0: bad arg. */
-        *info = (lu_info > 0) ? 1 : -1;
+        *info = classify_lu_info((long) lu_info, (long) n);
         fsparse_slu_free_d(h);
         return NULL;
     }
@@ -181,8 +193,14 @@ void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
     int_t lu_info = 0;
 
     *info = 0;
+    /* SuperLU indices are int_t; refuse sizes that would silently truncate. */
+    if (sizeof(int_t) < sizeof(long) &&
+        (n > (long) INT_MAX || nnz > (long) INT_MAX)) {
+        *info = 3;
+        return NULL;
+    }
     h = (slu_cplx_t *) calloc(1, sizeof(slu_cplx_t));
-    if (h == NULL) { *info = -1; return NULL; }
+    if (h == NULL) { *info = 2; return NULL; }
 
     h->n = (int) n;
     h->colptr0 = copy_to_int_t0(colptr1, n + 1);
@@ -193,7 +211,7 @@ void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
     h->etree = (int *) malloc((size_t) n * sizeof(int));
     if (h->colptr0 == NULL || h->rowidx0 == NULL || h->aval == NULL ||
         h->perm_c == NULL || h->perm_r == NULL || h->etree == NULL) {
-        *info = -1;
+        *info = 2;
         fsparse_slu_free_z(h);
         return NULL;
     }
@@ -216,7 +234,7 @@ void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
     StatFree(&stat);
 
     if (lu_info != 0) {
-        *info = (lu_info > 0) ? 1 : -1;
+        *info = classify_lu_info((long) lu_info, (long) n);
         fsparse_slu_free_z(h);
         return NULL;
     }

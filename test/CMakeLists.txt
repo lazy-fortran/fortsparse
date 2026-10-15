@@ -43,6 +43,20 @@ if(FORTSPARSE_ENABLE_SUPERLU)
     fortsparse_add_test(test_fortsparse_poisson
         solver/test_fortsparse_poisson.f90)
     fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
+    # Forces a real SuperLU allocation failure under an address-space limit.
+    fortsparse_add_test(test_fortsparse_superlu_status
+        solver/test_fortsparse_superlu_status.f90)
+    if(TARGET test_fortsparse_superlu_status AND UNIX)
+        # Rerun under an address-space limit (the plain registration above
+        # covers the mapping cases only). Single-threaded BLAS/OpenMP so the
+        # limit is not eaten by per-thread buffers.
+        add_test(NAME test_fortsparse_superlu_status_oom
+            COMMAND sh -c "ulimit -v 250000 && exec \"$0\""
+            $<TARGET_FILE:test_fortsparse_superlu_status>)
+        set_tests_properties(test_fortsparse_superlu_status_oom PROPERTIES
+            ENVIRONMENT
+            "FORTSPARSE_TEST_ULIMIT_V=1;OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
+    endif()
     # The no-helper error path must run where no helper sits next to it,
     # otherwise exe-directory discovery would resolve one and the backend would
     # be available. Keep this executable out of the bin dir that holds
