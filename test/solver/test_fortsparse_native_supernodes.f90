@@ -3,12 +3,24 @@ program test_fortsparse_native_supernodes
     use fortsparse_csc, only: csc_t, csc_from_triplet, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED
     use fortsparse_native_supernodes, only: supernodes_t
+    use fortsparse_native_cuda, only: native_cuda_available
     implicit none
     integer, parameter :: sizes(*) = [1, 15, 16, 17, 31, 32, 33, 65, 193]
-    integer :: k
-    do k = 1, size(sizes)
-        call run_case(sizes(k), k == size(sizes))
-    end do
+    integer :: k, device
+    character(16) :: argument
+    call get_command_argument(1, argument)
+    device = -1
+    if (trim(argument) == '--cuda') then
+        if (.not. native_cuda_available) error stop 'CUDA fixture needs CUDA build'
+        device = 0
+        call run_case(17, .false.)
+        call run_case(65, .false.)
+        call run_case(193, .true.)
+    else
+        do k = 1, size(sizes)
+            call run_case(sizes(k), k == size(sizes))
+        end do
+    end if
     call run_grid(17, 17)
     print '(a)', 'Native supernode block boundaries, task execution, refactor and errors pass'
 contains
@@ -109,10 +121,14 @@ contains
         end do
         call csc_from_triplet(n, n, rows, columns, vals, a, status)
         call checked(status)
-        call solver%build(n, lp, li, 4, status)
+        call solver%build(n, lp, li, 4, status, device)
         call checked(status)
         if (solver%memory_bytes() < 8_i8*solver%factor_nnz) error stop 'factor memory accounting'
-        !$ if (parallel_expected .and. solver%active_threads /= 4) error stop 'missing parallel plan'
+        if (device < 0) then
+            !$ if (parallel_expected .and. solver%active_threads /= 4) error stop 'missing parallel plan'
+        else
+            if (solver%device_bytes < 8_i8*solver%factor_nnz) error stop 'missing device accounting'
+        end if
         do i = 1, n
             expected(i) = sin(real(i,dp)/7.0_dp)
         end do
@@ -130,12 +146,23 @@ contains
         x = 0.75_dp*b
         call solver%solve(x, status)
         call checked(status)
-        if (maxval(abs(x-expected)) > 3.0e-12_dp) error stop 'supernode refactor error'
+        if (maxval(abs(x-expected)) > 3.0e-12_dp) then
+            print '(a,2i8,es16.7)', 'refactor device, n, error: ', device, n, &
+                maxval(abs(x-expected))
+            error stop 'supernode refactor error'
+        end if
         a%val(1) = -1.0_dp
         call solver%factor(a, status)
         if (status%code /= 8) error stop 'missing supernode failed pivot'
         call solver%solve(x, status)
         if (status%code /= FORTSPARSE_NOT_FACTORED) error stop 'stale supernode factor reused'
+        a%val(1) = 0.75_dp*matrix(1,1)
+        call solver%factor(a, status)
+        call checked(status)
+        x = 0.75_dp*b
+        call solver%solve(x, status)
+        call checked(status)
+        if (maxval(abs(x-expected)) > 3.0e-12_dp) error stop 'recovery after failed factor'
         call solver%free()
         if (solver%memory_bytes() /= 0_i8) error stop 'supernode workspace retained after free'
     end subroutine verify

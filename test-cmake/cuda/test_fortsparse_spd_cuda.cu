@@ -69,6 +69,18 @@ int main()
             for (int k = 0; k < 2; ++k) expected -= left[i+3*k]*right[j+4*k];
             close(updated[i+3*j], expected);
         }
+    /* Reused product scratch overwrites its previous contents, unlike update. */
+    for (int repeat = 0; repeat < 2; ++repeat) {
+        check(fsparse_spd_cuda_schur_product(ctx, 96, 3, 64, 3, 80, 4, 3, 4, 2));
+        check(fsparse_spd_cuda_download(ctx, 96, updated, 12));
+        check(fsparse_spd_cuda_synchronize(ctx));
+        for (int j = 0; j < 4; ++j)
+            for (int i = 0; i < 3; ++i) {
+                double expected = 0;
+                for (int k = 0; k < 2; ++k) expected -= left[i+3*k]*right[j+4*k];
+                close(updated[i+3*j], expected);
+            }
+    }
 
     matrix[0] = -1;
     check(fsparse_spd_cuda_upload(ctx, 0, matrix, 16));

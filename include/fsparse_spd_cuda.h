@@ -20,12 +20,26 @@ int fsparse_spd_cuda_download(void *context, size_t offset,
 int fsparse_spd_cuda_synchronize(void *context);
 int fsparse_spd_cuda_panel_factor(void *context, size_t offset, int n, int lda);
 int fsparse_spd_cuda_factor_info(void *context, int *info);
+/* Setup only: retain compact integer row/column maps on the device. */
+int fsparse_spd_cuda_set_maps(void *context, const int *maps, size_t count);
+/* Begin a whole factorization; pivot failure then survives every panel until
+ * factor_info synchronizes and ends this batch. */
+int fsparse_spd_cuda_begin_factor(void *context);
+int fsparse_spd_cuda_scatter_update(void *context, size_t update_offset,
+                                    int m, int n, size_t destination_offset,
+                                    int destination_rows, int destination_columns,
+                                    size_t row_map_offset, size_t column_map_offset);
 int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset, int n, int ldl,
                                  size_t b_offset, int m, int ldb);
 int fsparse_spd_cuda_schur_update(void *context, size_t c_offset, int ldc,
                                   size_t left_offset, int ldl,
                                   size_t right_offset, int ldr,
                                   int m, int n, int k);
+/* Overwrite scratch C := -left right^T; retained scratch need not be zero. */
+int fsparse_spd_cuda_schur_product(void *context, size_t c_offset, int ldc,
+                                   size_t left_offset, int ldl,
+                                   size_t right_offset, int ldr,
+                                   int m, int n, int k);
 size_t fsparse_spd_cuda_allocated_bytes(void *context);
 
 #ifdef __cplusplus

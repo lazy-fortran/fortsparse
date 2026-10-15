@@ -43,8 +43,13 @@ Small diagonal panels use generated numerical leaves in one cooperative
 CUDA block. Larger triangular solves and Schur contractions lower to cuBLAS.
 Upload/download calls enqueue copies; callers must synchronize before reusing
 host buffers and check factor info before consuming a failed panel. Each
-context belongs to one caller and one stream. This is a verified kernel
-adapter, not evidence of a complete resident sparse factorization pipeline.
+context belongs to one caller and one stream. The supernode engine's optional
+device argument selects a resident sparse factorization pipeline: setup
+retains compact integer scatter maps, each factorization uploads its panel
+input once and downloads its completed factors once, and CPU solves use the
+same host allocation. Panels and Schur updates stay resident between those
+transfers. This establishes an experimental execution path; competitiveness
+still requires transfer-inclusive measurements on the declared workload.
 
 For optional integration, define a CUDA option defaulting off, include
 `cmake/FortSparseNativeCUDA.cmake` after creating the library target, and call
@@ -59,3 +64,7 @@ oracles; they require an actual CUDA device.
 requires no CUDA compiler, headers or runtime. The optional CMake helper adds
 the bindings and definition. The Fortran device fixture verifies pointer,
 size and status interoperability through an independently known 2-by-2 factor.
+The supernode fixture accepts `--cuda` to exercise sparse/block-boundary
+factorization, retained-context refactorization and recovery after a failed
+pivot on a real device. The CPU fixture exercises the same mathematical cases
+without CUDA.
