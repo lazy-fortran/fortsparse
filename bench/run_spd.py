@@ -11,6 +11,7 @@ import platform
 import signal
 import statistics
 import subprocess
+import sys
 import time
 
 
@@ -74,6 +75,8 @@ def sample(args, cpus, backend, family, level, threads, workload, trial):
                 record[key] = value
             else:
                 record[key] = float(value)
+        record["factor_solve_s"] = record["factor_s"] + record["solve_s"]
+        record["workflow_cpu_s"] = record["parent_cpu_s"] + record["helper_cpu_s"]
         record["status"] = "ok"
     except (ValueError, StopIteration, TypeError) as error:
         record.update(status="invalid_output", reason=str(error), stdout=stdout)
@@ -87,7 +90,7 @@ def main():
     parser.add_argument("--backends", default="superlu,umfpack,mumps,native,mkl-pardiso")
     parser.add_argument("--threads", default="1,2,4,8,16")
     parser.add_argument("--trials", type=int, default=5)
-    parser.add_argument("--workloads", default="rhs1,rhs8,refactor")
+    parser.add_argument("--workloads", default="rhs1,rhs8,refactor,derivatives,warm")
     parser.add_argument("--families", default="band,grid2,grid3")
     parser.add_argument("--levels", default="1,2,3")
     parser.add_argument("--heldout", action="store_true")
@@ -138,7 +141,9 @@ def main():
                     r["workload"]) for r in records})
     metrics = ("factor_s", "solve_s", "refactor_s", "total_s", "parent_cpu_s",
                "parent_rss_kib", "helper_rss_kib", "helper_cpu_s",
-               "backward_error", "process_wall_s")
+               "backward_error", "process_wall_s", "factor_solve_s",
+               "workflow_cpu_s", "jvp_s", "vjp_s", "cold_factor_s",
+               "factor_nnz", "factor_mem_mb", "analysis_s", "numeric_s")
     for key in keys:
         group = [r for r in records if (r["backend"], r["family"], r["level"],
                  r["threads"], r["workload"]) == key]
@@ -148,9 +153,22 @@ def main():
         if good:
             for metric in metrics:
                 values = [r[metric] for r in good]
-                summary[metric] = dict(median=statistics.median(values),
-                                       minimum=min(values), maximum=max(values))
+                available = [v for v in values if v >= 0]
+                summary[metric] = (dict(median=statistics.median(available),
+                                        minimum=min(available), maximum=max(available))
+                                   if available else None)
         summaries.append(summary)
+    for summary in summaries:
+        serial = next((s for s in summaries if s["backend"] == summary["backend"]
+                       and s["family"] == summary["family"]
+                       and s["level"] == summary["level"]
+                       and s["workload"] == summary["workload"]
+                       and s["threads"] == 1 and s["successes"] == s["samples"]), None)
+        if serial and summary["successes"] == summary["samples"]:
+            for metric in ("total_s", "factor_solve_s"):
+                speedup = serial[metric]["median"] / summary[metric]["median"]
+                summary[metric]["speedup"] = speedup
+                summary[metric]["parallel_efficiency"] = speedup / summary["threads"]
     binaries = {}
     for name in ("bench_spd", "bench_spd_pardiso"):
         binary = args.bin_dir / name
@@ -160,10 +178,20 @@ def main():
                                                     capture_output=True).stdout)
     revision = subprocess.run(["git", "rev-parse", "HEAD"], text=True,
                               capture_output=True).stdout.strip()
+    dirty = subprocess.run(["git", "status", "--porcelain"], text=True,
+                           capture_output=True).stdout.strip()
+    cpu_description = next((line.split(":", 1)[1].strip() for line in
+                            Path("/proc/cpuinfo").read_text().splitlines()
+                            if line.startswith("model name")), "unknown")
     result = dict(revision=revision, platform=platform.platform(),
                   physical_cpu_ids=cpus, binary_provenance=binaries,
                   selected_scaling_cases=selected, records=records, summaries=summaries,
-                  calibration_only=args.calibrate_ladder)
+                  calibration_only=args.calibrate_ladder, command=sys.argv,
+                  working_tree_dirty=bool(dirty), cpu_model=cpu_description,
+                  fixed_environment=dict(OPENBLAS_NUM_THREADS="1", MKL_DYNAMIC="FALSE",
+                                         MKL_INTERFACE_LAYER="LP64", MKL_THREADING_LAYER="GNU",
+                                         OMP_DYNAMIC="FALSE", OMP_PROC_BIND="close",
+                                         OMP_PLACES="cores"))
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(f"{len(records)} samples; {sum(r['status'] == 'ok' for r in records)} passed; "
           f"results: {args.output}")

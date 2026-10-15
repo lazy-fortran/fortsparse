@@ -21,8 +21,9 @@ independent dense Cholesky.
 python3 bench/run_spd.py --bin-dir build/bin --output /var/tmp/spd-small.json
 ```
 
-Defaults are five fresh processes per sample group, one/eight RHS and
-same-pattern changed-value refactorization, and 1/2/4/8/16 physical cores.
+Defaults are five fresh processes per sample group, one/eight RHS,
+same-pattern changed-value refactorization, derivatives and warm-runtime
+refactor-from-scratch, and 1/2/4/8/16 physical cores.
 The CPU affinity is fixed, OpenBLAS uses one thread, OpenMP and oneMKL use
 the requested thread count, and dynamic threading is disabled. SuperLU and
 UMFPACK remain serial factorization baselines; sweeping their affinity does
@@ -63,5 +64,20 @@ peak RSS separately. Do not sum the two: shared mappings may be counted in
 both. These are process peaks, not attributed solver allocations. Backend
 factor memory and fill are separate columns when available. CPU workflow
 totals include fixture assembly, independent residual checking and cleanup;
-factor-plus-solve is available from its phase columns. No GPU or derivative
-performance claim is made by these drivers yet.
+`factor_solve_s` excludes fixture/residual/cleanup costs. The warm workload
+frees the first factors then repeats analysis and factorization in a loaded
+runtime; `cold_factor_s` preserves its first factorization. Its total workflow
+and CPU totals include both factorizations, so use its factor-plus-solve
+column when comparing amortized runtime costs. Changed-value refactorization
+is a different workload and records actual symbolic reuse.
+
+Derivative workloads time implicit JVP and VJP, including sparse matrix
+cotangent construction, with the same retained SPD factors. They check a
+known tangent and the adjoint identity independently. The isolated PARDISO
+driver implements the equivalent implicit-equation wrapper around its solves.
+No GPU performance claim is made by these drivers yet. Summaries include
+speedup and efficiency against each backend's one-thread result; missing
+statistics are JSON `null`. Compare both cold and warm cases, five-trial
+spread, and best-tuned external thread counts before claiming competitiveness.
+UMFPACK's separate parent/helper memory peaks do not establish a unique
+aggregate footprint; a combined memory claim needs additional evidence.
