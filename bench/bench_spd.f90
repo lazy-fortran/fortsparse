@@ -21,13 +21,16 @@ program bench_spd
     type(fortsparse_status_t) :: status
     type(sparse_factor_stats_t) :: stats
     character(32) :: backend, family, argument, workload
-    integer :: level, threads, nrhs, j
-    logical :: held_out, reused
+    integer :: level, threads, nrhs, j, profile_iterations
+    logical :: held_out, reused, reused_one
     real(dp), allocatable :: b(:, :), x(:, :), reference(:)
     real(dp), allocatable :: tangent(:), adjoint(:), matrix_bar(:), b_dot(:)
+    real(dp), allocatable :: original_b(:, :)
     real(dp) :: start, cpu_start, factor_s, solve_s, refactor_s, cpu_s
     real(dp) :: error, rss, child_rss, child_cpu, total_start, total_s
     real(dp) :: jvp_s, vjp_s, lhs, rhs, cold_factor_s
+    real(dp) :: profile_start, profile_s, factor_sum, solve_sum, refactor_sum
+    real(dp) :: iteration_start, predicted_s, scale
 
     total_start = wall_time()
     call cpu_time(cpu_start)
@@ -51,12 +54,19 @@ program bench_spd
         solver%backend_id = 3
     case ("native")
         solver%backend_id = 4
+    case ("native-cuda")
+        solver%backend_id = 4
+        solver%options%device = 0
+    case ("native-reference")
+        solver%backend_id = 5
     case default
         error stop "unknown backend"
     end select
     if (trim(workload) /= "rhs1" .and. trim(workload) /= "rhs8" &
         .and. trim(workload) /= "refactor" .and. &
-        trim(workload) /= "derivatives" .and. trim(workload) /= "warm") &
+        trim(workload) /= "derivatives" .and. trim(workload) /= "warm" &
+        .and. trim(workload) /= "profile-factor" .and. &
+        trim(workload) /= "profile-refactor") &
         error stop "unknown workload"
     call make_fixture(trim(family), level, held_out, fixture)
     a%nrow = fixture%n
@@ -109,6 +119,58 @@ program bench_spd
     end if
     solve_s = wall_time() - start
     if (.not. status_ok(status)) error stop "solve failed"
+    profile_iterations = 0
+    profile_s = -1.0_dp
+    if (trim(workload) == "profile-factor" .or. &
+        trim(workload) == "profile-refactor") then
+        predicted_s = factor_s + solve_s
+        if (wall_time() - total_start + predicted_s > 0.9_dp) &
+            error stop "profiling case exceeds one-second replay budget"
+        allocate (original_b(a%nrow, nrhs))
+        original_b = b
+        factor_sum = 0.0_dp
+        solve_sum = 0.0_dp
+        refactor_sum = 0.0_dp
+        reused = .true.
+        profile_start = wall_time()
+        do
+            iteration_start = wall_time()
+            profile_iterations = profile_iterations + 1
+            if (trim(workload) == "profile-factor") then
+                call sparse_free(solver)
+                start = wall_time()
+                call sparse_factor(solver, a, status)
+                factor_sum = factor_sum + wall_time() - start
+            else
+                scale = 1.0_dp
+                if (mod(profile_iterations, 2) == 1) scale = 1.125_dp
+                a%val = fixture%val*scale
+                b = original_b*scale
+                start = wall_time()
+                call sparse_refactor(solver, a, status, reused_one)
+                refactor_sum = refactor_sum + wall_time() - start
+                reused = reused .and. reused_one
+            end if
+            if (.not. status_ok(status)) error stop "profiling factor failed"
+            start = wall_time()
+            call sparse_solve(solver, b(:, 1), x(:, 1), status)
+            solve_sum = solve_sum + wall_time() - start
+            if (.not. status_ok(status)) error stop "profiling solve failed"
+            predicted_s = wall_time() - iteration_start
+            if (wall_time() - profile_start >= 0.2_dp) exit
+            if (wall_time() - total_start + predicted_s > 0.9_dp) exit
+        end do
+        profile_s = wall_time() - profile_start
+        solve_s = solve_sum/real(profile_iterations, dp)
+        if (trim(workload) == "profile-factor") then
+            factor_s = factor_sum/real(profile_iterations, dp)
+            reused = .false.
+        else
+            refactor_s = refactor_sum/real(profile_iterations, dp)
+            fixture%val = a%val
+        end if
+        call sparse_factor_stats(solver, stats, status)
+    end if
     error = 0.0_dp
     do j = 1, nrhs
         error = max(error, backward_error(fixture, x(:, j), b(:, j)))
@@ -148,10 +210,13 @@ program bench_spd
     write (*, '(a)') "backend,family,level,n,nnz,threads,nrhs,factor_s,"// &
         "solve_s,refactor_s,reused,parent_cpu_s,total_s,parent_rss_kib,"// &
         "helper_rss_kib,helper_cpu_s,factor_nnz,factor_mem_mb,"// &
-        "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s"
+        "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s,"// &
+        "requested_threads,active_threads,requested_device,actual_device,"// &
+        "profile_iterations,profile_s"
     write (*, '(*(g0,:,","))') trim(backend), trim(family), level, a%nrow, &
         a%nnz, threads, nrhs, factor_s, solve_s, refactor_s, reused, cpu_s, &
         total_s, rss, child_rss, child_cpu, stats%factor_nnz, &
         stats%factor_mem_mb, stats%analysis_s, stats%factor_s, error, jvp_s, &
-        vjp_s, cold_factor_s
+        vjp_s, cold_factor_s, threads, stats%active_threads, &
+        solver%options%device, -1, profile_iterations, profile_s
 end program

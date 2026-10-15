@@ -31,16 +31,19 @@ program bench_spd_pardiso
     end interface
     type(fixture_t) :: a
     character(32) :: family, argument, workload
-    integer :: level, threads, j, col, p, position
+    integer :: level, threads, j, col, p, position, profile_iterations
     integer(c_int64_t) :: pt(64)
     integer(c_int) :: iparm(64), nrhs, code
     integer(c_int), allocatable :: ia(:), ja(:), perm(:)
     real(dp), allocatable :: av(:), b(:, :), x(:, :), reference(:)
     real(dp), allocatable :: primal(:), tangent(:), b_dot(:), matrix_bar(:)
+    real(dp), allocatable :: original_b(:, :), original_av(:)
     real(dp) :: start, total_start, cpu_start, cpu_s, total_s, factor_s
     real(dp) :: analysis_s, numeric_s, solve_s, refactor_s, error
     real(dp) :: rss, child_rss, child_cpu, factor_mem
     real(dp) :: jvp_s, vjp_s, cold_factor_s, lhs, rhs
+    real(dp) :: profile_start, profile_s, factor_sum, solve_sum, refactor_sum
+    real(dp) :: iteration_start, predicted_s, scale
     logical :: held_out, reused
 
     total_start = wall_time()
@@ -57,10 +60,13 @@ program bench_spd_pardiso
     if (trim(workload) == "rhs8") nrhs = 8
     if (trim(workload) /= "rhs1" .and. trim(workload) /= "rhs8" &
         .and. trim(workload) /= "refactor" .and. &
-        trim(workload) /= "derivatives" .and. trim(workload) /= "warm") &
+        trim(workload) /= "derivatives" .and. trim(workload) /= "warm" &
+        .and. trim(workload) /= "profile-factor" .and. &
+        trim(workload) /= "profile-refactor") &
         error stop "unknown workload"
     call make_fixture(trim(family), level, held_out, a)
     allocate (ia(a%n + 1), ja(size(a%val)), av(size(a%val)), perm(a%n))
+    av = 0.0_dp
     allocate (b(a%n, nrhs), x(a%n, nrhs), reference(a%n))
     position = 1
     do col = 1, a%n
@@ -119,6 +125,58 @@ program bench_spd_pardiso
     start = wall_time()
     call phase(33)
     solve_s = wall_time() - start
+    profile_iterations = 0
+    profile_s = -1.0_dp
+    if (trim(workload) == "profile-factor" .or. &
+        trim(workload) == "profile-refactor") then
+        predicted_s = factor_s + solve_s
+        if (wall_time() - total_start + predicted_s > 0.9_dp) &
+            error stop "profiling case exceeds one-second replay budget"
+        allocate (original_b(a%n, nrhs), original_av(size(av)))
+        original_b = b
+        original_av = av
+        factor_sum = 0.0_dp
+        solve_sum = 0.0_dp
+        refactor_sum = 0.0_dp
+        profile_start = wall_time()
+        do
+            iteration_start = wall_time()
+            profile_iterations = profile_iterations + 1
+            if (trim(workload) == "profile-factor") then
+                call phase(-1)
+                pt = 0
+                call pardisoinit(pt, 2_c_int, iparm)
+                iparm(2) = 2
+                start = wall_time()
+                call phase(11)
+                call phase(22)
+                factor_sum = factor_sum + wall_time() - start
+            else
+                scale = 1.0_dp
+                if (mod(profile_iterations, 2) == 1) scale = 1.125_dp
+                av = original_av*scale
+                b = original_b*scale
+                start = wall_time()
+                call phase(22)
+                refactor_sum = refactor_sum + wall_time() - start
+            end if
+            start = wall_time()
+            call phase(33)
+            solve_sum = solve_sum + wall_time() - start
+            predicted_s = wall_time() - iteration_start
+            if (wall_time() - profile_start >= 0.2_dp) exit
+            if (wall_time() - total_start + predicted_s > 0.9_dp) exit
+        end do
+        profile_s = wall_time() - profile_start
+        solve_s = solve_sum/real(profile_iterations, dp)
+        if (trim(workload) == "profile-factor") then
+            factor_s = factor_sum/real(profile_iterations, dp)
+        else
+            refactor_s = refactor_sum/real(profile_iterations, dp)
+            a%val = a%val*scale
+            reused = .true.
+        end if
+    end if
     error = 0.0_dp
     do j = 1, nrhs
         error = max(error, backward_error(a, x(:, j), b(:, j)))
@@ -162,11 +220,14 @@ program bench_spd_pardiso
     write (*, '(a)') "backend,family,level,n,nnz,threads,nrhs,factor_s,"// &
         "solve_s,refactor_s,reused,parent_cpu_s,total_s,parent_rss_kib,"// &
         "helper_rss_kib,helper_cpu_s,factor_nnz,factor_mem_mb,"// &
-        "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s"
+        "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s,"// &
+        "requested_threads,active_threads,requested_device,actual_device,"// &
+        "profile_iterations,profile_s"
     write (*, '(*(g0,:,","))') "mkl-pardiso", trim(family), level, a%n, &
         size(a%val), threads, nrhs, factor_s, solve_s, refactor_s, reused, &
         cpu_s, total_s, rss, child_rss, child_cpu, iparm(18), factor_mem, &
-        analysis_s, numeric_s, error, jvp_s, vjp_s, cold_factor_s
+        analysis_s, numeric_s, error, jvp_s, vjp_s, cold_factor_s, &
+        threads, -1, -1, -1, profile_iterations, profile_s
 
 contains
     subroutine phase(number)
