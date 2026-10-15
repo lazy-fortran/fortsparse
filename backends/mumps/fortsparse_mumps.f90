@@ -1,6 +1,6 @@
 module fortsparse_mumps
     ! MUMPS (CeCILL-C) in-process backend: supernodal/multifrontal Cholesky,
-    ! LDL^T and LU with METIS nested-dissection ordering, an OpenMP-threaded
+    ! LDL^T and LU with AMD or METIS nested-dissection ordering, an OpenMP-threaded
     ! factorization and solve, one factorization reused for any number of
     ! right-hand sides, a native multi-RHS block solve and optional iterative
     ! refinement against the original matrix. Binds the MIT C shims
@@ -19,7 +19,7 @@ module fortsparse_mumps
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
-        FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_AMD
+        FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
@@ -37,6 +37,9 @@ module fortsparse_mumps
     ! MUMPS ICNTL(7) values.
     integer, parameter :: MUMPS_ORDER_AMD = 0
     integer, parameter :: MUMPS_ORDER_METIS = 5
+    ! FORTSPARSE_ORDER_DEFAULT: the C shim analyses with AMD and switches to
+    ! METIS when the AMD flop estimate marks a 3D-like pattern.
+    integer, parameter :: MUMPS_ORDER_AUTO = -1
 
     ! Owns one heap-allocated solve vector handed out by vector().
     type :: rvec_t
@@ -217,11 +220,7 @@ contains
                 "mumps factor: unknown symmetry option")
             return
         end select
-        if (self%options%ordering == FORTSPARSE_ORDER_AMD) then
-            ordering = MUMPS_ORDER_AMD
-        else
-            ordering = MUMPS_ORDER_METIS
-        end if
+        ordering = mumps_ordering(self%options%ordering)
         self%h = fsparse_mumps_factor_d(int(ncol, c_long), &
             int(nz, c_long), col_ptr, row_idx, val, sym, ordering, &
             int(self%options%nthreads, c_int), &
@@ -296,11 +295,7 @@ contains
                 "mumps factor: unknown symmetry option")
             return
         end select
-        if (self%options%ordering == FORTSPARSE_ORDER_AMD) then
-            ordering = MUMPS_ORDER_AMD
-        else
-            ordering = MUMPS_ORDER_METIS
-        end if
+        ordering = mumps_ordering(self%options%ordering)
         self%h = fsparse_mumps_factor_z(int(ncol, c_long), &
             int(nz, c_long), col_ptr, row_idx, val, mode, ordering, &
             int(self%options%nthreads, c_int), &
@@ -336,6 +331,21 @@ contains
         call save_pattern(self, ncol, nz, col_ptr, row_idx)
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine mumps_factor_complex_raw
+
+    ! MUMPS ICNTL(7) for a fortsparse ordering option (MUMPS_ORDER_AUTO: the
+    ! shim chooses).
+    integer(c_int) function mumps_ordering(option) result(ordering)
+        integer, intent(in) :: option
+
+        select case (option)
+        case (FORTSPARSE_ORDER_AMD)
+            ordering = MUMPS_ORDER_AMD
+        case (FORTSPARSE_ORDER_ND)
+            ordering = MUMPS_ORDER_METIS
+        case default
+            ordering = MUMPS_ORDER_AUTO
+        end select
+    end function mumps_ordering
 
     subroutine retain_real(self, nrow, ncol, nnz, col_ptr, row_idx, val)
         class(mumps_backend_t), intent(inout) :: self

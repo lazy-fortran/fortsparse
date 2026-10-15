@@ -20,6 +20,16 @@
 #define JOB_INIT (-1)
 #define JOB_END (-2)
 #define ICN(k) icntl[(k) - 1]
+/* MUMPS 5.9 L0-OMP tree parallelism (ICNTL(48)=1, its default) parks the
+ * threads that finish their subtrees in usleep(1000) (dfac_omp_m.F,
+ * DMUMPS_PERFORM_COPIES), a fixed ~1 ms per factorization with two or more
+ * threads. It pays off only from this order on. */
+#define FSPARSE_MUMPS_L0_MIN_N 5000
+/* Automatic ordering (ordering < 0): AMD first; when the AMD analysis
+ * estimates more than this many elimination flops per stored entry (a
+ * three-dimensional or strongly coupled pattern), METIS nested dissection
+ * is analysed instead, whose fill is then far smaller than its cost. */
+#define FSPARSE_MUMPS_ND_FLOPS_PER_NNZ 3000.0
 #define INFOG(k) infog[(k) - 1]
 #define RINFOG(k) rinfog[(k) - 1]
 
@@ -195,9 +205,10 @@ void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
     h->id.ICN(2) = verbose ? 6 : -1;
     h->id.ICN(3) = verbose ? 6 : -1;
     h->id.ICN(4) = verbose ? 2 : 0;
-    h->id.ICN(7) = ordering;
+    h->id.ICN(7) = ordering < 0 ? 0 : ordering; /* 0 AMD, 5 METIS */
     h->id.ICN(10) = 0; /* refinement is done by the Fortran layer */
     if (nthreads > 0) h->id.ICN(16) = nthreads;
+    h->id.ICN(48) = n >= FSPARSE_MUMPS_L0_MIN_N ? 1 : 0;
 
     h->id.n = (MUMPS_INT) n;
     h->id.nnz = (MUMPS_INT8) cnt;
@@ -206,7 +217,12 @@ void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
     h->id.a = h->a;
 
     t0 = wall();
-    mumps_call(h, 1);
+    mumps_call(h, 1); /* analysis */
+    if (ordering < 0 && h->id.INFOG(1) >= 0 &&
+        h->id.RINFOG(1) > FSPARSE_MUMPS_ND_FLOPS_PER_NNZ * (double) nnz) {
+        h->id.ICN(7) = 5;
+        mumps_call(h, 1);
+    }
     h->t_analysis = wall() - t0;
     if (h->id.INFOG(1) < 0) {
         *info1 = h->id.INFOG(1);

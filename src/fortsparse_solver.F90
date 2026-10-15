@@ -3,11 +3,12 @@ module fortsparse_solver
     !
     ! A client factors a matrix once, solves any number of right-hand sides
     ! reusing that factorization, then frees it. The backend is selected by an
-    ! integer tag on the solver. The default in-process backend is MUMPS when
-    ! built with it (FORTSPARSE_BACKEND_DEFAULT), SuperLU (BSD) otherwise;
-    ! UMFPACK runs out-of-process through a separate GPL helper and is
-    ! reached by selecting FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an
-    ! unbuilt or unknown backend yields a documented
+    ! integer tag on the solver. The default, FORTSPARSE_BACKEND_AUTO, picks
+    ! SuperLU (BSD) or, for large matrices in a sequential MUMPS build, MUMPS
+    ! per factorization (sparse_auto_backend); UMFPACK runs out-of-process
+    ! through a separate GPL helper and is reached by selecting
+    ! FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an unbuilt or unknown backend
+    ! yields a documented
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
     use fortsparse_kinds, only: dp
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
@@ -37,17 +38,31 @@ module fortsparse_solver
     ! In-process threaded MUMPS: Cholesky/LDL^T/LU, nested dissection, block
     ! solves (present only when built with FORTSPARSE_ENABLE_MUMPS).
     integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
-    ! Default of sparse_solver_t%backend_id and hence of sparse_solve_once:
-    ! MUMPS when this build carries a sequential MUMPS with both real (DMUMPS)
-    ! and complex (ZMUMPS) arithmetic, SuperLU otherwise. An MPI MUMPS needs the
-    ! application to own MPI_Init, so MPI builds keep SuperLU as the default.
-#if defined(FORTSPARSE_HAVE_MUMPS) && defined(FORTSPARSE_HAVE_ZMUMPS) \
-    && !defined(FORTSPARSE_MUMPS_MPI)
+    ! Per-matrix choice between the in-process backends at factor time
+    ! (sparse_auto_backend); the default of sparse_solver_t%backend_id and
+    ! hence of sparse_solve_once.
+    integer, parameter, public :: FORTSPARSE_BACKEND_AUTO = 0
     integer, parameter, public :: FORTSPARSE_BACKEND_DEFAULT = &
-        FORTSPARSE_BACKEND_MUMPS
+        FORTSPARSE_BACKEND_AUTO
+
+    ! Fewest stored entries for which AUTO factors with MUMPS (measured
+    ! crossover of factor + solve wall time; README, "Backend selection").
+    integer, parameter :: AUTO_MUMPS_MIN_NNZ = 40000
+    ! Backends AUTO may choose in this build (MUMPS only sequential).
+#if defined(FORTSPARSE_HAVE_MUMPS) && !defined(FORTSPARSE_MUMPS_MPI)
+    logical, parameter :: AUTO_HAS_MUMPS = .true.
 #else
-    integer, parameter, public :: FORTSPARSE_BACKEND_DEFAULT = &
-        FORTSPARSE_BACKEND_SUPERLU
+    logical, parameter :: AUTO_HAS_MUMPS = .false.
+#endif
+#ifdef FORTSPARSE_HAVE_ZMUMPS
+    logical, parameter :: AUTO_HAS_ZMUMPS = .true.
+#else
+    logical, parameter :: AUTO_HAS_ZMUMPS = .false.
+#endif
+#ifdef FORTSPARSE_HAVE_SUPERLU
+    logical, parameter :: AUTO_HAS_SUPERLU = .true.
+#else
+    logical, parameter :: AUTO_HAS_SUPERLU = .false.
 #endif
 
     ! Re-exported option and statistics vocabulary.
@@ -78,6 +93,7 @@ module fortsparse_solver
     public :: sparse_vector
     public :: sparse_solve_block
     public :: sparse_factor_stats
+    public :: sparse_auto_backend
 
     ! Refactor after the matrix values changed. When the sparsity pattern (and
     ! the symmetry and ordering options) equal those of the last factorization
@@ -143,7 +159,7 @@ contains
         type(csc_t),               intent(in)    :: A
         type(fortsparse_status_t), intent(out)   :: status
 
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, A%nnz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real(A, solver%refine, status)
         solver%factored = status_ok(status)
@@ -155,7 +171,7 @@ contains
         type(csc_z_t),             intent(in)    :: A
         type(fortsparse_status_t), intent(out)   :: status
 
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, A%nnz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex(A, solver%refine, status)
         solver%factored = status_ok(status)
@@ -171,7 +187,7 @@ contains
         real(dp),                  intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, nz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
             val, solver%refine, status)
@@ -187,7 +203,7 @@ contains
         complex(dp),               intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, nz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex_raw(nrow, ncol, nz, col_ptr, &
             row_idx, val, solver%refine, status)
@@ -203,7 +219,7 @@ contains
         logical :: r
 
         r = .false.
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, A%nnz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real(A, solver%refine, status, r)
             solver%factored = status_ok(status)
@@ -220,7 +236,7 @@ contains
         logical :: r
 
         r = .false.
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, A%nnz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex(A, solver%refine, status, r)
             solver%factored = status_ok(status)
@@ -240,7 +256,7 @@ contains
         logical :: r
 
         r = .false.
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, nz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real_raw(nrow, ncol, nz, col_ptr, &
                 row_idx, val, solver%refine, status, r)
@@ -261,7 +277,7 @@ contains
         logical :: r
 
         r = .false.
-        call ensure_backend(solver, status)
+        call ensure_backend(solver, nz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex_raw(nrow, ncol, nz, col_ptr, &
                 row_idx, val, solver%refine, status, r)
@@ -619,26 +635,53 @@ contains
         call sparse_destroy(solver)
     end subroutine sparse_solve_once_complex
 
-    ! Ensure solver%backend is allocated to the concrete type for backend_id.
-    ! An existing backend of the selected kind is kept, so its retained session
-    ! (the resident helper, for the out-of-process backend) survives across
-    ! factorizations; the backend's own factor replaces any prior factorization.
-    ! The backend is reallocated only when absent or when backend_id changed, and
-    ! deallocation runs the old backend's finalizer, releasing its resources.
-    ! Unknown ids set the backend-unavailable status.
-    subroutine ensure_backend(solver, status)
+    ! Backend chosen by FORTSPARSE_BACKEND_AUTO for a matrix with nnz stored
+    ! entries: MUMPS from AUTO_MUMPS_MIN_NNZ on, SuperLU below (README,
+    ! "Backend selection", has the measured crossover). MUMPS needs a
+    ! sequential build (an MPI MUMPS needs the application to own MPI_Init)
+    ! and, for a complex matrix, ZMUMPS; otherwise SuperLU. A build without
+    ! SuperLU uses MUMPS throughout.
+    integer function sparse_auto_backend(nnz, is_complex) result(id)
+        integer, intent(in) :: nnz
+        logical, intent(in) :: is_complex
+
+        id = FORTSPARSE_BACKEND_SUPERLU
+        if (AUTO_HAS_MUMPS .and. nnz >= AUTO_MUMPS_MIN_NNZ .and. &
+            (AUTO_HAS_ZMUMPS .or. .not. is_complex)) id = FORTSPARSE_BACKEND_MUMPS
+        if (AUTO_HAS_MUMPS .and. .not. AUTO_HAS_SUPERLU) &
+            id = FORTSPARSE_BACKEND_MUMPS
+    end function sparse_auto_backend
+
+    ! Ensure solver%backend is allocated to the concrete type for backend_id,
+    ! resolving FORTSPARSE_BACKEND_AUTO from the matrix about to be factored
+    ! (sparse_auto_backend). An existing backend of the selected kind is kept,
+    ! so its retained session (the resident helper, for the out-of-process
+    ! backend; the symbolic analysis, for a MUMPS refactorization) survives
+    ! across factorizations; the backend's own factor replaces any prior
+    ! factorization. The backend is reallocated only when absent or when the
+    ! selected kind changed, and deallocation runs the old backend's
+    ! finalizer, releasing its resources. Unknown ids set the
+    ! backend-unavailable status.
+    subroutine ensure_backend(solver, nnz, is_complex, status)
         type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nnz
+        logical,                   intent(in)    :: is_complex
         type(fortsparse_status_t), intent(out)   :: status
 
+        integer :: id
+
+        id = solver%backend_id
+        if (id == FORTSPARSE_BACKEND_AUTO) id = sparse_auto_backend(nnz, &
+            is_complex)
         if (allocated(solver%backend)) then
-            if (backend_is(solver%backend, solver%backend_id)) then
+            if (backend_is(solver%backend, id)) then
                 solver%backend%options = solver%options
                 call status_set(status, FORTSPARSE_OK, "")
                 return
             end if
             deallocate (solver%backend)
         end if
-        select case (solver%backend_id)
+        select case (id)
 #ifdef FORTSPARSE_HAVE_SUPERLU
         case (FORTSPARSE_BACKEND_SUPERLU)
             allocate (superlu_backend_t :: solver%backend)
@@ -650,7 +693,7 @@ contains
             allocate (mumps_backend_t :: solver%backend)
 #endif
         case default
-            call unavailable_backend(solver%backend_id, status)
+            call unavailable_backend(id, status)
             return
         end select
         solver%backend%options = solver%options
