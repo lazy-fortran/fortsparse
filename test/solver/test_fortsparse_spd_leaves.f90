@@ -1,5 +1,6 @@
 program test_fortsparse_spd_leaves
     use, intrinsic :: iso_fortran_env, only: dp => real64
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_root_jvp, spd_root_vjp, spd_divide_jvp, spd_divide_vjp, &
         spd_update_jvp, spd_update_vjp, spd_panel_factor, spd_panel_solve, &
@@ -79,6 +80,7 @@ program test_fortsparse_spd_leaves
 contains
     subroutine close(actual, expected_value, tolerance)
         real(dp), intent(in) :: actual, expected_value, tolerance
+        if (.not. ieee_is_finite(actual)) error stop 'generated leaf is not finite'
         if (abs(actual-expected_value) > tolerance*max(1.0_dp, abs(expected_value))) &
             error stop 'generated leaf differs from independent oracle'
     end subroutine close
