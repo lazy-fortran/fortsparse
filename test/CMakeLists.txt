@@ -1,6 +1,8 @@
 # fortsparse test suite. Each test is registered only when its source file is
 # present, so the library configures and builds before the test programs are
 # written and every test activates automatically once its source lands.
+# Tests that fpm cannot build (MUMPS/MPI, the C IPC driver) live in
+# test-cmake/, which fpm does not scan. Their CTest registrations are unchanged.
 
 function(fortsparse_add_test name source)
     if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${source}")
@@ -22,7 +24,8 @@ add_executable(bench_fortsparse_matvec ../bench/bench_csc_matvec.f90)
 target_link_libraries(bench_fortsparse_matvec PRIVATE fortsparse)
 
 if(UNIX)
-    add_executable(test_fortsparse_ipc_wait ipc/test_fortsparse_ipc_wait.c)
+    add_executable(test_fortsparse_ipc_wait
+        ../test-cmake/ipc/test_fortsparse_ipc_wait.c)
     target_include_directories(test_fortsparse_ipc_wait PRIVATE
         ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(test_fortsparse_ipc_wait PRIVATE fortsparse)
@@ -40,6 +43,8 @@ if(FORTSPARSE_ENABLE_SUPERLU)
         solver/test_fortsparse_solve_derivatives.f90)
     fortsparse_add_test(test_fortsparse_solve_complex
         solver/test_fortsparse_solve_complex.f90)
+    fortsparse_add_test(test_fortsparse_complex_solve_derivatives
+        solver/test_fortsparse_complex_solve_derivatives.f90)
     fortsparse_add_test(test_fortsparse_poisson
         solver/test_fortsparse_poisson.f90)
     fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
@@ -103,15 +108,15 @@ endif()
 # MUMPS backend tests and benchmark. The benchmark is built but not registered
 # as a test: it takes problem size and thread count on the command line.
 if(FORTSPARSE_ENABLE_MUMPS)
-    add_library(fs_test_mpi STATIC mumps/fs_test_mpi.F90)
+    add_library(fs_test_mpi STATIC ../test-cmake/mumps/fs_test_mpi.F90)
     if(MUMPS_parallel)
         target_compile_definitions(fs_test_mpi PRIVATE FORTSPARSE_MUMPS_MPI)
         target_link_libraries(fs_test_mpi PRIVATE MPI::MPI_Fortran)
         fortsparse_add_test(test_fortsparse_mumps_mpi_lifecycle
-            mumps/test_fortsparse_mumps_mpi_lifecycle.f90)
+            ../test-cmake/mumps/test_fortsparse_mumps_mpi_lifecycle.f90)
         target_link_libraries(test_fortsparse_mumps_mpi_lifecycle PRIVATE fs_test_mpi)
         add_executable(test_fortsparse_mumps_mpi_ranks
-            mumps/test_fortsparse_mumps_mpi_ranks.f90)
+            ../test-cmake/mumps/test_fortsparse_mumps_mpi_ranks.f90)
         target_link_libraries(test_fortsparse_mumps_mpi_ranks PRIVATE
             fortsparse fs_test_mpi MPI::MPI_Fortran)
         add_test(NAME test_fortsparse_mumps_mpi_ranks
@@ -121,20 +126,20 @@ if(FORTSPARSE_ENABLE_MUMPS)
             PASS_REGULAR_EXPRESSION "PASS" FAIL_REGULAR_EXPRESSION "FAIL"
             TIMEOUT 60 PROCESSORS 2)
     endif()
-    add_library(fs_test_matrices STATIC mumps/fs_test_matrices.f90)
+    add_library(fs_test_matrices STATIC ../test-cmake/mumps/fs_test_matrices.f90)
     target_link_libraries(fs_test_matrices PUBLIC fortsparse fs_test_mpi)
-    add_executable(test_fortsparse_mumps mumps/test_fortsparse_mumps.f90)
+    add_executable(test_fortsparse_mumps ../test-cmake/mumps/test_fortsparse_mumps.f90)
     target_link_libraries(test_fortsparse_mumps PRIVATE fs_test_matrices)
     add_test(NAME test_fortsparse_mumps COMMAND test_fortsparse_mumps)
     add_executable(test_fortsparse_mumps_refactor
-        mumps/test_fortsparse_mumps_refactor.f90)
+        ../test-cmake/mumps/test_fortsparse_mumps_refactor.f90)
     target_link_libraries(test_fortsparse_mumps_refactor PRIVATE
         fs_test_matrices)
     add_test(NAME test_fortsparse_mumps_refactor
         COMMAND test_fortsparse_mumps_refactor)
     if(TARGET MUMPS::ZMUMPS)
         add_executable(test_fortsparse_mumps_complex
-            mumps/test_fortsparse_mumps_complex.f90)
+            ../test-cmake/mumps/test_fortsparse_mumps_complex.f90)
         target_link_libraries(test_fortsparse_mumps_complex PRIVATE
             fortsparse fs_test_mpi ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
         if(OpenMP_Fortran_FOUND)
@@ -144,6 +149,7 @@ if(FORTSPARSE_ENABLE_MUMPS)
         add_test(NAME test_fortsparse_mumps_complex
             COMMAND test_fortsparse_mumps_complex)
     endif()
-    add_executable(bench_fortsparse_mumps mumps/bench_fortsparse_mumps.f90)
+    add_executable(bench_fortsparse_mumps
+        ../test-cmake/mumps/bench_fortsparse_mumps.f90)
     target_link_libraries(bench_fortsparse_mumps PRIVATE fs_test_matrices)
 endif()
