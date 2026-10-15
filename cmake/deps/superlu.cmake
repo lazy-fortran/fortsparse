@@ -20,7 +20,9 @@ if(NOT TARGET superlu)
     # CBLAS, so both backends share the same OpenBLAS.
     set(enable_internal_blaslib OFF CACHE BOOL "" FORCE)
     if(TARGET BLAS::BLAS)
-        set(BLAS_LIBRARIES BLAS::BLAS CACHE STRING "" FORCE)
+        # Keep generic FindBLAS results concrete. Caching BLAS::BLAS in
+        # BLAS_LIBRARIES makes the next configure create a self-referencing
+        # imported target with no actual library on the final link line.
         set(TPL_BLAS_LIBRARIES BLAS::BLAS CACHE STRING "" FORCE)
     endif()
     set(enable_tests OFF CACHE BOOL "" FORCE)
