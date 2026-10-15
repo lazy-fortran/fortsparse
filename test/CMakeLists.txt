@@ -46,14 +46,18 @@ if(FORTSPARSE_ENABLE_SUPERLU)
     # Forces a real SuperLU allocation failure under an address-space limit.
     fortsparse_add_test(test_fortsparse_superlu_status
         solver/test_fortsparse_superlu_status.f90)
-    if(TARGET test_fortsparse_superlu_status AND UNIX)
-        # Rerun under an address-space limit (the plain registration above
-        # covers the mapping cases only). Single-threaded BLAS/OpenMP so the
+    if(TARGET test_fortsparse_superlu_status AND UNIX AND FORTSPARSE_TEST_OOM)
+        # Opt-in (-DFORTSPARSE_TEST_OOM=ON): the window of working address
+        # limits is toolchain dependent and SuperLU can abort uncatchably just
+        # above it, so this is not part of the default suite. Reruns the test
+        # under an address-space limit (the default registration above covers
+        # the mapping cases only). Single-threaded BLAS/OpenMP so the
         # limit is not eaten by per-thread buffers.
         add_test(NAME test_fortsparse_superlu_status_oom
             COMMAND sh -c "ulimit -v 250000 && exec \"$0\""
             $<TARGET_FILE:test_fortsparse_superlu_status>)
         set_tests_properties(test_fortsparse_superlu_status_oom PROPERTIES
+            LABELS oom
             ENVIRONMENT
             "FORTSPARSE_TEST_ULIMIT_V=1;OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
     endif()
