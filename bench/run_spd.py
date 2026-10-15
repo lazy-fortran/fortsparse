@@ -80,9 +80,15 @@ def sample(args, cpus, backend, family, level, threads, workload, trial):
         command.append(backend)
     command += [family, str(level), str(threads), workload,
                 "heldout" if args.heldout else "training"]
+    if args.matrix:
+        command += ["0", str(args.matrix)] # ordering placeholder precedes path
     record = dict(backend=backend, family=family, level=level, threads=threads,
                   workload=workload, trial=trial, command=command,
                   variant="heldout" if args.heldout else "training")
+    if args.matrix:
+        record.update(matrix_name=args.matrix_provenance["name"],
+                      matrix_sha256=args.matrix_provenance["matrix_sha256"],
+                      matrix_source_uri=args.matrix_provenance["source_uri"])
     env = os.environ.copy()
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
                MKL_NUM_THREADS=str(threads), MKL_DYNAMIC="FALSE",
@@ -143,8 +149,22 @@ def main():
     parser.add_argument("--heldout", action="store_true")
     parser.add_argument("--calibrate-ladder", action="store_true")
     parser.add_argument("--scaling-corpus", type=Path)
+    parser.add_argument("--matrix", type=Path, help="Unmodified archived HB/bcsstk09 MatrixMarket file")
     args = parser.parse_args()
     args.bin_dir = args.bin_dir.resolve()
+    args.matrix_provenance = None
+    if args.matrix:
+        if args.heldout or args.calibrate_ladder or args.scaling_corpus:
+            parser.error("--matrix is a separate fixed corpus; no held-out or synthetic ladder variation")
+        args.matrix = args.matrix.resolve()
+        if not args.matrix.is_file():
+            parser.error("--matrix path does not exist")
+        frozen = Path(__file__).parent / "fixtures" / "bcsstk09.json"
+        args.matrix_provenance = json.loads(frozen.read_text())
+        actual = hashlib.sha256(args.matrix.read_bytes()).hexdigest()
+        if actual != args.matrix_provenance["matrix_sha256"]:
+            parser.error("--matrix SHA256 does not match frozen HB/bcsstk09")
+        args.matrix_provenance["retained_path"] = str(args.matrix)
     cpus = physical_cpus()
     threads = [int(t) for t in args.threads.split(",") if int(t) <= len(cpus)]
     if not threads or min(threads) < 1 or args.trials < 1:
@@ -152,6 +172,8 @@ def main():
     backends = args.backends.split(",")
     cases = [(f, int(level)) for f in args.families.split(",")
              for level in args.levels.split(",")]
+    if args.matrix:
+        cases = [("bcsstk09", 1)]
     if args.calibrate_ladder:
         backends = [b for b in backends if not b.startswith("native")]
         if not backends:
@@ -214,6 +236,7 @@ def main():
         utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
         exclusive_host=False)
     result["admission"] = analyze_admission(summaries, backends)
+    result["matrix_provenance"] = args.matrix_provenance
     result["build_provenance"] = build_provenance(args.bin_dir)
     result["csv_exports"] = export_csv(result, args.output)
     args.output.write_text(json.dumps(result, indent=2) + "\n")

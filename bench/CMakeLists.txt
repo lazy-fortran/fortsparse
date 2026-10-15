@@ -27,6 +27,10 @@ if(FORTSPARSE_BUILD_TESTING)
             LABELS "benchmark;mumps;fast" TIMEOUT 1
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
     endif()
+    add_executable(test_spd_matrix_market test_spd_matrix_market.f90)
+    target_link_libraries(test_spd_matrix_market PRIVATE fortsparse_spd_fixtures)
+    add_test(NAME spd_matrix_market COMMAND test_spd_matrix_market)
+    set_tests_properties(spd_matrix_market PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
         add_test(NAME spd_benchmark_analysis COMMAND ${Python3_EXECUTABLE}

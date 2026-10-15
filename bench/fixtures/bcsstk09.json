@@ -1,0 +1,18 @@
+{
+  "name": "HB/bcsstk09",
+  "family": "bcsstk09",
+  "n": 1083,
+  "full_nnz": 18437,
+  "stored_lower_entries": 9760,
+  "kind": "structural stiffness: clamped square plate",
+  "matrix_date": 1982,
+  "source": "John Lewis, Boeing Computer Services",
+  "positive_definite": true,
+  "collection_metadata_uri": "https://sparse.tamu.edu/HB/bcsstk09",
+  "primary_metadata_uri": "https://math.nist.gov/MatrixMarket/data/Harwell-Boeing/bcsstruc1/bcsstk09.html",
+  "source_uri": "https://math.nist.gov/pub/MatrixMarket2/Harwell-Boeing/bcsstruc1/bcsstk09.mtx.gz",
+  "archive_sha256": "4688c5c78f72e369316796a73cf8e8d9c014d50478285698e40706811472ea5c",
+  "matrix_sha256": "1b43854fb89904aa6e390f8beda7c5e797ad923e96f40477750eb188bed8f3d4",
+  "selection_basis": "Public SPD metadata and bounded order only; no native performance informed selection.",
+  "raw_matrix_committed": false
+}
