@@ -18,6 +18,7 @@ module fortsparse
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_DEFAULT, &
+        FORTSPARSE_BACKEND_AUTO, sparse_auto_backend, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
@@ -49,7 +50,8 @@ module fortsparse
     public :: sparse_solve_jvp, sparse_solve_vjp
     public :: FORTSPARSE_BACKEND_SUPERLU
     public :: FORTSPARSE_BACKEND_UMFPACK_IPC, FORTSPARSE_BACKEND_MUMPS
-    public :: FORTSPARSE_BACKEND_DEFAULT
+    public :: FORTSPARSE_BACKEND_DEFAULT, FORTSPARSE_BACKEND_AUTO
+    public :: sparse_auto_backend
     public :: sparse_solve_block, sparse_factor_stats
     public :: sparse_options_t, sparse_factor_stats_t
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD

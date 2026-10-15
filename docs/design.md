@@ -30,18 +30,19 @@ handle:
 
 ```fortran
 type, public :: sparse_solver_t
-    integer :: backend_id = FORTSPARSE_BACKEND_SUPERLU
+    integer :: backend_id = FORTSPARSE_BACKEND_DEFAULT
     logical :: refine = .false.
     logical :: factored = .false.
     class(sparse_backend_t), allocatable :: backend
 end type sparse_solver_t
 ```
 
-The default is `FORTSPARSE_BACKEND_DEFAULT`: `FORTSPARSE_BACKEND_MUMPS = 3` when
-the library is built with a sequential MUMPS that provides ZMUMPS (macros
-`FORTSPARSE_HAVE_MUMPS` and `FORTSPARSE_HAVE_ZMUMPS`, no `FORTSPARSE_MUMPS_MPI`),
-otherwise `FORTSPARSE_BACKEND_SUPERLU = 1`. `FORTSPARSE_BACKEND_UMFPACK_IPC = 2`
-selects the out-of-process helper. KLU and PARDISO ids are reserved.
+The default is `FORTSPARSE_BACKEND_DEFAULT = FORTSPARSE_BACKEND_AUTO = 0`, which
+resolves at every factor to `FORTSPARSE_BACKEND_MUMPS = 3` for matrices with at
+least 40000 stored entries when the library is built with a sequential MUMPS
+(and ZMUMPS for complex matrices), otherwise to `FORTSPARSE_BACKEND_SUPERLU = 1`
+(`sparse_auto_backend`; README, "Backend selection").
+`FORTSPARSE_BACKEND_UMFPACK_IPC = 2` selects the out-of-process helper. KLU and PARDISO ids are reserved.
 
 `sparse_factor` allocates the concrete backend for `backend_id` through a
 `select case` factory, releasing any prior factorization first, then dispatches

@@ -153,13 +153,23 @@ if(FORTSPARSE_ENABLE_MUMPS)
         endif()
         add_test(NAME test_fortsparse_mumps_complex
             COMMAND test_fortsparse_mumps_complex)
-        # Sequential MUMPS with ZMUMPS is the default backend (real and complex).
-        if(NOT MUMPS_parallel)
-            fortsparse_add_test(test_fortsparse_mumps_default
-                ../test-cmake/mumps/test_fortsparse_mumps_default.f90)
+        # The default AUTO backend picks SuperLU or MUMPS per matrix.
+        if(NOT MUMPS_parallel AND FORTSPARSE_ENABLE_SUPERLU)
+            add_executable(test_fortsparse_auto
+                ../test-cmake/mumps/test_fortsparse_auto.f90)
+            target_link_libraries(test_fortsparse_auto PRIVATE fs_test_matrices)
+            add_test(NAME test_fortsparse_auto COMMAND test_fortsparse_auto)
         endif()
     endif()
     add_executable(bench_fortsparse_mumps
         ../test-cmake/mumps/bench_fortsparse_mumps.f90)
     target_link_libraries(bench_fortsparse_mumps PRIVATE fs_test_matrices)
+    # SuperLU vs MUMPS vs AUTO on FE-shaped matrices (README, "Backend
+    # selection"); built, not registered.
+    if(FORTSPARSE_ENABLE_SUPERLU)
+        add_executable(bench_fortsparse_backends
+            ../test-cmake/mumps/fs_bench_matrices.f90
+            ../test-cmake/mumps/bench_fortsparse_backends.f90)
+        target_link_libraries(bench_fortsparse_backends PRIVATE fortsparse)
+    endif()
 endif()
