@@ -197,3 +197,34 @@ python3 bench/plot_spd.py bench/results/plot-inputs-progress.csv \
   --outdir /var/tmp/fortsparse-mvp/plots/replay --workload rhs1 \
   --cases grid2:7,grid3:7 --gpu-cases grid2:1,grid2:3
 ```
+
+## Frozen real-world structural matrix
+
+The optional `--matrix` case is HB/bcsstk09: the 1083-by-1083 stiffness matrix
+of a clamped square plate, supplied by John Lewis (Boeing) in 1982. Both the
+[SuiteSparse collection](https://sparse.tamu.edu/HB/bcsstk09) and
+[NIST Matrix Market](https://math.nist.gov/MatrixMarket/data/Harwell-Boeing/bcsstruc1/bcsstk09.html)
+identify it as real symmetric positive definite. Selection used only that
+primary metadata and bounded order, before native performance evaluation.
+
+The exact archive is available from
+[NIST](https://math.nist.gov/pub/MatrixMarket2/Harwell-Boeing/bcsstruc1/bcsstk09.mtx.gz).
+The local research archive is `~/code/sparse-dev/matrices/HB/bcsstk09/`, with
+its library card and catalogue under `~/code/sparse-dev/`. Raw matrix files
+stay out of source history. `fixtures/bcsstk09.json` freezes the source URI,
+archive/matrix SHA256 and dimensions. The runner rejects different bytes.
+
+```sh
+python3 bench/run_spd.py --bin-dir build/bin --output /var/tmp/bcsstk09-external.json \
+  --matrix "$HOME/code/sparse-dev/matrices/HB/bcsstk09/bcsstk09.mtx" \
+  --backends superlu,umfpack,mumps,mkl-pardiso
+```
+
+Calibrate the external case first, retaining failures and the one-second
+invocation limit, then freeze that evidence before native tuning. This case
+is separate from the synthetic ladder. The narrow Fortran reader accepts
+lower-triangle real-symmetric coordinate MatrixMarket, mirrors off-diagonal
+entries, sorts columns and sums duplicate records. Both benchmark executables
+use it. Known-solution RHS construction, residual checks and the existing
+derivative oracle/tolerances are unchanged; collection SPD metadata does not
+replace those checks.

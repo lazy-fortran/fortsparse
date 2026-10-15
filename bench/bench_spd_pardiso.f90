@@ -31,6 +31,7 @@ program bench_spd_pardiso
     end interface
     type(fixture_t) :: a
     character(32) :: family, argument, workload
+    character(1024) :: matrix_path
     integer :: level, threads, j, col, p, position, profile_iterations
     integer(c_int64_t) :: pt(64)
     integer(c_int) :: iparm(64), nrhs, code
@@ -56,6 +57,8 @@ program bench_spd_pardiso
     call get_command_argument(4, workload)
     call get_command_argument(5, argument)
     held_out = trim(argument) == "heldout"
+    ! Position 6 is reserved for the shared ordering diagnostic placeholder.
+    call get_command_argument(7, matrix_path)
     nrhs = 1
     if (trim(workload) == "rhs8") nrhs = 8
     if (trim(workload) /= "rhs1" .and. trim(workload) /= "rhs8" &
@@ -64,7 +67,7 @@ program bench_spd_pardiso
         .and. trim(workload) /= "profile-factor" .and. &
         trim(workload) /= "profile-refactor") &
         error stop "unknown workload"
-    call make_fixture(trim(family), level, held_out, a)
+    call make_fixture(trim(family), level, held_out, a, trim(matrix_path))
     allocate (ia(a%n + 1), ja(size(a%val)), av(size(a%val)), perm(a%n))
     av = 0.0_dp
     allocate (b(a%n, nrhs), x(a%n, nrhs), reference(a%n))

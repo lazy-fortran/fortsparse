@@ -21,6 +21,7 @@ program bench_spd
     type(fortsparse_status_t) :: status
     type(sparse_factor_stats_t) :: stats
     character(32) :: backend, family, argument, workload
+    character(1024) :: matrix_path
     integer :: level, threads, nrhs, j, profile_iterations
     logical :: held_out, reused, reused_one
     real(dp), allocatable :: b(:, :), x(:, :), reference(:)
@@ -43,9 +44,10 @@ program bench_spd
     call get_command_argument(5, workload)
     call get_command_argument(6, argument)
     held_out = trim(argument) == "heldout"
-    ! Optional public ordering override for common-ordering diagnostics.
+    ! Argument 7 remains the existing public ordering diagnostic override.
     call get_command_argument(7, argument)
     if (len_trim(argument) > 0) read (argument, *) solver%options%ordering
+    call get_command_argument(8, matrix_path)
     nrhs = 1
     if (trim(workload) == "rhs8") nrhs = 8
     select case (trim(backend))
@@ -71,7 +73,7 @@ program bench_spd
         .and. trim(workload) /= "profile-factor" .and. &
         trim(workload) /= "profile-refactor") &
         error stop "unknown workload"
-    call make_fixture(trim(family), level, held_out, fixture)
+    call make_fixture(trim(family), level, held_out, fixture, trim(matrix_path))
     a%nrow = fixture%n
     a%ncol = fixture%n
     a%nnz = size(fixture%val)
