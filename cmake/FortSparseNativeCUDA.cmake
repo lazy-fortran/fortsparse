@@ -1,13 +1,8 @@
 # Included after creating the fortsparse target, only when CUDA is requested.
 # Ordinary CPU builds never need CUDA. Architectures follow the caller's
 # CMAKE_CUDA_ARCHITECTURES, so installed binaries can target declared runners.
-include(CheckLanguage)
-check_language(CUDA)
-if(NOT CMAKE_CUDA_COMPILER)
-    message(FATAL_ERROR "FortSparse native CUDA requested but no CUDA compiler found")
-endif()
-enable_language(CUDA)
-find_package(CUDAToolkit REQUIRED)
+# CUDA is enabled in the root before creating src/ so that directory inherits
+# the language's compile rules. The optional target is configured here.
 target_sources(fortsparse PRIVATE
     ${PROJECT_SOURCE_DIR}/src/native/fsparse_spd_cuda.cu
     ${PROJECT_SOURCE_DIR}/src/native/fortsparse_native_cuda.F90)

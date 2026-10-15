@@ -11,7 +11,8 @@ module fortsparse_native
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
-    use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update
+    use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
+        spd_scatter_update, spd_gather_update
     implicit none
     private
     public :: native_backend_t
@@ -225,10 +226,9 @@ contains
                 i = self%reach(q)
                 v = spd_divide(self%work(i), self%lv(self%lp(i)))
                 self%work(i) = 0.0_dp
-                do p = self%lp(i) + 1, self%lp(i) + self%count(i) - 1
-                    self%work(self%li(p)) = spd_update( &
-                        self%work(self%li(p)), self%lv(p), v)
-                end do
+                p = self%lp(i) + 1
+                call spd_scatter_update(self%work, self%li(p:), self%lv(p:), &
+                    self%count(i) - 1, v)
                 d = spd_update(d, v, v)
                 self%lv(self%lp(i) + self%count(i)) = v
                 flops = flops + 2.0_dp*self%count(i)
@@ -295,15 +295,15 @@ contains
         do j = 1, self%n
             v = spd_divide(b(j), self%lv(self%lp(j)))
             b(j) = v
-            do p = self%lp(j) + 1, self%lp(j + 1) - 1
-                b(self%li(p)) = spd_update(b(self%li(p)), self%lv(p), v)
-            end do
+            p = self%lp(j) + 1
+            call spd_scatter_update(b, self%li(p:), self%lv(p:), &
+                self%lp(j + 1) - p, v)
         end do
         do j = self%n, 1, -1
             v = b(j)
-            do p = self%lp(j) + 1, self%lp(j + 1) - 1
-                v = spd_update(v, self%lv(p), b(self%li(p)))
-            end do
+            p = self%lp(j) + 1
+            call spd_gather_update(v, self%li(p:), self%lv(p:), b, &
+                self%lp(j + 1) - p)
             b(j) = spd_divide(v, self%lv(self%lp(j)))
         end do
     end subroutine native_solve_inplace
