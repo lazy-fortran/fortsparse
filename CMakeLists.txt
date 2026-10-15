@@ -76,6 +76,10 @@ set(CMAKE_Fortran_MODULE_DIRECTORY ${PROJECT_BINARY_DIR}/include)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
+# Select dense kernels before any backend package can discover its own BLAS
+# or prepend a FindLAPACK module. Reuse the parent's choice when present.
+include(cmake/fortsparse_blas.cmake)
+
 # SuperLU (BSD) is the default in-process backend; the library links only it.
 # Provisioned only when the backend is enabled: from the system via
 # find_package, or fetched and built from source for the zero-dependency build.
@@ -103,24 +107,14 @@ if(FORTSPARSE_ENABLE_MUMPS)
         find_package(MUMPS MODULE REQUIRED)
     endif()
 endif()
+# Some MUMPS configs rerun a private FindLAPACK even when the imported target
+# already exists. Keep the selected libraries for targets using the variables.
+set(BLAS_LIBRARIES "${_fortsparse_blas_libraries}")
+set(LAPACK_LIBRARIES "${_fortsparse_lapack_libraries}")
 # OpenMP threads the CSC matvec; without it the matvec is serial.
 option(FORTSPARSE_ENABLE_OPENMP "Thread the CSC matvec with OpenMP" ON)
 if(FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS)
     find_package(OpenMP COMPONENTS Fortran)
-endif()
-
-# BLAS/LAPACK always come from the system: optimized, universally present, and
-# the same OpenBLAS the rest of the stack uses, so numerics stay consistent. The
-# fetched UMFPACK and SuperLU link against this, not a from-source BLAS. A parent
-# project that already ran find_package(BLAS/LAPACK) (NEO-2 does) leaves the
-# result variables set; reuse them instead of searching again, and honour
-# BLA_VENDOR so a user can select MKL. REQUIRED because the GPL helper cannot
-# link UMFPACK without a dense BLAS.
-if(NOT BLAS_FOUND)
-    find_package(BLAS REQUIRED)
-endif()
-if(NOT LAPACK_FOUND)
-    find_package(LAPACK REQUIRED)
 endif()
 
 add_subdirectory(src)

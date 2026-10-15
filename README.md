@@ -21,6 +21,17 @@ solver libraries it needs (SuperLU, and the SuiteSparse/UMFPACK chain) from
 source, so the only system requirement is a BLAS/LAPACK. OpenBLAS or MKL both
 work; on a cluster, `module load` it first.
 
+CMake selects BLAS/LAPACK before loading solver packages. With no parent or
+`BLA_VENDOR` choice it tries OpenBLAS, sequential MKL, then CMake's normal
+system search (including BLIS); `-DBLA_VENDOR=Generic` retains reference
+BLAS. Fetched solvers share this choice. A prebuilt system solver may already
+depend on another BLAS: inspect `ldd` on the final executable and rebuild that
+solver against the selected BLAS, or use the default fetched dependencies, to
+avoid mixing implementations. For pthread OpenBLAS with OpenMP MUMPS, set
+`OPENBLAS_NUM_THREADS=1` and control sparse parallelism with `OMP_NUM_THREADS`;
+this prevents nested BLAS teams. The fpm path uses the BLAS already linked by
+system SuperLU and cannot change its compiled dependencies.
+
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j

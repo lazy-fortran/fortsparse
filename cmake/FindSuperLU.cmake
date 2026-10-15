@@ -21,6 +21,7 @@ if(SuperLU_FOUND AND NOT TARGET SuperLU::SuperLU)
     set_target_properties(SuperLU::SuperLU PROPERTIES
         IMPORTED_LOCATION "${SuperLU_LIBRARY}"
         INTERFACE_INCLUDE_DIRECTORIES "${SuperLU_INCLUDE_DIR}"
+        INTERFACE_LINK_LIBRARIES BLAS::BLAS
     )
 endif()
 
