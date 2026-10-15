@@ -30,7 +30,9 @@ def build_provenance(bin_dir):
         key = key.split(":", 1)[0]
         if key in ("CMAKE_HOME_DIRECTORY", "CMAKE_BUILD_TYPE", "BLA_VENDOR",
                    "CMAKE_C_COMPILER", "CMAKE_Fortran_COMPILER", "CMAKE_CUDA_COMPILER",
-                   "MUMPS_DIR", "METIS_INCLUDE_DIR", "METIS_LIBRARY") or key.startswith("FORTSPARSE_"):
+                   "MUMPS_DIR", "METIS_INCLUDE_DIR", "METIS_LIBRARY") or key.startswith("FORTSPARSE_") or (
+                       key.startswith(("CMAKE_Fortran_FLAGS", "CMAKE_C_FLAGS",
+                                       "CMAKE_CUDA_FLAGS"))):
             values[key] = value
     source = Path(values.get("CMAKE_HOME_DIRECTORY", "."))
     source_listing = subprocess.run(["git", "-C", str(source), "ls-files", "-z",
@@ -161,6 +163,8 @@ def main():
             args.scaling_corpus.read_text())["selected_scaling_cases"]]
     workloads = ["rhs1"] if args.calibrate_ladder else args.workloads.split(",")
     count = 1 if args.calibrate_ladder else args.trials
+    environment_before = dict(loadavg=Path("/proc/loadavg").read_text().strip(),
+                              utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     records = []
     for family, level in cases:
         for backend in backends:
@@ -205,6 +209,10 @@ def main():
                                          MKL_INTERFACE_LAYER="LP64", MKL_THREADING_LAYER="GNU",
                                          OMP_DYNAMIC="FALSE", OMP_PROC_BIND="close",
                                          OMP_PLACES="cores"))
+    result["host_observation"] = dict(before=environment_before, after=dict(
+        loadavg=Path("/proc/loadavg").read_text().strip(),
+        utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
+        exclusive_host=False)
     result["admission"] = analyze_admission(summaries, backends)
     result["build_provenance"] = build_provenance(args.bin_dir)
     result["csv_exports"] = export_csv(result, args.output)
