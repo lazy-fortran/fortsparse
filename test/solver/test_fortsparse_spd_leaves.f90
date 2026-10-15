@@ -4,7 +4,7 @@ program test_fortsparse_spd_leaves
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_root_jvp, spd_root_vjp, spd_divide_jvp, spd_divide_vjp, &
         spd_update_jvp, spd_update_vjp, spd_panel_factor, spd_panel_solve, &
-        spd_schur_update, spd_scatter_update, spd_gather_update
+        spd_schur_update, spd_scatter_update, spd_gather_update, spd_scatter_mapped_update
     implicit none
     real(dp), parameter :: h = 1.0e-5_dp
     real(dp) :: a, b, c, da, db, dc, value, tangent, abar, bbar, cbar, fd
@@ -12,6 +12,7 @@ program test_fortsparse_spd_leaves
     real(dp) :: left(3,2), right(4,2), schur(3,4), expected(3,4)
     real(dp) :: sparse_x(10), sparse_expected(10), sparse_values(4), dot_expected
     integer, parameter :: sparse_indices(4) = [2, 5, 7, 9]
+    integer :: sparse_map(10)
     integer :: i, j, info
 
     ! Exact independent values and nontrivial signed derivative directions.
@@ -94,6 +95,15 @@ program test_fortsparse_spd_leaves
     call close(value, dot_expected, 2.0e-14_dp)
     if (maxval(abs(sparse_x-sparse_expected)) > 2.0e-14_dp) &
         error stop 'zero-length sparse scatter changed its argument'
+    sparse_map = 0
+    sparse_map(2) = 2
+    sparse_map(5) = 5
+    sparse_map(9) = 9
+    sparse_expected([2,5,9]) = sparse_expected([2,5,9]) &
+        -0.5_dp*sparse_values([1,2,4])
+    call spd_scatter_mapped_update(sparse_x, sparse_indices, sparse_map, sparse_values, 4, 0.5_dp)
+    if (maxval(abs(sparse_x-sparse_expected)) > 2.0e-14_dp) &
+        error stop 'mapped sparse scatter mishandled a structurally absent row'
     matrix = 0.0_dp
     call spd_panel_factor(matrix, 4, 4, info)
     if (info /= 1) error stop 'missing nonpositive pivot status'
