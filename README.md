@@ -6,8 +6,9 @@ library that does the factorization. Factor a matrix once, solve any number of
 right-hand sides against that factorization, then free it. The backend is an
 integer tag on the solver; switching it never changes the calling code.
 
-The default backend is SuperLU (BSD), linked in-process through a small MIT C
-shim. UMFPACK (GPL) is reached through a second backend that never links into
+The default backend is MUMPS when the library is built with a sequential MUMPS
+that provides real and complex arithmetic (see [MUMPS backend](#mumps-backend)),
+otherwise SuperLU (BSD), linked in-process through a small MIT C shim. UMFPACK (GPL) is reached through a second backend that never links into
 the library: it runs in a standalone GPL helper process driven over shared
 memory and named semaphores. The MIT library stays free of any GPL link. See
 [License](#license) for why the process boundary holds.
@@ -100,7 +101,9 @@ call sparse_solve(solver, b, x, status)
 call sparse_free(solver)
 ```
 
-Select a backend before factoring; the default is SuperLU:
+Select a backend before factoring. The default, `FORTSPARSE_BACKEND_DEFAULT`, is
+MUMPS in a sequential MUMPS build with ZMUMPS and SuperLU otherwise; an MPI
+MUMPS build keeps SuperLU because the application must own `MPI_Init`:
 
 ```fortran
 solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC

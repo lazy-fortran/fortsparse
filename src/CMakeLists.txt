@@ -64,6 +64,7 @@ if(FORTSPARSE_ENABLE_MUMPS)
     if(TARGET MUMPS::ZMUMPS)
         target_sources(fortsparse PRIVATE ../backends/mumps/fsparse_zmumps.c)
         target_link_libraries(fortsparse PUBLIC MUMPS::ZMUMPS)
+        target_compile_definitions(fortsparse PRIVATE FORTSPARSE_HAVE_ZMUMPS)
         set(FORTSPARSE_MUMPS_COMPLEX ON PARENT_SCOPE)
     else()
         target_sources(fortsparse PRIVATE

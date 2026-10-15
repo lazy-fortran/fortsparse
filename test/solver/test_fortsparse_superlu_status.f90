@@ -10,7 +10,8 @@ program test_fortsparse_superlu_status
     use fortsparse, only: dp, csc_t, csc_from_triplet, sparse_solver_t, &
         sparse_factor, sparse_free, fortsparse_status_t, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_OUT_OF_MEMORY, &
-        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_INTERNAL_ERROR
+        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_INTERNAL_ERROR, &
+        FORTSPARSE_BACKEND_SUPERLU
     use fortsparse_superlu, only: slu_map_factor_status
     implicit none
 
@@ -92,6 +93,7 @@ contains
             end do
         end do
         call csc_from_triplet(n, n, r(1:m), c(1:m), v(1:m), A, status)
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
         call sparse_factor(solver, A, status)
         if (status%code == FORTSPARSE_OK) then
             write (*, "(a)") "SKIP real allocation failure: limit not effective"

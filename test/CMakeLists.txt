@@ -33,8 +33,9 @@ if(UNIX)
     set_tests_properties(test_fortsparse_ipc_wait PROPERTIES TIMEOUT 10)
 endif()
 
-# These cases factor through the default SUPERLU backend, so they only make
-# sense when the SuperLU backend is compiled in. The IPC, selflocate, kinds,
+# These cases factor through the default backend (MUMPS in a sequential MUMPS
+# build with ZMUMPS, SuperLU otherwise); the SuperLU-specific ones pin SuperLU.
+# They are registered when the SuperLU backend is compiled in. The IPC, selflocate, kinds,
 # status, and csc tests do not depend on it and stay registered always.
 if(FORTSPARSE_ENABLE_SUPERLU)
     fortsparse_add_test(test_fortsparse_solve_real
@@ -152,6 +153,11 @@ if(FORTSPARSE_ENABLE_MUMPS)
         endif()
         add_test(NAME test_fortsparse_mumps_complex
             COMMAND test_fortsparse_mumps_complex)
+        # Sequential MUMPS with ZMUMPS is the default backend (real and complex).
+        if(NOT MUMPS_parallel)
+            fortsparse_add_test(test_fortsparse_mumps_default
+                ../test-cmake/mumps/test_fortsparse_mumps_default.f90)
+        endif()
     endif()
     add_executable(bench_fortsparse_mumps
         ../test-cmake/mumps/bench_fortsparse_mumps.f90)

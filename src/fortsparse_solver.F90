@@ -3,8 +3,9 @@ module fortsparse_solver
     !
     ! A client factors a matrix once, solves any number of right-hand sides
     ! reusing that factorization, then frees it. The backend is selected by an
-    ! integer tag on the solver. The default in-process backend is SuperLU
-    ! (BSD); UMFPACK runs out-of-process through a separate GPL helper and is
+    ! integer tag on the solver. The default in-process backend is MUMPS when
+    ! built with it (FORTSPARSE_BACKEND_DEFAULT), SuperLU (BSD) otherwise;
+    ! UMFPACK runs out-of-process through a separate GPL helper and is
     ! reached by selecting FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an
     ! unbuilt or unknown backend yields a documented
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
@@ -28,14 +29,26 @@ module fortsparse_solver
     implicit none
     private
 
-    ! Backend identifiers. SuperLU is the default in-process backend; the
-    ! UMFPACK_IPC id selects the out-of-process GPL helper. KLU and PARDISO are
-    ! reserved for later releases.
+    ! Backend identifiers. FORTSPARSE_BACKEND_DEFAULT below names the default
+    ! in-process backend; the UMFPACK_IPC id selects the out-of-process GPL
+    ! helper. KLU and PARDISO are reserved for later releases.
     integer, parameter, public :: FORTSPARSE_BACKEND_SUPERLU = 1
     integer, parameter, public :: FORTSPARSE_BACKEND_UMFPACK_IPC = 2
     ! In-process threaded MUMPS: Cholesky/LDL^T/LU, nested dissection, block
     ! solves (present only when built with FORTSPARSE_ENABLE_MUMPS).
     integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
+    ! Default of sparse_solver_t%backend_id and hence of sparse_solve_once:
+    ! MUMPS when this build carries a sequential MUMPS with both real (DMUMPS)
+    ! and complex (ZMUMPS) arithmetic, SuperLU otherwise. An MPI MUMPS needs the
+    ! application to own MPI_Init, so MPI builds keep SuperLU as the default.
+#if defined(FORTSPARSE_HAVE_MUMPS) && defined(FORTSPARSE_HAVE_ZMUMPS) \
+    && !defined(FORTSPARSE_MUMPS_MPI)
+    integer, parameter, public :: FORTSPARSE_BACKEND_DEFAULT = &
+        FORTSPARSE_BACKEND_MUMPS
+#else
+    integer, parameter, public :: FORTSPARSE_BACKEND_DEFAULT = &
+        FORTSPARSE_BACKEND_SUPERLU
+#endif
 
     ! Re-exported option and statistics vocabulary.
     public :: sparse_options_t, sparse_factor_stats_t
@@ -46,7 +59,7 @@ module fortsparse_solver
     ! Solver handle. Holds backend selection, refinement toggle, the factored
     ! flag, and the polymorphic backend that owns the retained factorization.
     type, public :: sparse_solver_t
-        integer :: backend_id = FORTSPARSE_BACKEND_SUPERLU
+        integer :: backend_id = FORTSPARSE_BACKEND_DEFAULT
         logical :: refine = .false.
         logical :: factored = .false.
         ! Structure hint, ordering and thread count, applied at the next factor.

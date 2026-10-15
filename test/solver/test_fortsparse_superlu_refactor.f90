@@ -8,7 +8,7 @@ program test_fortsparse_superlu_refactor
     use fortsparse, only: dp, csc_t, csc_from_triplet, csc_matvec, &
         sparse_solver_t, sparse_factor, sparse_refactor, sparse_solve, &
         sparse_free, fortsparse_status_t, status_ok, FORTSPARSE_SYM_GENERAL, &
-        FORTSPARSE_SYM_INDEFINITE
+        FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_BACKEND_SUPERLU
     implicit none
 
     integer, parameter :: m = 10, n = m*m
@@ -25,6 +25,7 @@ program test_fortsparse_superlu_refactor
     call laplacian(2.7_dp, 0.4_dp, .false., A2)
     call laplacian(2.7_dp, 0.4_dp, .true., A3)
 
+    solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
     solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
     call sparse_factor(solver, A1, status)
     call check('factor', status_ok(status), nfail)
@@ -37,6 +38,7 @@ program test_fortsparse_superlu_refactor
     call sparse_solve(solver, b, x, status)
     call check('refactor_solve', status_ok(status), nfail)
     call check('refactor_error', norm2(x - xe) <= 1.0e-10_dp*norm2(xe), nfail)
+    fresh%backend_id = FORTSPARSE_BACKEND_SUPERLU
     fresh%options%symmetry = FORTSPARSE_SYM_INDEFINITE
     call sparse_factor(fresh, A2, status)
     call sparse_solve(fresh, b, xf, status)
