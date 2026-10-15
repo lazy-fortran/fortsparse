@@ -158,3 +158,27 @@ its predicted next iteration exceeds a 0.9 s internal budget. Choose a smaller
 profiling case if the warmup already consumes that budget. Standard runner
 invocations still have a one-second outer limit. Profiling modes are excluded
 from admission; instrumentation overhead is not an ordinary performance result.
+
+## Performance PNGs
+
+`plot_spd.py` uses Matplotlib with the Okabe–Ito palette and redundant markers.
+It writes Pareto, scaling and CPU/CUDA PNGs plus a manifest and compact numeric
+CSV. Keep PNGs outside the repository and publish them through slopbox.
+
+```sh
+python3 bench/plot_spd.py /var/tmp/fortsparse-mvp/mvp-comparison.json \
+  /var/tmp/fortsparse-mvp/cuda-comparison.json \
+  --outdir /var/tmp/fortsparse-mvp/plots/latest --workload warm \
+  --cases grid2:7,grid3:7 --scaling-cases grid2:7,grid3:7 \
+  --retain-csv bench/results/plot-inputs.csv
+```
+
+Pareto panels show elapsed solver phases and whole-workflow CPU time versus
+parent peak RSS. Scaling curves use the same executable within each backend;
+a newer binary replaces that backend's complete thread series. Legends state
+the actual trial counts. Warmup CPU work is included in whole-workflow CPU
+time, while elapsed warm factor/solve excludes warmup. UMFPACK's parent and
+helper RSS stay separate, and CUDA device allocations are reported separately
+when available. Failed and timed-out configurations remain in the manifest
+and annotations. Preliminary snapshots from different revisions are labeled
+as checkpoints and do not establish MVP admission.
