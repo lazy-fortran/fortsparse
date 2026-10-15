@@ -30,3 +30,25 @@ The focused test uses known values, independent central differences and
 adjoint pairings, a constructed triangular-factor oracle, and dense `matmul`
 residual/update oracles. Numerical probes establish behavior, not a proof or
 an outward-rounded enclosure.
+
+The optional adapter in `src/native/fsparse_spd_cuda.cu` owns one retained
+device arena, nonblocking stream, cuBLAS handle and explicit 1 MiB cuBLAS
+workspace. Its thin C interface uses arena offsets, so factor panels and
+update operands can remain resident between calls. Allocation occurs at
+context creation. The reported allocation bytes cover the arena, pivot info
+and explicit workspace; CUDA context/cuBLAS internal memory must additionally
+be measured by the benchmark process/device accounting.
+
+Small diagonal panels use generated numerical leaves in one cooperative
+CUDA block. Larger triangular solves and Schur contractions lower to cuBLAS.
+Upload/download calls enqueue copies; callers must synchronize before reusing
+host buffers and check factor info before consuming a failed panel. Each
+context belongs to one caller and one stream. This is a verified kernel
+adapter, not evidence of a complete resident sparse factorization pipeline.
+
+For optional integration, define a CUDA option defaulting off, include
+`cmake/FortSparseNativeCUDA.cmake` after creating the library target, and call
+`fortsparse_add_cuda_tests()` inside the testing branch. The helper respects
+`CMAKE_CUDA_ARCHITECTURES`. The two device fixtures test emitted derivatives
+and resident panel/triangular/Schur operations against independent host
+oracles; they require an actual CUDA device.
