@@ -1,0 +1,2 @@
+# Preserve the exact upstream notice, including its original whitespace.
+METIS-LICENSE.txt -whitespace
