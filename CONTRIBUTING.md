@@ -25,15 +25,11 @@ must show no GPL solver symbol. See `docs/design.md` for the boundary.
 
 ## Milestones
 
-| Milestone | Scope |
-|-----------|-------|
-| M0 | Infrastructure: CMake, fpm, CI, code style, the MIT/GPL split |
-| M1 | CSC storage, status, the abstract backend and solver dispatch |
-| M2 | SuperLU backend, in-process, the default |
-| M3 | Out-of-process UMFPACK backend over shared-memory IPC and the GPL helper |
-| M4 | Hardening: edge cases, large systems, portability across Linux/macOS/Windows |
-| M5 | Own clean-room MIT LU to retire the UMFPACK dependency |
-| M6 | Differentiability: Enzyme wiring, device-memory sharing |
+The current work order, implemented baseline and milestone exit evidence live
+in [ROADMAP.md](ROADMAP.md). The M5 native solver track targets single-node
+OpenMP/CUDA execution with FortSym-generated numerical kernels, equation-level
+derivatives and measured correctness/time/memory gates. External backends
+remain available while native coverage is admitted case by case.
 
 Work in a feature branch. Name it `m<N>/<short-description>`, e.g.
 `m2/superlu-refine`. Open a PR against `main` when tests pass.
