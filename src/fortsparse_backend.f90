@@ -17,11 +17,13 @@ module fortsparse_backend
 
     ! Matrix structure hint for a factorization (sparse_options_t%symmetry).
     ! SPD and INDEFINITE factor only the lower triangle of the supplied full
-    ! symmetric CSC matrix; GENERAL factors the matrix as given.
+    ! symmetric CSC matrix (MUMPS); GENERAL factors the matrix as given.
+    ! SuperLU factors the full matrix with every hint; a symmetric hint
+    ! selects its symmetric-mode ordering and threshold pivoting.
     integer, parameter, public :: FORTSPARSE_SYM_GENERAL = 0
     integer, parameter, public :: FORTSPARSE_SYM_SPD = 1
     integer, parameter, public :: FORTSPARSE_SYM_INDEFINITE = 2
-    ! Complex only: A = A^H, lower triangle read (a real matrix treats it as
+    ! Complex only: A = A^H, MUMPS reads the lower triangle (real treats it as
     ! INDEFINITE). For complex matrices SPD means Hermitian positive definite,
     ! and INDEFINITE means complex symmetric, A = A^T (not A^H).
     integer, parameter, public :: FORTSPARSE_SYM_HERMITIAN = 3

@@ -7,7 +7,7 @@ module fortsparse_superlu
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
         c_int, c_int64_t, c_double
     use fortsparse_kinds, only: dp, i8
-    use fortsparse_backend, only: sparse_backend_t
+    use fortsparse_backend, only: sparse_backend_t, FORTSPARSE_SYM_GENERAL
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
@@ -56,12 +56,14 @@ module fortsparse_superlu
 
     interface
 
-        function fsparse_slu_factor_d(n, nnz, colptr1, rowidx1, val, info) &
+        function fsparse_slu_factor_d(n, nnz, colptr1, rowidx1, val, symmetric, &
+                info) &
                 bind(c, name="fsparse_slu_factor_d") result(h)
             import :: c_ptr, c_int, c_double
             integer(c_int), value          :: n, nnz
             integer(c_int), intent(in)     :: colptr1(*), rowidx1(*)
             real(c_double),     intent(in)  :: val(*)
+            integer(c_int),     value       :: symmetric
             integer(c_int),     intent(out) :: info
             type(c_ptr)                     :: h
         end function fsparse_slu_factor_d
@@ -80,12 +82,14 @@ module fortsparse_superlu
             type(c_ptr), value :: h
         end subroutine fsparse_slu_free_d
 
-        function fsparse_slu_factor_z(n, nnz, colptr1, rowidx1, val, info) &
+        function fsparse_slu_factor_z(n, nnz, colptr1, rowidx1, val, symmetric, &
+                info) &
                 bind(c, name="fsparse_slu_factor_z") result(h)
             import :: c_ptr, c_int, c_int64_t, c_double
             integer(c_int64_t), value       :: n, nnz
             integer(c_int64_t), intent(in)  :: colptr1(*), rowidx1(*)
             real(c_double),     intent(in)  :: val(*)
+            integer(c_int),     value       :: symmetric
             integer(c_int),     intent(out) :: info
             type(c_ptr)                     :: h
         end function fsparse_slu_factor_z
@@ -134,7 +138,8 @@ contains
         integer(c_int) :: info
 
         call self%free()
-        self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, info)
+        self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, &
+            symmetric_hint(self), info)
         call slu_map_factor_status(info, status)
         if (info /= 0) return
         self%refine = refine
@@ -165,7 +170,7 @@ contains
         rowidx1 = int(A%row_idx, i8)
         val = interleave_complex(A%val)
         self%h_cplx = fsparse_slu_factor_z(int(A%ncol, i8), int(A%nnz, i8), &
-            colptr1, rowidx1, val, info)
+            colptr1, rowidx1, val, symmetric_hint(self), info)
         call slu_map_factor_status(info, status)
         if (info == 0) then
             self%is_complex = .true.
@@ -343,6 +348,15 @@ contains
             z(k) = cmplx(r(2*k - 1), r(2*k), dp)
         end do
     end function deinterleave_complex
+
+    ! 1 when the caller declared a symmetric matrix (SPD, INDEFINITE or
+    ! HERMITIAN): SuperLU then uses its symmetric-mode ordering and pivoting
+    ! on the full matrix as given; 0 for GENERAL.
+    integer(c_int) function symmetric_hint(self)
+        class(superlu_backend_t), intent(in) :: self
+        symmetric_hint = merge(1_c_int, 0_c_int, &
+            self%options%symmetry /= FORTSPARSE_SYM_GENERAL)
+    end function symmetric_hint
 
     ! Map the shim factor info code onto a fortsparse status.
     subroutine slu_map_factor_status(info, status)
