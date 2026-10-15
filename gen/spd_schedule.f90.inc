@@ -89,3 +89,18 @@
             value = spd_update(value, values(i), x(indices(i)))
         end do
     end subroutine spd_gather_update
+
+    ! The row map encodes zero for structurally absent destination entries.
+    ! Source rows are distinct; mapped nonzero destination indices are unique.
+    pure subroutine spd_scatter_mapped_update(x, rows, rowmap, values, n, v)
+        integer, intent(in) :: n, rows(*), rowmap(*)
+        real(dp), intent(inout) :: x(*)
+        real(dp), intent(in) :: values(*), v
+        integer :: i, position
+        !$omp simd private(position)
+        do i = 1, n
+            position = rowmap(rows(i))
+            if (position > 0) &
+                x(position) = spd_update(x(position), values(i), v)
+        end do
+    end subroutine spd_scatter_mapped_update
