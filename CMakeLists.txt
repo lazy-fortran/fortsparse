@@ -55,6 +55,8 @@ option(FORTSPARSE_INSTALL_HELPER
 # MUMPS_DIR) or else by cmake/FindMUMPS.cmake (distribution packages, sequential
 # or MPI-parallel).
 option(FORTSPARSE_ENABLE_MUMPS "Enable the in-process MUMPS backend" OFF)
+option(FORTSPARSE_BUILD_BENCHMARKS "Build bounded SPD comparison drivers" OFF)
+option(FORTSPARSE_ENABLE_NATIVE_CUDA "Build native CUDA numerical kernels" OFF)
 
 # Roadmap switches kept inert in v0.1. Enzyme reverse-mode autodiff and device
 # offloading land in later releases; the flags document the direction without
@@ -117,7 +119,14 @@ if(FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS)
     find_package(OpenMP COMPONENTS Fortran)
 endif()
 
+if(FORTSPARSE_ENABLE_NATIVE_CUDA)
+    enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
+endif()
 add_subdirectory(src)
+if(FORTSPARSE_ENABLE_NATIVE_CUDA)
+    include(cmake/FortSparseNativeCUDA.cmake)
+endif()
 
 # The UMFPACK (GPL) backend lives entirely in a separate helper executable. It
 # is the only target that links UMFPACK; libfortsparse never does. The library
@@ -190,4 +199,11 @@ endfunction()
 if(FORTSPARSE_BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
+    if(FORTSPARSE_ENABLE_NATIVE_CUDA)
+        fortsparse_add_cuda_tests()
+    endif()
+endif()
+
+if(FORTSPARSE_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
 endif()

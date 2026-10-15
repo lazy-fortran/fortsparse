@@ -1,0 +1,71 @@
+{
+  "selected_scaling_cases": [
+    [
+      "grid2",
+      7
+    ],
+    [
+      "grid3",
+      5
+    ]
+  ],
+  "revision": "5288d4a16ce634595984a97e74aa490eaa2d9015",
+  "platform": "Linux-7.2.9-arch1-1-x86_64-with-glibc2.44",
+  "physical_cpu_ids": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "base_cases": [
+    [
+      "band",
+      1
+    ],
+    [
+      "band",
+      2
+    ],
+    [
+      "band",
+      3
+    ],
+    [
+      "grid2",
+      1
+    ],
+    [
+      "grid2",
+      2
+    ],
+    [
+      "grid2",
+      3
+    ],
+    [
+      "grid3",
+      1
+    ],
+    [
+      "grid3",
+      2
+    ],
+    [
+      "grid3",
+      3
+    ]
+  ],
+  "rule": "Largest external-only candidate passing every backend/thread configuration below 0.5 s process wall; timeouts and failures retained separately."
+}
