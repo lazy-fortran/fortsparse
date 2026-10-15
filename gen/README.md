@@ -52,3 +52,10 @@ For optional integration, define a CUDA option defaulting off, include
 `CMAKE_CUDA_ARCHITECTURES`. The two device fixtures test emitted derivatives
 and resident panel/triangular/Schur operations against independent host
 oracles; they require an actual CUDA device.
+
+`fortsparse_native_cuda.F90` exposes ISO_C_BINDING interfaces and the
+`native_cuda_available` build capability. CUDA interfaces are guarded by
+`FORTSPARSE_HAVE_NATIVE_CUDA`; compiling the module without that definition
+requires no CUDA compiler, headers or runtime. The optional CMake helper adds
+the bindings and definition. The Fortran device fixture verifies pointer,
+size and status interoperability through an independently known 2-by-2 factor.
