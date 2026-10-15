@@ -48,11 +48,56 @@ def interval(values, scale=1.0):
     return tuple(scale*x for x in (statistics.median(values), min(values), max(values)))
 
 
+def retain_group(groups, series_binary, group):
+    key = tuple(group[k] for k in KEYS)
+    series = tuple(value for index, value in enumerate(key) if KEYS[index] != "threads")
+    source = group["source"]
+    binary_name = "bench_spd_pardiso" if key[0] == "mkl-pardiso" else "bench_spd"
+    binary = source["binary_hashes"].get(binary_name) or source["sha256"]
+    if series_binary.get(series) != binary:
+        for old in list(groups):
+            if tuple(value for index, value in enumerate(old) if KEYS[index] != "threads") == series:
+                del groups[old]
+        series_binary[series] = binary
+    groups[key] = group
+
+
+def load_summary_csv(path):
+    result, sources = [], {}
+    for row in csv.DictReader(path.open()):
+        source = sources.setdefault(row["source_sha256"], dict(
+            path=str(path.resolve()), name=row["source_name"], sha256=row["source_sha256"],
+            revision=row["source_revision"], dirty=(row["source_dirty"] == "True"
+                if "source_dirty" in row else None),
+            binary_hashes={}, cpu_model=None, build_provenance=None))
+        if row.get("binary_sha256"):
+            source["binary_hashes"]["bench_spd_pardiso" if row["backend"] == "mkl-pardiso"
+                                    else "bench_spd"] = row["binary_sha256"]
+        group = {key: row[key] for key in KEYS}
+        group["level"], group["threads"] = float(group["level"]), float(group["threads"])
+        group.update(samples=int(row["samples"]), successes=int(row["successes"]),
+                     failures=json.loads(row["failures"]), source=source, records=[],
+                     good=[{"n": int(row["n"])}] if row["n"] else [],
+                     device_confirmed=row.get("device_confirmed") == "True",
+                     active=[int(x) for x in row["active_threads"].split("/") if x])
+        for metric in ("wall", "cpu", "rss", "helper", "device"):
+            values = [row[f"{metric}_{statistic}"] for statistic in ("median", "minimum", "maximum")]
+            group[metric] = tuple(map(float, values)) if all(values) else None
+        result.append(group)
+    return result, list(sources.values())
+
+
 def load_groups(paths):
     groups = {}
     sources = []
     series_binary = {}
     for path in paths:
+        if path.suffix.lower() == ".csv":
+            current, csv_sources = load_summary_csv(path)
+            sources += csv_sources
+            for group in current:
+                retain_group(groups, series_binary, group)
+            continue
         document = json.loads(path.read_text())
         source = dict(path=str(path.resolve()), name=path.stem,
                       sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -72,13 +117,6 @@ def load_groups(paths):
         # Keep scaling curves within one executable. Replacing a binary
         # replaces its whole thread series; trials never pool across inputs.
         for key, records in current.items():
-            series = tuple(value for index, value in enumerate(key) if KEYS[index] != "threads")
-            binary_name = "bench_spd_pardiso" if key[0] == "mkl-pardiso" else "bench_spd"
-            binary = source["binary_hashes"].get(binary_name) or source["sha256"]
-            if series_binary.get(series) != binary:
-                groups = {old: value for old, value in groups.items() if tuple(
-                    item for index, item in enumerate(old) if KEYS[index] != "threads") != series}
-                series_binary[series] = binary
             good = [r for r in records if r["status"] == "ok"]
             group = dict(zip(KEYS, key), records=records, good=good,
                          samples=len(records), successes=len(good), source=source)
@@ -91,10 +129,12 @@ def load_groups(paths):
                                          if r.get("device_bytes", -1) >= 0], 1/2**20)
             group["active"] = sorted({int(r["active_threads"]) for r in good
                                        if r.get("active_threads", -1) >= 0})
+            group["device_confirmed"] = bool(good) and all(
+                r.get("actual_device", -1) >= 0 for r in good)
             group["failures"] = {s: sum(r["status"] == s for r in records)
                                   for s in sorted({r["status"] for r in records})
                                   if s != "ok"}
-            groups[key] = group
+            retain_group(groups, series_binary, group)
     return list(groups.values()), sources
 
 
@@ -126,6 +166,8 @@ def legend_handles(groups):
         if not rows:
             continue
         counts = "/".join(map(str, sorted({g["samples"] for g in rows})))
+        if backend == "native-cuda" and any(not g["device_confirmed"] for g in rows):
+            label += " (device unverified)"
         result.append(Line2D([], [], color=color, marker=marker, linestyle="none",
                              markerfacecolor="white" if backend in ("umfpack", "native-cuda") else color,
                              markersize=10 if backend.startswith("native") else 6,
@@ -135,7 +177,8 @@ def legend_handles(groups):
 
 def footer(figure, sources, note, rect=(0.04, 0.16, 0.99, 0.88)):
     source_text = "; ".join(f"{s['name']}@{str(s['revision'])[:7]}" +
-                            ("+dirty" if s["dirty"] else "") for s in sources)
+                            ("+dirty" if s["dirty"] else "" if s["dirty"] is False
+                             else "+tree-state-unknown") for s in sources)
     text = textwrap.fill(note, 155) + "\n" + textwrap.fill("Inputs: " + source_text, 155)
     figure.text(0.04, 0.025, text, ha="left", va="bottom", fontsize=8, color="#444444")
     figure.tight_layout(rect=rect)
@@ -330,6 +373,10 @@ def numeric_rows(groups):
                    failures=json.dumps(group["failures"], separators=(",", ":")),
                    source_name=group["source"]["name"], source_sha256=group["source"]["sha256"],
                    source_revision=group["source"]["revision"],
+                   source_dirty=group["source"]["dirty"],
+                   device_confirmed=group["device_confirmed"],
+                   binary_sha256=group["source"]["binary_hashes"].get(
+                       "bench_spd_pardiso" if group["backend"] == "mkl-pardiso" else "bench_spd", ""),
                    active_threads="/".join(map(str, group["active"])))
         for metric in ("wall", "cpu", "rss", "helper", "device"):
             for index, statistic in enumerate(("median", "minimum", "maximum")):
@@ -349,7 +396,7 @@ def write_csv(path, rows):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("inputs", nargs="+", type=Path, help="JSON inputs; last configuration wins")
+    parser.add_argument("inputs", nargs="+", type=Path, help="Raw JSON or retained plot-input CSV")
     parser.add_argument("--outdir", required=True, type=Path)
     parser.add_argument("--workload", default="warm", choices=["rhs1", "rhs8", "warm", "refactor", "derivatives"])
     parser.add_argument("--cases", help="Pareto/GPU cases, e.g. grid2:3,grid3:3")

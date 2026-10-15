@@ -188,3 +188,12 @@ for the public ordering option (1 = AMD, 2 = METIS ND). This is a diagnostic
 common-ordering override; ordinary runner comparisons use each backend's
 unchanged default policy. The CSV reports the actual native ordering, symbolic
 fill, numeric factor payload and retained workspace separately from peak RSS.
+
+The retained compact CSV is also a direct plotting input, so source history
+can reproduce the measured curves without the larger raw JSON files:
+
+```sh
+python3 bench/plot_spd.py bench/results/plot-inputs-progress.csv \
+  --outdir /var/tmp/fortsparse-mvp/plots/replay --workload rhs1 \
+  --cases grid2:7,grid3:7 --gpu-cases grid2:1,grid2:3
+```
