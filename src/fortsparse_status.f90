@@ -13,6 +13,7 @@ module fortsparse_status
     integer, parameter, public :: FORTSPARSE_INTERNAL_ERROR      = 5
     integer, parameter, public :: FORTSPARSE_OUT_OF_MEMORY       = 6
     integer, parameter, public :: FORTSPARSE_INDEX_OVERFLOW      = 7
+    integer, parameter, public :: FORTSPARSE_NOT_POSITIVE_DEFINITE = 8
 
     ! Maximum length for the human-readable status message.
     integer, parameter :: MSG_LEN = 120

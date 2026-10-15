@@ -9,6 +9,16 @@ integer tag on the solver; switching it never changes the calling code.
 The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
 
+`FORTSPARSE_BACKEND_NATIVE` selects the developing project-owned real SPD
+Cholesky reference. Set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
+supply full symmetric CSC with strictly sorted, unique row indices and finite
+values; `csc_from_triplet` canonicalizes duplicates and ordering. The reference
+uses natural ordering and returns `FORTSPARSE_NOT_POSITIVE_DEFINITE` for a
+nonpositive or nonfinite pivot. It retains analysis for same-pattern
+refactorization and supports block solves and the existing implicit JVP/VJP.
+It currently reports factor/storage statistics, not a rigorous forward-error
+certificate. AUTO selection remains based on the existing external backends.
+
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
 built with a sequential MUMPS (see [Backend selection](#backend-selection));

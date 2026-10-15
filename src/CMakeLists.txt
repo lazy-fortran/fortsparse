@@ -13,6 +13,8 @@ target_sources(fortsparse PRIVATE
     fortsparse_solver.F90
     fortsparse_status.f90
     fortsparse_version.f90
+    generated/fortsparse_spd_leaves.f90
+    native/fortsparse_native.f90
     ipc/fortsparse_ipc_proto.f90
     ipc/fortsparse_umfpack_ipc.f90
     # MIT C shims

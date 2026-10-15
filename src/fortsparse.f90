@@ -7,7 +7,7 @@ module fortsparse
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INVALID_MATRIX, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_INTERNAL_ERROR, FORTSPARSE_OUT_OF_MEMORY, &
-        FORTSPARSE_INDEX_OVERFLOW
+        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_version, only: fortsparse_version_string
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
         csc_conjugate_transpose, csc_matmul, csc_matvec, csc_transpose
@@ -18,7 +18,7 @@ module fortsparse
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_DEFAULT, &
-        FORTSPARSE_BACKEND_AUTO, sparse_auto_backend, &
+        FORTSPARSE_BACKEND_AUTO, FORTSPARSE_BACKEND_NATIVE, sparse_auto_backend, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
@@ -34,6 +34,7 @@ module fortsparse
     public :: FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_NOT_FACTORED
     public :: FORTSPARSE_INTERNAL_ERROR
     public :: FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_INDEX_OVERFLOW
+    public :: FORTSPARSE_NOT_POSITIVE_DEFINITE
 
     ! Version
     public :: fortsparse_version_string
@@ -51,6 +52,7 @@ module fortsparse
     public :: FORTSPARSE_BACKEND_SUPERLU
     public :: FORTSPARSE_BACKEND_UMFPACK_IPC, FORTSPARSE_BACKEND_MUMPS
     public :: FORTSPARSE_BACKEND_DEFAULT, FORTSPARSE_BACKEND_AUTO
+    public :: FORTSPARSE_BACKEND_NATIVE
     public :: sparse_auto_backend
     public :: sparse_solve_block, sparse_factor_stats
     public :: sparse_options_t, sparse_factor_stats_t

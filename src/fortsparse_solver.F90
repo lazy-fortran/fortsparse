@@ -27,6 +27,7 @@ module fortsparse_solver
     use fortsparse_superlu, only: superlu_backend_t
 #endif
     use fortsparse_umfpack_ipc, only: umfpack_ipc_backend_t
+    use fortsparse_native, only: native_backend_t
     implicit none
     private
 
@@ -38,6 +39,7 @@ module fortsparse_solver
     ! In-process threaded MUMPS: Cholesky/LDL^T/LU, nested dissection, block
     ! solves (present only when built with FORTSPARSE_ENABLE_MUMPS).
     integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
+    integer, parameter, public :: FORTSPARSE_BACKEND_NATIVE = 4
     ! Per-matrix choice between the in-process backends at factor time
     ! (sparse_auto_backend); the default of sparse_solver_t%backend_id and
     ! hence of sparse_solve_once.
@@ -682,6 +684,8 @@ contains
             deallocate (solver%backend)
         end if
         select case (id)
+        case (FORTSPARSE_BACKEND_NATIVE)
+            allocate (native_backend_t :: solver%backend)
 #ifdef FORTSPARSE_HAVE_SUPERLU
         case (FORTSPARSE_BACKEND_SUPERLU)
             allocate (superlu_backend_t :: solver%backend)
@@ -707,6 +711,8 @@ contains
 
         backend_is = .false.
         select type (backend)
+            type is (native_backend_t)
+            backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE)
 #ifdef FORTSPARSE_HAVE_SUPERLU
             type is (superlu_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_SUPERLU)
