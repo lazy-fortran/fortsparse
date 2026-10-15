@@ -33,9 +33,10 @@ def build_provenance(bin_dir):
                    "MUMPS_DIR", "METIS_INCLUDE_DIR", "METIS_LIBRARY") or key.startswith("FORTSPARSE_"):
             values[key] = value
     source = Path(values.get("CMAKE_HOME_DIRECTORY", "."))
-    tracked = subprocess.run(["git", "-C", str(source), "ls-files", "-z",
-                              "--cached", "--others", "--exclude-standard"],
-                             capture_output=True).stdout.split(b"\0")
+    source_listing = subprocess.run(["git", "-C", str(source), "ls-files", "-z",
+                                     "--cached", "--others", "--exclude-standard"],
+                                    capture_output=True)
+    tracked = source_listing.stdout.split(b"\0")
     digest = hashlib.sha256()
     for relative in sorted(set(p for p in tracked if p)):
         path = source / os.fsdecode(relative)
@@ -52,7 +53,8 @@ def build_provenance(bin_dir):
             versions[key] = subprocess.run([compiler, "--version"], text=True,
                                            capture_output=True).stdout.splitlines()[:2]
     return dict(cache_path=str(cache), cache_sha256=hashlib.sha256(cache.read_bytes()).hexdigest(),
-                configuration=values, source_sha256=digest.hexdigest(), compiler_versions=versions)
+                configuration=values, source_sha256=(digest.hexdigest()
+                    if source_listing.returncode == 0 else None), compiler_versions=versions)
 
 
 def physical_cpus():
