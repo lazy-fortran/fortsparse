@@ -5,14 +5,54 @@ import csv
 import hashlib
 import io
 import json
+import math
 import os
 from pathlib import Path
 import platform
 import signal
-import statistics
 import subprocess
 import sys
 import time
+from benchmark_analysis import add_objectives, summarize, analyze_admission, export_csv
+
+
+def build_provenance(bin_dir):
+    cache = next((parent / "CMakeCache.txt" for parent in
+                  (bin_dir, *list(bin_dir.parents)[:4])
+                  if (parent / "CMakeCache.txt").is_file()), None)
+    if cache is None:
+        return {"status": "build_cache_unavailable"}
+    values = {}
+    for line in cache.read_text().splitlines():
+        if not line or line.startswith(("#", "//")) or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.split(":", 1)[0]
+        if key in ("CMAKE_HOME_DIRECTORY", "CMAKE_BUILD_TYPE", "BLA_VENDOR",
+                   "CMAKE_C_COMPILER", "CMAKE_Fortran_COMPILER", "CMAKE_CUDA_COMPILER",
+                   "MUMPS_DIR", "METIS_INCLUDE_DIR", "METIS_LIBRARY") or key.startswith("FORTSPARSE_"):
+            values[key] = value
+    source = Path(values.get("CMAKE_HOME_DIRECTORY", "."))
+    tracked = subprocess.run(["git", "-C", str(source), "ls-files", "-z",
+                              "--cached", "--others", "--exclude-standard"],
+                             capture_output=True).stdout.split(b"\0")
+    digest = hashlib.sha256()
+    for relative in sorted(set(p for p in tracked if p)):
+        path = source / os.fsdecode(relative)
+        if path.suffix.lower() not in (".f90", ".c", ".h", ".cu", ".cuh", ".cmake", ".py", ".toml"):
+            if path.name != "CMakeLists.txt":
+                continue
+        digest.update(relative + b"\0")
+        digest.update(path.read_bytes() if path.is_file() else b"deleted")
+        digest.update(b"\0")
+    versions = {}
+    for key in ("CMAKE_C_COMPILER", "CMAKE_Fortran_COMPILER", "CMAKE_CUDA_COMPILER"):
+        compiler = values.get(key)
+        if compiler:
+            versions[key] = subprocess.run([compiler, "--version"], text=True,
+                                           capture_output=True).stdout.splitlines()[:2]
+    return dict(cache_path=str(cache), cache_sha256=hashlib.sha256(cache.read_bytes()).hexdigest(),
+                configuration=values, source_sha256=digest.hexdigest(), compiler_versions=versions)
 
 
 def physical_cpus():
@@ -37,7 +77,8 @@ def sample(args, cpus, backend, family, level, threads, workload, trial):
     command += [family, str(level), str(threads), workload,
                 "heldout" if args.heldout else "training"]
     record = dict(backend=backend, family=family, level=level, threads=threads,
-                  workload=workload, trial=trial, command=command)
+                  workload=workload, trial=trial, command=command,
+                  variant="heldout" if args.heldout else "training")
     env = os.environ.copy()
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
                MKL_NUM_THREADS=str(threads), MKL_DYNAMIC="FALSE",
@@ -75,8 +116,10 @@ def sample(args, cpus, backend, family, level, threads, workload, trial):
                 record[key] = value
             else:
                 record[key] = float(value)
-        record["factor_solve_s"] = record["factor_s"] + record["solve_s"]
-        record["workflow_cpu_s"] = record["parent_cpu_s"] + record["helper_cpu_s"]
+        if any(not math.isfinite(value) for value in record.values()
+               if isinstance(value, float)):
+            raise ValueError("nonfinite benchmark measurement")
+        add_objectives(record)
         record["status"] = "ok"
     except (ValueError, StopIteration, TypeError) as error:
         record.update(status="invalid_output", reason=str(error), stdout=stdout)
@@ -106,7 +149,7 @@ def main():
     cases = [(f, int(level)) for f in args.families.split(",")
              for level in args.levels.split(",")]
     if args.calibrate_ladder:
-        backends = [b for b in backends if b != "native"]
+        backends = [b for b in backends if not b.startswith("native")]
         if not backends:
             parser.error("calibration requires external backends")
         cases = [(family, level) for family in ("grid2", "grid3")
@@ -136,39 +179,7 @@ def main():
                     accepted.append(level)
             if accepted:
                 selected.append([family, max(accepted)])
-    summaries = []
-    keys = sorted({(r["backend"], r["family"], r["level"], r["threads"],
-                    r["workload"]) for r in records})
-    metrics = ("factor_s", "solve_s", "refactor_s", "total_s", "parent_cpu_s",
-               "parent_rss_kib", "helper_rss_kib", "helper_cpu_s",
-               "backward_error", "process_wall_s", "factor_solve_s",
-               "workflow_cpu_s", "jvp_s", "vjp_s", "cold_factor_s",
-               "factor_nnz", "factor_mem_mb", "analysis_s", "numeric_s")
-    for key in keys:
-        group = [r for r in records if (r["backend"], r["family"], r["level"],
-                 r["threads"], r["workload"]) == key]
-        good = [r for r in group if r["status"] == "ok"]
-        summary = dict(zip(("backend", "family", "level", "threads", "workload"), key))
-        summary.update(successes=len(good), samples=len(group))
-        if good:
-            for metric in metrics:
-                values = [r[metric] for r in good]
-                available = [v for v in values if v >= 0]
-                summary[metric] = (dict(median=statistics.median(available),
-                                        minimum=min(available), maximum=max(available))
-                                   if available else None)
-        summaries.append(summary)
-    for summary in summaries:
-        serial = next((s for s in summaries if s["backend"] == summary["backend"]
-                       and s["family"] == summary["family"]
-                       and s["level"] == summary["level"]
-                       and s["workload"] == summary["workload"]
-                       and s["threads"] == 1 and s["successes"] == s["samples"]), None)
-        if serial and summary["successes"] == summary["samples"]:
-            for metric in ("total_s", "factor_solve_s"):
-                speedup = serial[metric]["median"] / summary[metric]["median"]
-                summary[metric]["speedup"] = speedup
-                summary[metric]["parallel_efficiency"] = speedup / summary["threads"]
+    summaries = summarize(records)
     binaries = {}
     for name in ("bench_spd", "bench_spd_pardiso"):
         binary = args.bin_dir / name
@@ -192,6 +203,9 @@ def main():
                                          MKL_INTERFACE_LAYER="LP64", MKL_THREADING_LAYER="GNU",
                                          OMP_DYNAMIC="FALSE", OMP_PROC_BIND="close",
                                          OMP_PLACES="cores"))
+    result["admission"] = analyze_admission(summaries, backends)
+    result["build_provenance"] = build_provenance(args.bin_dir)
+    result["csv_exports"] = export_csv(result, args.output)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(f"{len(records)} samples; {sum(r['status'] == 'ok' for r in records)} passed; "
           f"results: {args.output}")

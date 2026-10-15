@@ -110,3 +110,51 @@ target should supply that dependency; a dynamic system METIS must not acquire
 an unrelated static GKlib on the executable's link line. Preserve failed
 provider configurations as failed evidence and rerun calibration after changing
 the linked provider.
+
+## Admission and profiling records
+
+Backend names `native-reference` and `native-cuda` select the simplicial
+reference and native device request respectively. Requested threads and the
+native factor's actual active team are separate columns. A device request
+does not establish GPU execution: `actual_device=-1` remains explicit until
+the backend supplies verified device statistics.
+
+Every run writes `.trials.csv` and `.summaries.csv` alongside its JSON. Trials
+include failures/timeouts; summaries include CPU time, wall time, memory,
+scaling and missing statistics. JSON retains compiler versions, CMake cache
+hash/options, source-content hash, executable hashes and dynamic dependencies.
+
+Admission uses factor-plus-solve for ordinary/warm RHS workloads,
+refactor-plus-solve for changed-value reuse, and factor-plus-primal-solve plus
+JVP/VJP for derivatives. Derivative reuse alone is also reported. Each case
+compares the native path with the *same* external Pareto-frontier configuration
+on both time and memory, considering all measured external thread counts.
+A clear observed-range pass requires the native maximum to be no greater
+than the comparator minimum on both axes. Overlapping observed ranges are
+indeterminate; no percentage tolerance or confidence interval is invented.
+
+UMFPACK's unknown aggregate peak is retained as unknown. It cannot dominate a
+known frontier candidate when it is clearly slower, or when its parent RSS
+lower bound already exceeds the candidate's peak. Otherwise that candidate's
+frontier membership is indeterminate. Missing comparators also prevent a
+complete admission claim. The reference path is labeled separately from the
+production path, and this performance analysis does not itself establish all
+MVP requirements.
+
+For CPU stack profiling, replay complete solver operations for about 0.2 s:
+
+```sh
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 perf record -g -- \
+  build/bin/bench_spd native grid2 3 4 profile-factor training
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=4 perf record -g -- \
+  build/bin/bench_spd native grid2 3 4 profile-refactor training
+```
+
+`profile-factor` frees/rebuilds analysis and factors then solves each iteration.
+`profile-refactor` retains analysis and alternates matrix/RHS scales, then
+solves. CSV records iteration count, replay wall time and average phase times;
+the final solve is independently residual-checked. The replay stops before
+its predicted next iteration exceeds a 0.9 s internal budget. Choose a smaller
+profiling case if the warmup already consumes that budget. Standard runner
+invocations still have a one-second outer limit. Profiling modes are excluded
+from admission; instrumentation overhead is not an ordinary performance result.

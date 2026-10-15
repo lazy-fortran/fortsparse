@@ -20,6 +20,13 @@ if(FORTSPARSE_BUILD_TESTING)
             LABELS "benchmark;mumps;fast" TIMEOUT 1
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
     endif()
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME spd_benchmark_analysis COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_benchmark_analysis.py)
+        set_tests_properties(spd_benchmark_analysis PROPERTIES
+            LABELS "benchmark;fast" TIMEOUT 1)
+    endif()
 endif()
 
 set(FORTSPARSE_BENCH_MKL_ROOT "$ENV{MKLROOT}" CACHE PATH
