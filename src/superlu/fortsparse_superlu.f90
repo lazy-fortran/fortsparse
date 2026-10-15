@@ -10,11 +10,13 @@ module fortsparse_superlu
     use fortsparse_backend, only: sparse_backend_t
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
-        FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR
+        FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
+        FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_INDEX_OVERFLOW
     implicit none
     private
 
     public :: superlu_backend_t
+    public :: slu_map_factor_status
 
     ! SuperLU backend handle. Exactly one of h_real / h_cplx is associated after
     ! a successful factorization; is_complex records which.
@@ -106,7 +108,8 @@ module fortsparse_superlu
 
 contains
 
-    ! Factor a real matrix. SuperLU info: 0 ok, 1 singular, <0 internal error.
+    ! Factor a real matrix. Shim info: 0 ok, 1 singular,
+    ! 2 allocation failure, 3 index overflow, <0 internal error.
     subroutine slu_factor_real(self, A, refine, status)
         class(superlu_backend_t),  intent(inout) :: self
         type(csc_t),               intent(in)    :: A
@@ -132,7 +135,7 @@ contains
 
         call self%free()
         self%h_real = fsparse_slu_factor_d(ncol, nz, col_ptr, row_idx, val, info)
-        call map_factor_status(info, status)
+        call slu_map_factor_status(info, status)
         if (info /= 0) return
         self%refine = refine
         if (refine) then
@@ -163,7 +166,7 @@ contains
         val = interleave_complex(A%val)
         self%h_cplx = fsparse_slu_factor_z(int(A%ncol, i8), int(A%nnz, i8), &
             colptr1, rowidx1, val, info)
-        call map_factor_status(info, status)
+        call slu_map_factor_status(info, status)
         if (info == 0) then
             self%is_complex = .true.
             self%refine = refine
@@ -342,20 +345,29 @@ contains
     end function deinterleave_complex
 
     ! Map the shim factor info code onto a fortsparse status.
-    subroutine map_factor_status(info, status)
+    subroutine slu_map_factor_status(info, status)
         integer(c_int),            intent(in)  :: info
         type(fortsparse_status_t), intent(out) :: status
 
         if (info == 0) then
             call status_set(status, FORTSPARSE_OK, "")
-        else if (info > 0) then
+        else if (info == 1) then
             call status_set(status, FORTSPARSE_SINGULAR, &
-                "superlu factor: matrix is singular")
+                "superlu factor: matrix is singular (exact zero pivot)")
+        else if (info == 2) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                "superlu factor: memory allocation failed (LU fill too large)")
+        else if (info == 3) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                "superlu factor: matrix size exceeds SuperLU index range")
+        else if (info > 3) then
+            call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
+                "superlu factor: unknown positive info code")
         else
             call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
                 "superlu factor: internal error")
         end if
-    end subroutine map_factor_status
+    end subroutine slu_map_factor_status
 
     ! Map the shim solve info code onto a fortsparse status.
     subroutine map_solve_status(info, status)
