@@ -128,6 +128,17 @@ call sparse_solve_vjp(transpose_solver, A, x, x_bar, &
                       b_bar, A_values_bar, status)
 ```
 
+## SuperLU symmetry hints
+
+SuperLU factors the full supplied CSC matrix for every symmetry hint. The
+`FORTSPARSE_SYM_SPD`, `FORTSPARSE_SYM_INDEFINITE` and
+`FORTSPARSE_SYM_HERMITIAN` hints select symmetric mode, minimum-degree ordering
+on the structure of `A + transpose(A)` and diagonal threshold pivoting
+(`DiagPivotThresh = 0.001`). Off-diagonal pivots remain available for indefinite
+systems. The default `FORTSPARSE_SYM_GENERAL` retains COLAMD and ordinary partial
+pivoting. These hints do not check symmetry or positive definiteness; callers
+must declare the matrix structure correctly.
+
 ## MUMPS backend
 
 `FORTSPARSE_BACKEND_MUMPS` is the backend for large SPD finite-element systems

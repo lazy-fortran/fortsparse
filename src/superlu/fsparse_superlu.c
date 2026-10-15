@@ -22,11 +22,13 @@
 #endif
 
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int *info);
+                           const int *rowidx1, const double *val, int symmetric,
+                           int *info);
 int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n);
 void fsparse_slu_free_d(void *handle);
 void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
-                           const long *rowidx1, const double *val, int *info);
+                           const long *rowidx1, const double *val, int symmetric,
+                           int *info);
 int fsparse_slu_solve_z(void *handle, const double *b, double *x, long n);
 void fsparse_slu_free_z(void *handle);
 
@@ -98,8 +100,28 @@ static int classify_lu_info(long lu_info, long n)
     return (lu_info <= n) ? 1 : 2;
 }
 
+/* Unsymmetric input: COLAMD on A^T A with partial pivoting (SuperLU
+ * default). Symmetric input (symmetric=1, the caller's SPD/INDEFINITE/
+ * HERMITIAN hint): the SuperLU User's Guide setting for symmetric or
+ * structurally symmetric matrices -- minimum degree on A^T + A, symmetric
+ * mode, diagonal pivots preferred above the threshold 0.001 (threshold
+ * partial pivoting otherwise). The full matrix is retained, including
+ * off-diagonal pivots needed by indefinite systems. */
+static void set_options(superlu_options_t *options, int symmetric)
+{
+    set_default_options(options);
+    if (symmetric) {
+        options->ColPerm = MMD_AT_PLUS_A;
+        options->SymmetricMode = YES;
+        options->DiagPivotThresh = 0.001;
+    } else {
+        options->ColPerm = COLAMD;
+    }
+}
+
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int *info)
+                           const int *rowidx1, const double *val, int symmetric,
+                           int *info)
 {
     slu_real_t *h;
     SuperMatrix B; /* dummy, unused by dgstrf */
@@ -129,9 +151,8 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     dCreate_CompCol_Matrix(&h->A, (int) n, (int) n, (int_t) nnz, h->aval,
                            h->rowidx0, h->colptr0, SLU_NC, SLU_D, SLU_GE);
 
-    set_default_options(&h->options);
-    h->options.ColPerm = COLAMD;
-    get_perm_c(COLAMD, &h->A, h->perm_c);
+    set_options(&h->options, symmetric);
+    get_perm_c(h->options.ColPerm, &h->A, h->perm_c);
     sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
 
     panel_size = sp_ienv(1);
@@ -185,7 +206,8 @@ void fsparse_slu_free_d(void *handle)
 }
 
 void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
-                           const long *rowidx1, const double *val, int *info)
+                           const long *rowidx1, const double *val, int symmetric,
+                           int *info)
 {
     slu_cplx_t *h;
     SuperLUStat_t stat;
@@ -221,9 +243,8 @@ void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
     zCreate_CompCol_Matrix(&h->A, (int) n, (int) n, (int_t) nnz, h->aval,
                            h->rowidx0, h->colptr0, SLU_NC, SLU_Z, SLU_GE);
 
-    set_default_options(&h->options);
-    h->options.ColPerm = COLAMD;
-    get_perm_c(COLAMD, &h->A, h->perm_c);
+    set_options(&h->options, symmetric);
+    get_perm_c(h->options.ColPerm, &h->A, h->perm_c);
     sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
 
     panel_size = sp_ienv(1);
