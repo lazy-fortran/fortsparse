@@ -3,23 +3,39 @@ module fortsparse_native
     ! generated leaves own continuous arithmetic. Full canonical symmetric
     ! CSC is required; the caller's matrix is never modified.
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
-        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT
-    use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
+        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND
+    use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid, csc_from_triplet
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
+    use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
     implicit none
     private
     public :: native_backend_t
+    interface
+        integer(c_int) function native_order(n, nnz, ptr, row, perm, inverse) &
+                bind(C, name='fsparse_native_order')
+            import :: c_int
+            integer(c_int), value :: n, nnz
+            integer(c_int), intent(in) :: ptr(*), row(*)
+            integer(c_int), intent(out) :: perm(*), inverse(*)
+        end function native_order
+    end interface
 
     type, extends(sparse_backend_t) :: native_backend_t
         integer :: n = 0
-        logical :: ready = .false.
+        logical :: reference_only = .false.
+        integer :: analyzed_order = 0, analyzed_threads = 0
+        integer, allocatable :: perm(:), inverse(:), source(:), op(:), oi(:)
+        type(csc_t) :: ordered
+        logical :: ready = .false., blocked = .false.
+        type(supernodes_t) :: panels
         integer, allocatable :: ap(:), ai(:), parent(:), lp(:), li(:)
         integer, allocatable :: count(:), mark(:), reach(:), path(:)
         real(dp), allocatable :: lv(:), work(:)
@@ -47,13 +63,96 @@ contains
         type(csc_t), intent(in) :: A
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
-        integer :: j, i, p, k, q, top, ierr
-        integer(i8) :: nz
         real(dp) :: start
 
         call self%free()
         call validate(self, A, status)
         if (.not. status_ok(status)) return
+        start = wall_time()
+        self%analyzed_order = self%options%ordering
+        self%analyzed_threads = self%options%nthreads
+        call prepare_ordering(self, A, status)
+        if (.not. status_ok(status)) return
+        if (allocated(self%perm)) then
+            call analyze(self, self%ordered, status)
+        else
+            call analyze(self, A, status)
+        end if
+        if (status_ok(status)) then
+            if (allocated(self%perm)) self%stats%factor_mem_mb = &
+                self%stats%factor_mem_mb + real( &
+                32_i8*A%nnz + 12_i8*self%n + 8_i8, dp)/1.0e6_dp
+            self%stats%analysis_s = wall_time() - start - self%stats%factor_s
+        end if
+    end subroutine native_factor
+
+    subroutine prepare_ordering(self, A, status)
+        class(native_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: bandwidth, j, p, ierr, code
+        integer, allocatable :: rows(:), columns(:)
+        real(dp), allocatable :: positions(:)
+        logical :: use_nd
+
+        call status_set(status, FORTSPARSE_OK, '')
+        bandwidth = 0
+        do j = 1, A%ncol
+            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                bandwidth = max(bandwidth, abs(A%row_idx(p) - j))
+            end do
+        end do
+        use_nd = self%options%ordering == FORTSPARSE_ORDER_ND
+        if (.not. self%reference_only) then
+            if (A%ncol >= 4096 .and. bandwidth > 12) use_nd = .true.
+        end if
+        if (.not. use_nd) return
+        allocate (self%perm(A%ncol), self%inverse(A%ncol), stat=ierr)
+        if (ierr /= 0) then
+            call memory_error(status)
+            return
+        end if
+        code = native_order(A%ncol, A%nnz, A%col_ptr, A%row_idx, &
+            self%perm, self%inverse)
+        if (code /= FORTSPARSE_OK) then
+            deallocate (self%perm, self%inverse)
+            if (code == FORTSPARSE_BACKEND_UNAVAILABLE .and. &
+                self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
+            call status_set(status, code, 'native SPD: nested dissection failed')
+            return
+        end if
+        allocate (rows(A%nnz), columns(A%nnz), positions(A%nnz), &
+            self%source(A%nnz), self%op(A%ncol + 1), self%oi(A%nnz), stat=ierr)
+        if (ierr /= 0) then
+            call memory_error(status)
+            return
+        end if
+        self%op = A%col_ptr
+        self%oi = A%row_idx
+        do j = 1, A%ncol
+            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                rows(p) = self%inverse(A%row_idx(p))
+                columns(p) = self%inverse(j)
+                positions(p) = real(p, dp)
+            end do
+        end do
+        call csc_from_triplet(A%nrow, A%ncol, rows, columns, positions, &
+            self%ordered, status)
+        if (.not. status_ok(status)) return
+        self%source = nint(self%ordered%val)
+        do p = 1, A%nnz
+            self%ordered%val(p) = A%val(self%source(p))
+        end do
+    end subroutine prepare_ordering
+
+    subroutine analyze(self, A, status)
+        class(native_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: j, i, p, k, q, top, ierr
+        integer(i8) :: nz
+        real(dp) :: start
+
         start = wall_time()
         self%n = A%ncol
         allocate (self%ap(self%n + 1), self%ai(A%nnz), &
@@ -96,7 +195,7 @@ contains
         do j = 1, self%n
             self%lp(j + 1) = self%lp(j) + self%count(j) + 1
         end do
-        allocate (self%li(int(nz)), self%lv(int(nz)), stat=ierr)
+        allocate (self%li(int(nz)), stat=ierr)
         if (ierr /= 0) then
             call self%free()
             call memory_error(status)
@@ -114,15 +213,33 @@ contains
                 self%count(i) = self%count(i) + 1
             end do
         end do
+        self%blocked = .not. self%reference_only .and. &
+            self%n >= 64 .and. maxval(self%count) > 12
+        if (self%blocked) then
+            call self%panels%build(self%n, self%lp, self%li, &
+                self%options%nthreads, status)
+            if (.not. status_ok(status)) return
+        else
+            allocate (self%lv(int(nz)), stat=ierr)
+            if (ierr /= 0) then
+                call memory_error(status)
+                return
+            end if
+        end if
         self%stats%factor_nnz = nz
         self%stats%factor_mem_mb = real( &
             4_i8*(size(self%ap, kind=i8) + size(self%ai, kind=i8) + &
             size(self%lp, kind=i8) + size(self%li, kind=i8) + &
             5_i8*self%n) + 8_i8*(nz + self%n), dp)/1.0e6_dp
+        if (self%blocked) then
+            self%stats%factor_nnz = self%panels%factor_nnz
+            self%stats%factor_mem_mb = self%stats%factor_mem_mb + &
+                real(self%panels%memory_bytes() - 8_i8*nz, dp)/1.0e6_dp
+        end if
         self%stats%analysis_s = wall_time() - start
         self%stats%nthreads = 1
         call numeric_factor(self, A, status)
-    end subroutine native_factor
+    end subroutine analyze
 
     subroutine validate(self, A, status)
         class(native_backend_t), intent(in) :: self
@@ -137,9 +254,10 @@ contains
                 'native backend supports real SPD matrices only')
             return
         end if
-        if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
+        if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+            self%options%ordering /= FORTSPARSE_ORDER_ND) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'native reference currently supports natural ordering only')
+                'native SPD: unsupported ordering option')
             return
         end if
         if (.not. allocated(A%col_ptr)) return
@@ -209,6 +327,16 @@ contains
 
         start = wall_time()
         self%ready = .false.
+        if (self%blocked) then
+            call self%panels%factor(A, status)
+            self%stats%factor_s = self%panels%numeric_s
+            self%stats%flops = self%panels%flops
+            self%stats%nthreads = self%options%nthreads
+            self%stats%active_threads = self%panels%active_threads
+            self%ready = status_ok(status)
+            return
+        end if
+        self%stats%active_threads = 1
         self%work = 0.0_dp
         self%mark = 0
         self%count = 1
@@ -258,6 +386,24 @@ contains
         call validate(self, A, status)
         self%ready = .false.
         if (.not. status_ok(status)) return
+        if (self%analyzed_order /= self%options%ordering .or. &
+            self%analyzed_threads /= self%options%nthreads) then
+            call self%factor_real(A, refine, status)
+            return
+        end if
+        if (allocated(self%op)) then
+            if (self%n == A%ncol .and. size(self%oi) == A%nnz) then
+                if (all(self%op == A%col_ptr) .and. &
+                    all(self%oi == A%row_idx)) then
+                    reused = .true.
+                    self%ordered%val = A%val(self%source)
+                    call numeric_factor(self, self%ordered, status)
+                    return
+                end if
+            end if
+            call self%factor_real(A, refine, status)
+            return
+        end if
         if (allocated(self%ap)) then
             if (self%n == A%ncol .and. size(self%ai) == A%nnz) then
                 if (all(self%ap == A%col_ptr) .and. &
@@ -287,11 +433,32 @@ contains
         class(native_backend_t), intent(inout) :: self
         real(dp), intent(inout) :: b(:)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: j, p
-        real(dp) :: v
 
         call solve_shape(self, size(b), size(b), status)
         if (.not. status_ok(status)) return
+        if (allocated(self%perm)) then
+            self%work = b(self%perm)
+            if (self%blocked) then
+                call self%panels%solve(self%work, status)
+            else
+                call triangular_solve(self, self%work)
+            end if
+            b(self%perm) = self%work
+        else if (self%blocked) then
+            self%work = b
+            call self%panels%solve(self%work, status)
+            b = self%work
+        else
+            call triangular_solve(self, b)
+        end if
+    end subroutine native_solve_inplace
+
+    subroutine triangular_solve(self, b)
+        class(native_backend_t), intent(in) :: self
+        real(dp), intent(inout) :: b(:)
+        integer :: j, p
+        real(dp) :: v
+
         do j = 1, self%n
             v = spd_divide(b(j), self%lv(self%lp(j)))
             b(j) = v
@@ -306,7 +473,7 @@ contains
                 self%lp(j + 1) - p)
             b(j) = spd_divide(v, self%lv(self%lp(j)))
         end do
-    end subroutine native_solve_inplace
+    end subroutine triangular_solve
 
     subroutine native_solve_block(self, B, X, status)
         class(native_backend_t), intent(inout) :: self
@@ -365,6 +532,14 @@ contains
     subroutine native_free(self)
         class(native_backend_t), intent(inout) :: self
 
+        call self%panels%free()
+        self%blocked = .false.
+        if (allocated(self%perm)) deallocate (self%perm)
+        if (allocated(self%inverse)) deallocate (self%inverse)
+        if (allocated(self%source)) deallocate (self%source)
+        if (allocated(self%op)) deallocate (self%op)
+        if (allocated(self%oi)) deallocate (self%oi)
+        self%ordered = csc_t()
         if (allocated(self%ap)) deallocate (self%ap)
         if (allocated(self%ai)) deallocate (self%ai)
         if (allocated(self%parent)) deallocate (self%parent)

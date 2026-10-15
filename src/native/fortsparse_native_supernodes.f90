@@ -7,7 +7,7 @@ module fortsparse_native_supernodes
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads
+    !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
     private
     integer, parameter :: WIDTH = 16, NOT_SPD = 8
@@ -146,6 +146,9 @@ contains
             end do
         end do
         self%active_threads = 1
+        if (nthreads == 0) then
+            !$ self%active_threads = omp_get_max_threads()
+        end if
         if (nthreads > 0) then
             !$ self%active_threads = nthreads
         end if

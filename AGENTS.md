@@ -1,0 +1,121 @@
+# FortSparse agent rules
+
+## Active delivery
+
+Implement the single-node real-SPD MVP on `m5/native-single-node-roadmap` in
+steps, using `ROADMAP.md` as the authoritative work order. Read README.md,
+ROADMAP.md and the affected interface before changing behavior. Keep external
+backends available. MPI, distributed ordering and indefinite/unsymmetric native
+factorizations are outside this MVP.
+
+Continue profiling and optimizing unresolved cases until native execution is
+on the measured time/memory Pareto front. A working factorization, a microkernel
+win or a fallback to another library is not completion. Do not claim a novel
+algorithm merely because the implementation and generated schedules are new.
+
+Commit and push complete, locally verified increments to the active branch
+regularly. Publish performance numbers after implementation milestones and
+material optimizations. Preserve unrelated changes, stage explicit paths and
+keep worker integration under one controller. Remove task worktrees only after
+their work is integrated and their owned processes have stopped.
+
+## Mathematics and implementation
+
+- Retain project-owned continuous mathematics in FortSym generators. Generate
+  primal/JVP/VJP together; keep emitted CPU/CUDA sources reproducible. Change
+  definitions or schedules rather than hand-editing generated output.
+- Keep graph analysis, indexed operator structure, hardware schedules and
+  backend orchestration separate. Use BLAS/LAPACK for suitable contractions.
+- Differentiate the solve equation, not factorization iterations. Preserve
+  sparse cotangents, factor reuse and independent residual evaluation.
+- Use explicit, reentrant state and bounded reusable workspaces. Numerical
+  hot paths allocate nothing. Include padding, task metadata, pinned storage,
+  allocator pools and CPU/GPU copies in memory accounting.
+- OpenMP and optional native CUDA are production execution paths. Control
+  task/BLAS thread budgets, NUMA placement and device residency. Record actual
+  active threads as well as requested threads. CPU builds require no CUDA.
+- Inspect licensing and matching header/library ABIs before adding wrappers.
+  Preserve the MIT core and separate GPL UMFPACK helper. Fix generic numerical
+  or tooling defects in their owning library when they block this work.
+
+## Measurement contract
+
+- Freeze correctness, representative performance and held-out fixtures before
+  tuning. Select scaling sizes using external baselines alone. Never shrink a
+  failing native case, remove a difficult case or weaken accuracy to manufacture
+  a win. Retain failures, timeouts and unavailable comparisons.
+- Ordinary tests and benchmark invocations must finish below one second on
+  the declared reference machine. Use bounded replay for useful sampling of
+  short kernels. Identify profiler overhead separately; instrumented runs are
+  diagnostic evidence, never reported as ordinary performance measurements.
+- Compare SuperLU, UMFPACK and explicitly named Intel/Panua PARDISO products;
+  include MUMPS and other relevant available solvers. Keep incompatible BLAS
+  runtimes in separate executables and verify dependency resolution.
+- Measure cold numerical-runtime and warm-runtime workflows, analysis,
+  factorization, refactorization, one/many RHS, derivatives, checking and GPU
+  transfers. State reuse counts. Do not confuse a fresh process with a cold
+  filesystem cache or omit setup when reporting total cost.
+- Report wall time AND process CPU time (user plus system), including helper
+  CPU separately. Sweep 1, 2, 4, 8 and 16 physical cores where available, with
+  fixed affinity, explicit thread settings and controlled background load.
+  Report speedup, efficiency, actual teams and serial/overhead-limited cases.
+- Report host/device memory and factor fill. Distinguish exact process peak
+  RSS, sampled/PSS measurements and attributed storage/workspace bytes.
+  Report UMFPACK parent/helper memory separately; summing RSS double-counts
+  shared mappings. Unknown or incomparable memory is not evidence of a win.
+- Use five fresh-process timing trials by default; retain raw numeric evidence,
+  medians/ranges, commands, source/binary identities, hardware and tool/library
+  versions. Keep large traces and datasets outside source history, retaining
+  compact results and reproduction recipes in the repository.
+- Compare each declared case against the best measured external time/memory
+  frontier at matched accuracy, using each solver's tuned workflow. Provide
+  common-ordering diagnostics where supported and label their limits.
+  Match-or-beat requires time and memory against the SAME frontier comparator;
+  overlap within observed variability is indeterminate. Unknown-memory solvers
+  only obstruct frontier membership when their time could actually dominate.
+  Aggregate speedups must not conceal regressions or failures.
+
+## Profile-driven optimization loop
+
+1. Reproduce a losing case on the current revision and identify whether setup,
+   ordering, allocation, numerical work, solve, checking or transfers dominate.
+   Profile cold and reused paths separately.
+2. Use CPU sampling/counters (`perf`) and allocation/call tracing when useful.
+   Inspect call stacks, cycles, instructions, cache misses, bandwidth, branch
+   behavior, synchronization, task granularity and allocator traffic. If hardware
+   counters are unavailable, record that limit and use supported user-space
+   profiling; do not silently change system security settings.
+3. On GPUs use Nsight Systems/Compute or supported equivalents for launch,
+   copy, synchronization and kernel timelines. Inspect FP64 throughput, memory
+   traffic, occupancy, register pressure and spills. Count transfers and live
+   storage, including retained workspaces and vendor allocations where measurable.
+4. Estimate algorithmic complexity, unavoidable bytes, arithmetic intensity and
+   the critical path. Optimize representation/algorithm, data movement and
+   parallel work before instruction details. Inspect vectorization reports,
+   assembly and GPU instructions for the measured hot kernels.
+5. Make one bounded change addressing measured evidence. Generate a bounded
+   ahead-of-time variant set for tiles/layouts/unrolling/fusion where justified.
+   Fewer symbolic operations do not imply lower elapsed time. Avoid unbounded
+   autotuning, speculative frameworks and unrelated cleanup.
+6. Recheck independent values, derivative identities and error semantics, then
+   measure microkernel, factorization, complete solve and consumer impact.
+   Reject changes that merely move time or memory outside the measurement.
+7. Retain a specialization only for reproducible end-to-end gains without
+   violating the case's memory/accuracy contract. Update evidence, commit and
+   push the verified checkpoint, then profile the remaining losses. Stop
+   optimizing a case once the declared frontier criterion is satisfied unless
+   another unresolved case or a regression justifies more work.
+
+## Verification
+
+Use the Fortran skill, the project's native CMake/CTest and fpm authorities,
+and one controller-owned resident fo Gremlin lane where supported. Run affected
+named tests with bounded parallelism, never the full suite as an edit ritual.
+Avoid profiling/benchmarking while builds or other heavy campaigns compete.
+
+Use independent known solutions, small dense references, structural/adjoint
+identities and external libraries as behavioral oracles. Cover permutations,
+disconnected blocks, failed pivots, invalid inputs, block RHS, reuse, derivatives
+and CPU/GPU agreement. GPU claims need actual-device evidence. Keep backward
+error, forward bounds and rigorous certificates distinct; return or document
+unavailable/failed status for unsupported claims. Report verification limits.

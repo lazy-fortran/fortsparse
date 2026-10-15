@@ -20,8 +20,17 @@ fortsparse_add_test(test_fortsparse_spd_leaves
     solver/test_fortsparse_spd_leaves.f90)
 fortsparse_add_test(test_fortsparse_native
     solver/test_fortsparse_native.f90)
+fortsparse_add_test(test_fortsparse_native_supernodes
+    solver/test_fortsparse_native_supernodes.f90)
 set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
-    PROPERTIES LABELS "native;fast" TIMEOUT 1)
+    test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 1)
+add_executable(test_native_order solver/test_native_order.c)
+target_link_libraries(test_native_order PRIVATE fortsparse)
+if(FORTSPARSE_NATIVE_METIS_FOUND)
+    target_compile_definitions(test_native_order PRIVATE FORTSPARSE_TEST_METIS)
+endif()
+add_test(NAME test_native_order COMMAND test_native_order)
+set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 fortsparse_add_test(test_fortsparse_matvec_omp csc/test_fortsparse_matvec_omp.f90)
 
