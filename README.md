@@ -33,6 +33,7 @@ Options, all set with `-D`:
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | `ON` finds SuperLU and UMFPACK with `find_package` instead of fetching them. BLAS/LAPACK always come from the system. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs an OpenMP-enabled MUMPS, found by `find_package(MUMPS CONFIG)` or else `cmake/FindMUMPS.cmake` (distribution packages); see [MUMPS backend](#mumps-backend). |
 | `FORTSPARSE_INSTALL_HELPER` | `ON` | Install the UMFPACK helper to `bin/`. See [Use in your project](#use-in-your-project). |
+| `FORTSPARSE_TEST_OOM` | `OFF` | Also register `test_fortsparse_superlu_status_oom` (label `oom`), which forces a real SuperLU allocation failure under `ulimit -v 250000`. Manual: the working limit is toolchain dependent. Run with `ctest -L oom`. |
 
 The UMFPACK helper builds whenever the SuiteSparse chain is available (fetched,
 or found under `FORTSPARSE_USE_SYSTEM_DEPS`). It is the one GPL artifact and the

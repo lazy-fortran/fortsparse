@@ -22,6 +22,8 @@ option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
 # SuperLU at all: the shim sources are not compiled, SuperLU is not searched
 # for or linked, and the FORTSPARSE_HAVE_SUPERLU macro stays undefined so the
 # solver factory reports the backend unavailable instead of failing to link.
+option(FORTSPARSE_TEST_OOM
+    "Also run the address-limit SuperLU allocation-failure test (manual)" OFF)
 option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
 
 # Zero-dependency build for the niche libraries only. OFF (default) fetches and
