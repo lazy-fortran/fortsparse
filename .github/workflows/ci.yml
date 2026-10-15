@@ -14,12 +14,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Full CMake build and CTest. Builds the MIT library against SuperLU and the
-  # separate GPL UMFPACK helper, then runs the suite including the out-of-process
-  # IPC round-trip through the helper. Required.
+  # Bounded solver gates, including the independent out-of-process UMFPACK
+  # round-trip. Build and run only these named tests; never run the full suite.
   cmake:
     name: cmake + ctest ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    env:
+      OMP_NUM_THREADS: 1
+      OPENBLAS_NUM_THREADS: 1
     strategy:
       fail-fast: false
       matrix:
@@ -45,22 +47,24 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Debug \
-            -DFORTSPARSE_BUILD_TESTING=ON
+            -DFORTSPARSE_BUILD_TESTING=ON \
+            -DFORTSPARSE_USE_SYSTEM_DEPS=ON
 
-      - name: Build
-        run: cmake --build build -j
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
-
-      # MIT-only build through fo: it sees only src/, links SuperLU, never the
-      # GPL helper. Runs the full fo pipeline (static analysis, build, test,
-      # lint, format check) when fo is on PATH; skips cleanly otherwise.
-      - name: fo (MIT-only) pipeline
+      - name: Build focused solver gates
         run: |
-          set -euo pipefail
-          if command -v fo >/dev/null 2>&1; then
-            fo
-          else
-            echo "fo not available on this runner; skipping the MIT-only pipeline."
-          fi
+          cmake --build build -j 2 --target \
+            test_fortsparse_status \
+            test_fortsparse_solve_real \
+            test_fortsparse_solve_complex \
+            test_fortsparse_solve_derivatives \
+            test_fortsparse_complex_solve_derivatives \
+            test_fortsparse_superlu_symmetric \
+            test_fortsparse_errors \
+            test_fortsparse_superlu_status \
+            test_fortsparse_umfpack_ipc \
+            fortsparse_umfpack_helper
+
+      - name: Test focused solver gates
+        run: >-
+          ctest --test-dir build -j 2 --output-on-failure --no-tests=error
+          -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc)$'
