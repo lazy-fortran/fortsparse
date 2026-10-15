@@ -6,8 +6,9 @@ module fortsparse_native
     use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
-        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND
-    use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid, csc_from_triplet
+        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_AMD
+    use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
@@ -27,11 +28,19 @@ module fortsparse_native
             integer(c_int), intent(in) :: ptr(*), row(*)
             integer(c_int), intent(out) :: perm(*), inverse(*)
         end function native_order
+        integer(c_int) function native_order_amd(n, nnz, ptr, row, perm, inverse) &
+                bind(C, name='fsparse_native_order_amd')
+            import :: c_int
+            integer(c_int), value :: n, nnz
+            integer(c_int), intent(in) :: ptr(*), row(*)
+            integer(c_int), intent(out) :: perm(*), inverse(*)
+        end function native_order_amd
     end interface
 
     type, extends(sparse_backend_t) :: native_backend_t
         integer :: n = 0
         logical :: reference_only = .false.
+        integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
         integer :: analyzed_order = 0, analyzed_threads = 0, analyzed_device = -1
         integer, allocatable :: perm(:), inverse(:), source(:), op(:), oi(:)
         type(csc_t) :: ordered
@@ -92,10 +101,8 @@ contains
         class(native_backend_t), intent(inout) :: self
         type(csc_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
-        integer :: bandwidth, j, p, ierr, code
-        integer, allocatable :: rows(:), columns(:)
-        real(dp), allocatable :: positions(:)
-        logical :: use_nd
+        integer :: bandwidth, j, i, p, q, ierr, code, chosen, old
+        integer, allocatable :: cursor(:)
 
         call status_set(status, FORTSPARSE_OK, '')
         bandwidth = 0
@@ -104,47 +111,83 @@ contains
                 bandwidth = max(bandwidth, abs(A%row_idx(p) - j))
             end do
         end do
-        use_nd = self%options%ordering == FORTSPARSE_ORDER_ND
-        if (.not. self%reference_only) then
-            if (A%ncol >= 4096 .and. bandwidth > 12) use_nd = .true.
+        chosen = self%options%ordering
+        if (chosen == FORTSPARSE_ORDER_DEFAULT) then
+            if (.not. self%reference_only .and. A%ncol >= 4096 .and. &
+                bandwidth > 12) then
+                chosen = FORTSPARSE_ORDER_AMD
+            end if
         end if
-        if (.not. use_nd) return
+        self%selected_order = FORTSPARSE_ORDER_DEFAULT
+        if (chosen == FORTSPARSE_ORDER_DEFAULT) return
         allocate (self%perm(A%ncol), self%inverse(A%ncol), stat=ierr)
         if (ierr /= 0) then
             call memory_error(status)
             return
         end if
-        code = native_order(A%ncol, A%nnz, A%col_ptr, A%row_idx, &
-            self%perm, self%inverse)
+        call compute_order(chosen, code)
+        if (code == FORTSPARSE_BACKEND_UNAVAILABLE .and. &
+            self%options%ordering == FORTSPARSE_ORDER_DEFAULT) then
+            if (chosen == FORTSPARSE_ORDER_AMD) then
+                chosen = FORTSPARSE_ORDER_ND
+            else
+                chosen = FORTSPARSE_ORDER_AMD
+            end if
+            call compute_order(chosen, code)
+        end if
         if (code /= FORTSPARSE_OK) then
             deallocate (self%perm, self%inverse)
             if (code == FORTSPARSE_BACKEND_UNAVAILABLE .and. &
                 self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
-            call status_set(status, code, 'native SPD: nested dissection failed')
+            call status_set(status, code, 'native SPD: ordering failed')
             return
         end if
-        allocate (rows(A%nnz), columns(A%nnz), positions(A%nnz), &
-            self%source(A%nnz), self%op(A%ncol + 1), self%oi(A%nnz), stat=ierr)
+        self%selected_order = chosen
+        allocate (self%source(A%nnz), self%op(A%ncol + 1), self%oi(A%nnz), &
+            self%ordered%col_ptr(A%ncol + 1), self%ordered%row_idx(A%nnz), &
+            self%ordered%val(A%nnz), cursor(A%ncol), stat=ierr)
         if (ierr /= 0) then
             call memory_error(status)
             return
         end if
         self%op = A%col_ptr
         self%oi = A%row_idx
+        self%ordered%nrow = A%nrow
+        self%ordered%ncol = A%ncol
+        self%ordered%nnz = A%nnz
+        self%ordered%col_ptr(1) = 1
         do j = 1, A%ncol
-            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                rows(p) = self%inverse(A%row_idx(p))
-                columns(p) = self%inverse(j)
-                positions(p) = real(p, dp)
+            old = self%perm(j)
+            self%ordered%col_ptr(j + 1) = self%ordered%col_ptr(j) + &
+                A%col_ptr(old + 1) - A%col_ptr(old)
+        end do
+        cursor = self%ordered%col_ptr(:A%ncol)
+        ! A is full and exactly symmetric. Walk original columns in new ROW
+        ! order; scattering their transposes creates sorted permuted CSC in
+        ! O(nnz+n), without triplets, sorting or a duplicate numeric layout.
+        do i = 1, A%ncol
+            old = self%perm(i)
+            do p = A%col_ptr(old), A%col_ptr(old + 1) - 1
+                j = self%inverse(A%row_idx(p))
+                q = cursor(j)
+                self%ordered%row_idx(q) = i
+                self%ordered%val(q) = A%val(p)
+                self%source(q) = p
+                cursor(j) = q + 1
             end do
         end do
-        call csc_from_triplet(A%nrow, A%ncol, rows, columns, positions, &
-            self%ordered, status)
-        if (.not. status_ok(status)) return
-        self%source = nint(self%ordered%val)
-        do p = 1, A%nnz
-            self%ordered%val(p) = A%val(self%source(p))
-        end do
+    contains
+        subroutine compute_order(ordering, result_code)
+            integer, intent(in) :: ordering
+            integer, intent(out) :: result_code
+            if (ordering == FORTSPARSE_ORDER_AMD) then
+                result_code = native_order_amd(A%ncol, A%nnz, A%col_ptr, &
+                    A%row_idx, self%perm, self%inverse)
+            else
+                result_code = native_order(A%ncol, A%nnz, A%col_ptr, &
+                    A%row_idx, self%perm, self%inverse)
+            end if
+        end subroutine compute_order
     end subroutine prepare_ordering
 
     subroutine analyze(self, A, status)
@@ -157,8 +200,7 @@ contains
 
         start = wall_time()
         self%n = A%ncol
-        allocate (self%ap(self%n + 1), self%ai(A%nnz), &
-            self%parent(self%n), self%lp(self%n + 1), self%count(self%n), &
+        allocate (self%parent(self%n), self%lp(self%n + 1), self%count(self%n), &
             self%mark(self%n), self%reach(self%n), self%path(self%n), &
             self%work(self%n), stat=ierr)
         if (ierr /= 0) then
@@ -166,8 +208,21 @@ contains
             call memory_error(status)
             return
         end if
-        self%ap = A%col_ptr
-        self%ai = A%row_idx
+        if (allocated(self%perm)) then
+            ! The retained original pattern and permuted CSC already own
+            ! both reuse keys; a third pattern copy has no consumer.
+            allocate (self%ap(0), self%ai(0), stat=ierr)
+        else
+            allocate (self%ap(self%n + 1), self%ai(A%nnz), stat=ierr)
+        end if
+        if (ierr /= 0) then
+            call memory_error(status)
+            return
+        end if
+        if (.not. allocated(self%perm)) then
+            self%ap = A%col_ptr
+            self%ai = A%row_idx
+        end if
         self%parent = 0
         self%mark = 0
         self%count = 0
@@ -229,6 +284,8 @@ contains
                 return
             end if
         end if
+        self%stats%ordering_used = self%selected_order
+        self%stats%symbolic_nnz = nz
         self%stats%factor_nnz = nz
         self%stats%factor_mem_mb = real( &
             4_i8*(size(self%ap, kind=i8) + size(self%ai, kind=i8) + &
@@ -239,6 +296,23 @@ contains
             self%stats%factor_mem_mb = self%stats%factor_mem_mb + &
                 real(self%panels%memory_bytes() - 8_i8*nz, dp)/1.0e6_dp
         end if
+        if (self%blocked) then
+            self%stats%factor_storage_bytes = self%panels%factor_storage_bytes
+            self%stats%workspace_bytes = self%panels%workspace_bytes + &
+                4_i8*(size(self%ap, kind=i8) + size(self%ai, kind=i8)) + &
+                8_i8*self%n
+            ! Panel row/index structures now own the analysis result. Release
+            ! the temporary simplicial structure before touching numeric pages.
+            deallocate (self%lp, self%li, self%parent, self%count, self%mark, &
+                self%reach, self%path)
+        else
+            self%stats%factor_storage_bytes = 8_i8*nz
+            self%stats%workspace_bytes = 4_i8*nz + 4_i8*(self%n + 1) + 4_i8*( &
+                size(self%ap, kind=i8) + size(self%ai, kind=i8) + &
+                5_i8*self%n) + 8_i8*self%n
+        end if
+        if (allocated(self%perm)) self%stats%workspace_bytes = &
+            self%stats%workspace_bytes + 20_i8*A%nnz + 16_i8*self%n + 8_i8
         self%stats%analysis_s = wall_time() - start
         self%stats%nthreads = 1
         call numeric_factor(self, A, status)
@@ -264,7 +338,8 @@ contains
             return
         end if
         if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
-            self%options%ordering /= FORTSPARSE_ORDER_ND) then
+            self%options%ordering /= FORTSPARSE_ORDER_ND .and. &
+            self%options%ordering /= FORTSPARSE_ORDER_AMD) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'native SPD: unsupported ordering option')
             return
@@ -394,6 +469,7 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
+        integer :: p
 
         reused = .false.
         call validate(self, A, status)
@@ -410,7 +486,10 @@ contains
                 if (all(self%op == A%col_ptr) .and. &
                     all(self%oi == A%row_idx)) then
                     reused = .true.
-                    self%ordered%val = A%val(self%source)
+                    do p = 1, A%nnz
+                        self%ordered%val(p) = A%val(self%source(p))
+                    end do
+                    self%stats%analysis_s = 0.0_dp
                     call numeric_factor(self, self%ordered, status)
                     return
                 end if
@@ -423,6 +502,7 @@ contains
                 if (all(self%ap == A%col_ptr) .and. &
                     all(self%ai == A%row_idx)) then
                     reused = .true.
+                    self%stats%analysis_s = 0.0_dp
                     call numeric_factor(self, A, status)
                     return
                 end if

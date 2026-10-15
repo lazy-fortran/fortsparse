@@ -43,6 +43,9 @@ program bench_spd
     call get_command_argument(5, workload)
     call get_command_argument(6, argument)
     held_out = trim(argument) == "heldout"
+    ! Optional public ordering override for common-ordering diagnostics.
+    call get_command_argument(7, argument)
+    if (len_trim(argument) > 0) read (argument, *) solver%options%ordering
     nrhs = 1
     if (trim(workload) == "rhs8") nrhs = 8
     select case (trim(backend))
@@ -212,11 +215,14 @@ program bench_spd
         "helper_rss_kib,helper_cpu_s,factor_nnz,factor_mem_mb,"// &
         "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s,"// &
         "requested_threads,active_threads,requested_device,actual_device,"// &
-        "profile_iterations,profile_s"
+        "profile_iterations,profile_s,ordering_used,symbolic_nnz,"// &
+        "factor_storage_bytes,workspace_bytes,device_bytes"
     write (*, '(*(g0,:,","))') trim(backend), trim(family), level, a%nrow, &
         a%nnz, threads, nrhs, factor_s, solve_s, refactor_s, reused, cpu_s, &
         total_s, rss, child_rss, child_cpu, stats%factor_nnz, &
         stats%factor_mem_mb, stats%analysis_s, stats%factor_s, error, jvp_s, &
         vjp_s, cold_factor_s, threads, stats%active_threads, &
-        solver%options%device, stats%active_device, profile_iterations, profile_s
+        solver%options%device, stats%active_device, profile_iterations, profile_s, &
+        stats%ordering_used, stats%symbolic_nnz, stats%factor_storage_bytes, &
+        stats%workspace_bytes, stats%device_bytes
 end program

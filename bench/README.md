@@ -182,3 +182,9 @@ helper RSS stay separate, and CUDA device allocations are reported separately
 when available. Failed and timed-out configurations remain in the manifest
 and annotations. Preliminary snapshots from different revisions are labeled
 as checkpoints and do not establish MVP admission.
+
+The direct `bench_spd` executable accepts an optional seventh integer argument
+for the public ordering option (1 = AMD, 2 = METIS ND). This is a diagnostic
+common-ordering override; ordinary runner comparisons use each backend's
+unchanged default policy. The CSV reports the actual native ordering, symbolic
+fill, numeric factor payload and retained workspace separately from peak RSS.

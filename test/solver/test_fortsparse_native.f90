@@ -8,7 +8,7 @@ program test_fortsparse_native
     type(fortsparse_status_t) :: status
     type(sparse_factor_stats_t) :: stats
     integer, parameter :: n = 19
-    integer :: i, j, p, k, rows(n*n), cols(n*n)
+    integer :: i, j, p, k, ordering, rows(n*n), cols(n*n)
     real(dp) :: dense(n, n), vals(n*n), exact(n), b(n), x(n), y(n)
     real(dp) :: Bblock(n, 8), Xblock(n, 8), dx(n), seed(n), bbar(n)
     real(dp), allocatable :: abar(:)
@@ -89,19 +89,22 @@ program test_fortsparse_native
     call sparse_destroy(solver)
     call sparse_solve(other, b, x, status)
     call close(x, exact, 'independent handles')
-    ! An explicit ND request either exercises its permutation or reports the
-    ! optional dependency absent. Default builds retain the natural path.
-    other%options%ordering = FORTSPARSE_ORDER_ND
-    call sparse_factor(other, A, status)
-    if (status%code /= FORTSPARSE_BACKEND_UNAVAILABLE) then
-        call require(status_ok(status), 'nested dissection')
+    ! Explicit ordering exercises permutation and changed-value reuse, or
+    ! returns the optional dependency's documented unavailable status.
+    do ordering = FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+        other%options%ordering = ordering
+        call sparse_factor(other, A, status)
+        if (status%code == FORTSPARSE_BACKEND_UNAVAILABLE) cycle
+        call require(status_ok(status), 'explicit ordering')
+        call sparse_factor_stats(other, stats, status)
+        call require(stats%ordering_used == ordering, 'reported ordering')
         call sparse_solve(other, b, x, status)
         call close(x, exact, 'permuted solve')
         call sparse_refactor(other, changed, status, reused)
         call require(status_ok(status) .and. reused, 'permuted refactor')
         call sparse_solve(other, 2*b, x, status)
         call close(x, exact, 'permuted refactor solve')
-    end if
+    end do
     other%options%ordering = FORTSPARSE_ORDER_DEFAULT
     other%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
     call sparse_factor(other, A, status)

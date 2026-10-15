@@ -14,8 +14,10 @@ Cholesky solver. Set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
 supply full symmetric CSC with strictly sorted, unique row indices and finite
 values; `csc_from_triplet` canonicalizes duplicates and ordering. The reference
 uses a simplicial path for low fill and blocked OpenMP tasks for larger fronts.
-Optional METIS provides nested dissection for larger non-banded systems;
-explicit `FORTSPARSE_ORDER_ND` requires METIS. The solver returns
+Optional BSD AMD provides default ordering for larger non-banded systems,
+with METIS nested dissection as an alternative. Explicit
+`FORTSPARSE_ORDER_AMD` and `FORTSPARSE_ORDER_ND` require the corresponding
+ordering library. The solver returns
 `FORTSPARSE_NOT_POSITIVE_DEFINITE` for a
 nonpositive or nonfinite pivot. It retains analysis for same-pattern
 refactorization and supports block solves and the existing implicit JVP/VJP.

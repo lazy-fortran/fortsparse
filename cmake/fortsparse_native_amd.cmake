@@ -26,7 +26,7 @@ function(fortsparse_configure_native_amd target)
             HINTS ${AMD_ROOT} ENV AMD_ROOT PATH_SUFFIXES lib lib64)
         mark_as_advanced(FORTSPARSE_AMD_INCLUDE_DIR FORTSPARSE_AMD_LIBRARY)
         if(FORTSPARSE_AMD_INCLUDE_DIR AND FORTSPARSE_AMD_LIBRARY)
-            if(FORTSPARSE_AMD_LIBRARY MATCHES "\\.a$")
+            if(FORTSPARSE_AMD_LIBRARY MATCHES "\.a$")
                 find_library(FORTSPARSE_AMD_CONFIG_LIBRARY NAMES suitesparseconfig
                     HINTS ${AMD_ROOT} ENV AMD_ROOT PATH_SUFFIXES lib lib64)
                 mark_as_advanced(FORTSPARSE_AMD_CONFIG_LIBRARY)
@@ -39,7 +39,7 @@ function(fortsparse_configure_native_amd target)
             set_target_properties(fortsparse_amd PROPERTIES
                 IMPORTED_LOCATION "${FORTSPARSE_AMD_LIBRARY}"
                 INTERFACE_INCLUDE_DIRECTORIES "${FORTSPARSE_AMD_INCLUDE_DIR}")
-            if(FORTSPARSE_AMD_LIBRARY MATCHES "\\.a$")
+            if(FORTSPARSE_AMD_LIBRARY MATCHES "\.a$")
                 set_property(TARGET fortsparse_amd PROPERTY INTERFACE_LINK_LIBRARIES
                     "${FORTSPARSE_AMD_CONFIG_LIBRARY}")
                 if(NOT WIN32)

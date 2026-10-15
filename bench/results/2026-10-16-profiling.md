@@ -80,3 +80,32 @@ The registered larger MUMPS ordering regression passes in 0.05–0.06 s. All
 24x24x24 3D scaling cases. `../corpus.json` records that fixed selection.
 The earlier initial table is historical evidence with its stated provider
 configuration; use the repaired configuration for further admission runs.
+
+## Compact factors and ordering checkpoint
+
+Tree-aware amalgamation caps added structural zeros and releases temporary
+simplicial analysis before numeric storage is touched. Linear-time symmetric
+CSC permutation replaces triplet construction and sorting. Optional BSD AMD
+is now the default for larger non-banded native problems; explicit METIS ND
+remains available. Existing small and banded matrices retain natural ordering.
+No external factorization is substituted for native execution.
+
+Five-trial warm factor-plus-solve medians with GNU 16.2.1 `-O3 -march=znver3`:
+
+| Case | Threads | Time (ms) | Parent peak RSS (MiB) |
+|------|--------:|----------:|---------------------:|
+| 2D, n=16384 | 1 | 17.16 | 20.90 |
+| 2D, n=16384 | 4 | 38.90 | 27.25 |
+| 3D, n=13824 | 1 | 79.79 | 38.92 |
+| 3D, n=13824 | 4 | 63.54 | 49.01 |
+
+These are intermediate results, not admission. Hardware ISA tuning alone
+provided no substantial improvement over portable `-O3`. A separate METIS
+refinement-count experiment saved setup time but increased fill; it was not
+retained. AMD improved complete 3D setup more than that experiment. A bounded
+16-thread 2D `perf` profile collected 3566 samples without losses: over 90% of
+cycles were in libgomp task coordination. This motivates destination-panel
+task coarsening before further thread comparisons. Portable CPU correctness,
+explicit AMD/ND permutation/refactor checks and absent-ordering status tests
+remain required. Numeric factor payload, retained auxiliary bytes and actual
+process peaks are different measurements.
