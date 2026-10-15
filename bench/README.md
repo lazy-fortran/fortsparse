@@ -81,3 +81,32 @@ statistics are JSON `null`. Compare both cold and warm cases, five-trial
 spread, and best-tuned external thread counts before claiming competitiveness.
 UMFPACK's separate parent/helper memory peaks do not establish a unique
 aggregate footprint; a combined memory claim needs additional evidence.
+
+## Match the MUMPS ordering provider
+
+A prebuilt MUMPS archive must link the METIS provider whose headers it was
+compiled against. Matching the METIS version number alone is insufficient.
+The local MUMPS 5.9.1 package used a bundled METIS 5.2.1 header with
+`METIS_OPTION_NUMBERING=18`; the system METIS 5.2.1 header/library use index 19.
+Combining those providers made MUMPS pass a one-based graph to a zero-based
+METIS call and crash during nested dissection. The captured graph was valid;
+calling the same library on the same graph with the correct numbering option
+succeeded. This is a dependency ABI mismatch, not a sparse-factorization result.
+
+For a MUMPS installation that provides its own matched METIS, select both
+explicitly when configuring the benchmark build:
+
+```sh
+cmake -S . -B build \
+  -DMUMPS_DIR=/path/to/mumps-prefix/cmake \
+  -DMETIS_INCLUDE_DIR=/path/to/mumps-prefix/include \
+  -DMETIS_LIBRARY=/path/to/mumps-prefix/lib/libmetis.a
+OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 \
+  timeout 1s build/bin/bench_spd mumps grid3 6 1 rhs1 training
+```
+
+The static METIS provider also needs its matching GKlib dependency. Its package
+target should supply that dependency; a dynamic system METIS must not acquire
+an unrelated static GKlib on the executable's link line. Preserve failed
+provider configurations as failed evidence and rerun calibration after changing
+the linked provider.
