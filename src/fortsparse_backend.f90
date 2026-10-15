@@ -53,7 +53,11 @@ module fortsparse_backend
         real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
         integer     :: active_threads = -1 ! actual native factor team size
         integer     :: active_device = -2 ! -2 unknown; -1 CPU; >=0 CUDA device
+        integer     :: ordering_used = -1 ! actual native ordering option
         integer(i8) :: device_bytes = -1 ! attributed native device allocation
+        integer(i8) :: symbolic_nnz = -1 ! unpadded native Cholesky structure
+        integer(i8) :: factor_storage_bytes = -1 ! native numeric factor payload
+        integer(i8) :: workspace_bytes = -1 ! retained native auxiliary payload
         integer     :: nthreads = -1        ! threads requested
     end type sparse_factor_stats_t
 
