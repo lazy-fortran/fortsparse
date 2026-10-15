@@ -364,27 +364,35 @@ contains
         end if
     end subroutine check_true
 
-    ! Fail if any /dev/shm/fsparse_* object exists. The early-unlink handshake
-    ! drops the names as soon as the helper attaches, so a residue here means a
-    ! hard kill would leak shared memory on the node. Skipped where /dev/shm is
-    ! absent (non-Linux), since the check is platform-specific.
+    ! Fail if any /dev/shm object created by THIS process remains. The library
+    ! names its IPC objects fsparse_<kind>_<pid>_<n> (src/ipc/fsparse_ipc.c), so
+    ! the scan is scoped to this test's pid. A machine-wide scan would also count
+    ! objects of concurrently running tests (ctest -j), which is not a leak here.
+    ! The early-unlink handshake drops the names once the helper attaches, so a
+    ! residue means a hard kill would leak shared memory. Skipped where /dev/shm
+    ! or /proc is absent (non-Linux).
     subroutine check_no_shm_residue(label, nfail)
         character(*), intent(in)    :: label
         integer,      intent(inout) :: nfail
-        character(*), parameter     :: out = "fsparse_shm_residue.txt"
-        integer                     :: u, n, ios, cmdstat
-        logical                     :: have_shm
+        integer                     :: pid, u, n, ios, cmdstat
+        logical                     :: have_shm, have_pid
+        character(64)               :: out
+        character(256)              :: cmd
 
         inquire (file="/dev/shm/.", exist=have_shm)
         if (.not. have_shm) return
+        call own_pid(pid, have_pid)
+        if (.not. have_pid) return
 
-        call execute_command_line( &
-            "ls /dev/shm 2>/dev/null | grep -c fsparse > " // out, &
-            exitstat=ios, cmdstat=cmdstat)
+        write (out, "(a,i0,a)") "fsparse_shm_residue_", pid, ".txt"
+        write (cmd, "(a,i0,a,a)") &
+            "ls /dev/shm 2>/dev/null | grep -c '^fsparse_[a-z]*_", pid, &
+            "_' > ", trim(out)
+        call execute_command_line(trim(cmd), exitstat=ios, cmdstat=cmdstat)
         if (cmdstat /= 0) return
 
         n = -1
-        open (newunit=u, file=out, status="old", action="read", iostat=ios)
+        open (newunit=u, file=trim(out), status="old", action="read", iostat=ios)
         if (ios == 0) then
             read (u, *, iostat=ios) n
             close (u, status="delete")
@@ -395,5 +403,22 @@ contains
                 "] /dev/shm fsparse residue count ", n, " (want 0)"
         end if
     end subroutine check_no_shm_residue
+
+    ! Pid of this process. /proc/self names the reading process, so the first
+    ! field of its stat file is the test's own pid.
+    subroutine own_pid(pid, ok)
+        integer, intent(out) :: pid
+        logical, intent(out) :: ok
+        integer :: u, ios
+
+        pid = -1
+        open (newunit=u, file="/proc/self/stat", status="old", &
+            action="read", iostat=ios)
+        ok = (ios == 0)
+        if (.not. ok) return
+        read (u, *, iostat=ios) pid
+        close (u)
+        ok = (ios == 0 .and. pid > 0)
+    end subroutine own_pid
 
 end program test_fortsparse_umfpack_ipc
