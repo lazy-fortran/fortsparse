@@ -25,6 +25,15 @@ certificate. AUTO selection remains based on the existing external backends.
 reference for independent comparisons. Statistics distinguish requested and
 actual active factorization threads.
 
+Build with `FORTSPARSE_ENABLE_NATIVE_CUDA=ON` to enable explicit native GPU
+factorization, and set `solver%options%device = 0` for CUDA device 0. Panels
+and Schur updates remain resident during factorization; one downloaded factor
+allocation serves subsequent CPU solves. The context is retained for numeric
+refactorization. The default device is `-1` (CPU); a GPU request in a CPU build
+returns backend unavailable. Device statistics cover attributed allocations,
+excluding unreported driver/vendor internal pools. GPU correctness is tested
+on real hardware; performance admission remains case dependent.
+
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
 built with a sequential MUMPS (see [Backend selection](#backend-selection));

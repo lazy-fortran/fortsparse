@@ -15,12 +15,21 @@ target_sources(fortsparse PRIVATE
     fortsparse_version.f90
     generated/fortsparse_spd_leaves.f90
     native/fortsparse_native.f90
-    native/fortsparse_native_supernodes.f90
+    native/fortsparse_native_cuda.F90
+    native/fortsparse_native_supernodes.F90
     ipc/fortsparse_ipc_proto.f90
     ipc/fortsparse_umfpack_ipc.f90
     # MIT C shims
     ipc/fsparse_ipc.c
 )
+
+# Generated schedules call their own pure mathematical leaves. With PIC,
+# GNU's default semantic interposition prevents their inlining/vectorization;
+# these internal calls have no supported symbol-interposition contract.
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(generated/fortsparse_spd_leaves.f90 PROPERTIES
+        COMPILE_OPTIONS "-fno-semantic-interposition")
+endif()
 
 # The SuperLU backend is an optional component. When enabled, compile its
 # Fortran binding and C shim, define FORTSPARSE_HAVE_SUPERLU so the solver

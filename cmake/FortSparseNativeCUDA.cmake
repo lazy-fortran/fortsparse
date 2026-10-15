@@ -4,14 +4,17 @@
 # CUDA is enabled in the root before creating src/ so that directory inherits
 # the language's compile rules. The optional target is configured here.
 target_sources(fortsparse PRIVATE
-    ${PROJECT_SOURCE_DIR}/src/native/fsparse_spd_cuda.cu
-    ${PROJECT_SOURCE_DIR}/src/native/fortsparse_native_cuda.F90)
+    ${PROJECT_SOURCE_DIR}/src/native/fsparse_spd_cuda.cu)
 target_compile_definitions(fortsparse PRIVATE FORTSPARSE_HAVE_NATIVE_CUDA)
 target_include_directories(fortsparse PRIVATE ${PROJECT_SOURCE_DIR}/src/generated)
 target_link_libraries(fortsparse PUBLIC CUDA::cudart CUDA::cublas)
 set_target_properties(fortsparse PROPERTIES CUDA_STANDARD 14 CUDA_STANDARD_REQUIRED ON)
 
 function(fortsparse_add_cuda_tests)
+    add_test(NAME test_fortsparse_native_supernodes_cuda
+        COMMAND test_fortsparse_native_supernodes --cuda)
+    set_tests_properties(test_fortsparse_native_supernodes_cuda PROPERTIES
+        LABELS "native;cuda;fast" TIMEOUT 1)
     foreach(test IN ITEMS test_fortsparse_spd_cuda_leaves test_fortsparse_spd_cuda)
         add_executable(${test} ${PROJECT_SOURCE_DIR}/test-cmake/cuda/${test}.cu)
         target_link_libraries(${test} PRIVATE fortsparse)

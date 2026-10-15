@@ -13,6 +13,13 @@ if(FORTSPARSE_BUILD_TESTING)
     target_link_libraries(test_spd_fixtures PRIVATE fortsparse_spd_fixtures)
     add_test(NAME spd_fixtures COMMAND test_spd_fixtures)
     set_tests_properties(spd_fixtures PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+    if(FORTSPARSE_ENABLE_NATIVE_CUDA)
+        add_test(NAME spd_native_cuda
+            COMMAND bench_spd native-cuda grid2 1 1 rhs1 training)
+        set_tests_properties(spd_native_cuda PROPERTIES
+            LABELS "native;cuda;benchmark;fast" TIMEOUT 1
+            ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    endif()
     if(FORTSPARSE_ENABLE_MUMPS)
         add_test(NAME spd_mumps_ordering
             COMMAND bench_spd mumps grid3 6 1 rhs1 training)

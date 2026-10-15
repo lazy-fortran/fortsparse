@@ -39,6 +39,7 @@ module fortsparse_backend
         integer :: symmetry = FORTSPARSE_SYM_GENERAL
         integer :: ordering = FORTSPARSE_ORDER_DEFAULT
         integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)
+        integer :: device = -1 ! native: -1 CPU, >=0 explicit CUDA device
         logical :: verbose = .false.
     end type sparse_options_t
 
@@ -51,6 +52,8 @@ module fortsparse_backend
         real(dp)    :: analysis_s = -1.0_dp ! wall time of ordering + symbolic
         real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
         integer     :: active_threads = -1 ! actual native factor team size
+        integer     :: active_device = -2 ! -2 unknown; -1 CPU; >=0 CUDA device
+        integer(i8) :: device_bytes = -1 ! attributed native device allocation
         integer     :: nthreads = -1        ! threads requested
     end type sparse_factor_stats_t
 
