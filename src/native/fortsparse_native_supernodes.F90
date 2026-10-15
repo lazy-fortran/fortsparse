@@ -45,6 +45,8 @@ module fortsparse_native_supernodes
         logical, private :: ready = .false.
         type(panel_t), allocatable, private :: panels(:)
         integer, allocatable, private :: colnode(:), tokens(:), failures(:), rowmap(:,:)
+        integer, allocatable, private :: incoming_ptr(:), incoming_source(:)
+        integer, allocatable, private :: incoming_first(:), incoming_q(:)
         real(dp), allocatable, private :: update_work(:,:), solve_work(:)
         ! One owning allocation permits one factor upload/download. Panel
         ! views share it without maintaining a second full host factor copy.
@@ -268,6 +270,11 @@ contains
             call allocation_error(self, status)
             return
         end if
+        call setup_incoming(self, status)
+        if (status%code /= FORTSPARSE_OK) then
+            call self%free()
+            return
+        end if
         self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine build
@@ -277,7 +284,14 @@ contains
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer, pointer :: token(:)
-        integer :: s, j, p, row, position, group, first, q, dest
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+        integer, pointer :: sources(:)
+        integer :: incoming_start, incoming_end
+#endif
+        integer :: s, j, p, row, position
+#ifndef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+        integer :: group, first, q, dest
+#endif
         real(dp) :: started
 
         self%ready = .false.
@@ -318,6 +332,24 @@ contains
         if (self%active_threads == 1) then
             call factor_serial(self)
         else
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+            sources => self%incoming_source
+            !$omp parallel num_threads(self%active_threads) default(shared)
+            !$omp single
+            !$ self%active_threads = omp_get_num_threads()
+            do s = 1, self%node_count
+                incoming_start = self%incoming_ptr(s)
+                ! OpenMP iterator end is exclusive, including in Fortran.
+                incoming_end = self%incoming_ptr(s+1)
+                !$omp task firstprivate(s) &
+                !$omp depend(iterator(incoming=incoming_start:incoming_end), &
+                !$omp in:token(sources(incoming))) depend(out:token(s))
+                call factor_destination(self, s)
+                !$omp end task
+            end do
+            !$omp end single
+            !$omp end parallel
+#else
             !$omp parallel num_threads(self%active_threads) default(shared)
             !$omp single
             !$ self%active_threads = omp_get_num_threads()
@@ -338,6 +370,7 @@ contains
             end do
             !$omp end single
             !$omp end parallel
+#endif
         end if
         self%numeric_s = seconds()-started
         if (any(self%failures /= 0)) then
@@ -350,17 +383,29 @@ contains
 
     subroutine factor_serial(self)
         class(supernodes_t), intent(inout) :: self
-        integer :: s, first, group, dest
+        integer :: s
         do s = 1, self%node_count
-            call factor_panel(self, s)
-            first = self%panels(s)%width+1
-            do while (first <= self%panels(s)%m)
-                call update_group(self, s, first, group, dest)
-                call update_panel(self, s, dest, first, group-first)
-                first = group
-            end do
+            call factor_destination(self, s)
         end do
     end subroutine factor_serial
+
+    subroutine factor_destination(self, dest)
+        class(supernodes_t), intent(inout) :: self
+        integer, intent(in) :: dest
+        integer :: p, thread
+        thread = workspace_thread(self)
+        do p = 1, self%panels(dest)%m
+            self%rowmap(self%panels(dest)%rows(p),thread) = p
+        end do
+        do p = self%incoming_ptr(dest), self%incoming_ptr(dest+1)-1
+            call accumulate_update(self, self%incoming_source(p), dest, &
+                self%incoming_first(p), self%incoming_q(p), thread)
+        end do
+        call factor_panel(self, dest)
+        do p = 1, self%panels(dest)%m
+            self%rowmap(self%panels(dest)%rows(p),thread) = 0
+        end do
+    end subroutine factor_destination
 
     subroutine factor_panel(self, s)
         class(supernodes_t), intent(inout) :: self
@@ -381,17 +426,37 @@ contains
         if (.not. all(ieee_is_finite(self%panels(s)%values))) self%failures(s) = NOT_SPD
     end subroutine factor_panel
 
+#ifndef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
     subroutine update_panel(self, source, dest, first, q)
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: source, dest, first, q
-        integer :: thread, m, w, m2, j, p, column, offset
-        real(dp), pointer, contiguous :: source_values(:), dest_values(:)
-        if (self%failures(source) /= 0) self%failures(dest) = self%failures(source)
-        if (self%failures(dest) /= 0) return
+        integer :: thread, p
+        thread = workspace_thread(self)
+        do p = 1, self%panels(dest)%m
+            self%rowmap(self%panels(dest)%rows(p),thread) = p
+        end do
+        call accumulate_update(self, source, dest, first, q, thread)
+        do p = 1, self%panels(dest)%m
+            self%rowmap(self%panels(dest)%rows(p),thread) = 0
+        end do
+    end subroutine update_panel
+#endif
+
+    integer function workspace_thread(self) result(thread)
+        class(supernodes_t), intent(in) :: self
         thread = 1
         if (self%active_threads > 1) then
             !$ thread = 1+omp_get_thread_num()
         end if
+    end function workspace_thread
+
+    subroutine accumulate_update(self, source, dest, first, q, thread)
+        class(supernodes_t), intent(inout) :: self
+        integer, intent(in) :: source, dest, first, q, thread
+        integer :: m, w, m2, j, column, offset
+        real(dp), pointer, contiguous :: source_values(:), dest_values(:)
+        if (self%failures(source) /= 0) self%failures(dest) = self%failures(source)
+        if (self%failures(dest) /= 0) return
         m = self%panels(source)%m
         w = self%panels(source)%width
         m2 = m-first+1
@@ -399,9 +464,6 @@ contains
         call dgemm('N', 'T', m2, q, w, -1.0_dp, &
             source_values, m, source_values, m, &
             0.0_dp, self%update_work(1,thread), m2)
-        do p = 1, self%panels(dest)%m
-            self%rowmap(self%panels(dest)%rows(p),thread) = p
-        end do
         do j = 1, q
             column = self%panels(source)%rows(first+j-1)-self%panels(dest)%first+1
             offset = (j-1)*m2+j
@@ -410,10 +472,7 @@ contains
                 self%panels(source)%rows(first+j-1:), self%rowmap(:,thread), &
                 self%update_work(offset:,thread), m2-j+1, -1.0_dp)
         end do
-        do p = 1, self%panels(dest)%m
-            self%rowmap(self%panels(dest)%rows(p),thread) = 0
-        end do
-    end subroutine update_panel
+    end subroutine accumulate_update
 
     subroutine solve(self, b, status)
         class(supernodes_t), intent(inout) :: self
@@ -471,6 +530,10 @@ contains
         if (allocated(self%tokens)) deallocate(self%tokens)
         if (allocated(self%failures)) deallocate(self%failures)
         if (allocated(self%rowmap)) deallocate(self%rowmap)
+        if (allocated(self%incoming_ptr)) deallocate(self%incoming_ptr)
+        if (allocated(self%incoming_source)) deallocate(self%incoming_source)
+        if (allocated(self%incoming_first)) deallocate(self%incoming_first)
+        if (allocated(self%incoming_q)) deallocate(self%incoming_q)
         if (allocated(self%update_work)) deallocate(self%update_work)
         if (allocated(self%solve_work)) deallocate(self%solve_work)
         self%n = 0
@@ -508,11 +571,67 @@ contains
         if (allocated(self%tokens)) bytes = bytes+4_i8*size(self%tokens,kind=i8)
         if (allocated(self%failures)) bytes = bytes+4_i8*size(self%failures,kind=i8)
         if (allocated(self%rowmap)) bytes = bytes+4_i8*size(self%rowmap,kind=i8)
+        if (allocated(self%incoming_ptr)) bytes = bytes+4_i8*size(self%incoming_ptr,kind=i8)
+        if (allocated(self%incoming_source)) bytes = bytes+4_i8*size(self%incoming_source,kind=i8)
+        if (allocated(self%incoming_first)) bytes = bytes+4_i8*size(self%incoming_first,kind=i8)
+        if (allocated(self%incoming_q)) bytes = bytes+4_i8*size(self%incoming_q,kind=i8)
         if (allocated(self%update_work)) bytes = bytes+8_i8*size(self%update_work,kind=i8)
         if (allocated(self%solve_work)) bytes = bytes+8_i8*size(self%solve_work,kind=i8)
         if (allocated(self%updates)) &
             bytes = bytes+int(storage_size(self%updates)/8,i8)*size(self%updates,kind=i8)
     end function memory_bytes
+
+    subroutine setup_incoming(self, status)
+        class(supernodes_t), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        integer, allocatable :: next(:)
+        integer :: s, first, group, dest, p, ierr
+        integer(i8) :: entries
+        allocate(self%incoming_ptr(self%node_count+1), next(self%node_count), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'incoming task map allocation failed')
+            return
+        end if
+        self%incoming_ptr = 0
+        entries = 0_i8
+        do s = 1, self%node_count
+            first = self%panels(s)%width+1
+            do while (first <= self%panels(s)%m)
+                call update_group(self, s, first, group, dest)
+                self%incoming_ptr(dest+1) = self%incoming_ptr(dest+1)+1
+                entries = entries+1
+                first = group
+            end do
+        end do
+        if (entries >= huge(p)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'incoming task map too large')
+            return
+        end if
+        self%incoming_ptr(1) = 1
+        do s = 1, self%node_count
+            self%incoming_ptr(s+1) = self%incoming_ptr(s+1)+self%incoming_ptr(s)
+        end do
+        allocate(self%incoming_source(int(entries)), self%incoming_first(int(entries)), &
+            self%incoming_q(int(entries)), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'incoming task entries allocation failed')
+            return
+        end if
+        next = self%incoming_ptr(:self%node_count)
+        do s = 1, self%node_count
+            first = self%panels(s)%width+1
+            do while (first <= self%panels(s)%m)
+                call update_group(self, s, first, group, dest)
+                p = next(dest)
+                self%incoming_source(p) = s
+                self%incoming_first(p) = first
+                self%incoming_q(p) = group-first
+                next(dest) = p+1
+                first = group
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine setup_incoming
 
     subroutine update_group(self, s, first, group, dest)
         class(supernodes_t), intent(in) :: self
