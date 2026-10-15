@@ -2,7 +2,8 @@ program bench_spd
     use fortsparse, only: dp, csc_t, sparse_solver_t, fortsparse_status_t, &
         status_ok, sparse_factor, sparse_solve, sparse_solve_block, &
         sparse_refactor, sparse_free, sparse_factor_stats_t, &
-        sparse_factor_stats, FORTSPARSE_SYM_SPD
+        sparse_factor_stats, sparse_solve_jvp, sparse_solve_vjp, &
+        FORTSPARSE_SYM_SPD
     use spd_fixtures, only: fixture_t, make_fixture, fixture_product, &
         backward_error, wall_time
     use, intrinsic :: iso_c_binding, only: c_double
@@ -15,7 +16,7 @@ program bench_spd
         end subroutine
     end interface
     type(fixture_t) :: fixture
-    type(csc_t) :: a
+    type(csc_t) :: a, a_dot
     type(sparse_solver_t) :: solver
     type(fortsparse_status_t) :: status
     type(sparse_factor_stats_t) :: stats
@@ -23,8 +24,10 @@ program bench_spd
     integer :: level, threads, nrhs, j
     logical :: held_out, reused
     real(dp), allocatable :: b(:, :), x(:, :), reference(:)
+    real(dp), allocatable :: tangent(:), adjoint(:), matrix_bar(:), b_dot(:)
     real(dp) :: start, cpu_start, factor_s, solve_s, refactor_s, cpu_s
     real(dp) :: error, rss, child_rss, child_cpu, total_start, total_s
+    real(dp) :: jvp_s, vjp_s, lhs, rhs, cold_factor_s
 
     total_start = wall_time()
     call cpu_time(cpu_start)
@@ -52,7 +55,9 @@ program bench_spd
         error stop "unknown backend"
     end select
     if (trim(workload) /= "rhs1" .and. trim(workload) /= "rhs8" &
-        .and. trim(workload) /= "refactor") error stop "unknown workload"
+        .and. trim(workload) /= "refactor" .and. &
+        trim(workload) /= "derivatives" .and. trim(workload) /= "warm") &
+        error stop "unknown workload"
     call make_fixture(trim(family), level, held_out, fixture)
     a%nrow = fixture%n
     a%ncol = fixture%n
@@ -74,6 +79,15 @@ program bench_spd
     if (.not. status_ok(status)) then
         write (*, '(a,i0)') "backend status: ", status%code
         stop 2
+    end if
+    cold_factor_s = factor_s
+    if (trim(workload) == "warm") then
+        ! Retain loaded numerical runtimes but redo analysis and factorization.
+        call sparse_free(solver)
+        start = wall_time()
+        call sparse_factor(solver, a, status)
+        factor_s = wall_time() - start
+        if (.not. status_ok(status)) error stop "warm factor failed"
     end if
     call sparse_factor_stats(solver, stats, status)
     refactor_s = -1.0_dp
@@ -100,6 +114,32 @@ program bench_spd
         error = max(error, backward_error(fixture, x(:, j), b(:, j)))
     end do
     if (.not. (error < 1.0e-12_dp)) error stop "backward error failed"
+    jvp_s = -1.0_dp
+    vjp_s = -1.0_dp
+    if (trim(workload) == "derivatives") then
+        a_dot = a
+        a_dot%val = 0.1_dp*a%val
+        allocate (tangent(a%nrow), adjoint(a%nrow), matrix_bar(a%nnz), &
+            b_dot(a%nrow))
+        b_dot = 0.2_dp*b(:, 1)
+        reference = 1.0_dp
+        start = wall_time()
+        call sparse_solve_jvp(solver, a_dot, x(:, 1), b_dot, tangent, status)
+        jvp_s = wall_time() - start
+        if (.not. status_ok(status)) error stop "JVP failed"
+        start = wall_time()
+        ! A is symmetric, so its factors also solve the adjoint equation.
+        call sparse_solve_vjp(solver, a, x(:, 1), reference, adjoint, &
+            matrix_bar, status)
+        vjp_s = wall_time() - start
+        if (.not. status_ok(status)) error stop "VJP failed"
+        if (maxval(abs(tangent - 0.1_dp*x(:, 1))) > 1.0e-10_dp) &
+            error stop "JVP known-solution oracle failed"
+        lhs = dot_product(reference, tangent)
+        rhs = dot_product(adjoint, b_dot) + dot_product(matrix_bar, a_dot%val)
+        if (abs(lhs - rhs) > 1.0e-10_dp*max(1.0_dp, abs(lhs))) &
+            error stop "derivative adjoint identity failed"
+    end if
     call sparse_free(solver)
     call cpu_time(cpu_s)
     cpu_s = cpu_s - cpu_start
@@ -108,9 +148,10 @@ program bench_spd
     write (*, '(a)') "backend,family,level,n,nnz,threads,nrhs,factor_s,"// &
         "solve_s,refactor_s,reused,parent_cpu_s,total_s,parent_rss_kib,"// &
         "helper_rss_kib,helper_cpu_s,factor_nnz,factor_mem_mb,"// &
-        "analysis_s,numeric_s,backward_error"
+        "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s"
     write (*, '(*(g0,:,","))') trim(backend), trim(family), level, a%nrow, &
         a%nnz, threads, nrhs, factor_s, solve_s, refactor_s, reused, cpu_s, &
         total_s, rss, child_rss, child_cpu, stats%factor_nnz, &
-        stats%factor_mem_mb, stats%analysis_s, stats%factor_s, error
+        stats%factor_mem_mb, stats%analysis_s, stats%factor_s, error, jvp_s, &
+        vjp_s, cold_factor_s
 end program
