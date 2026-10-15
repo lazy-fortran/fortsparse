@@ -1,5 +1,5 @@
 program test_fortsparse_poisson
-    ! 1D Poisson with Dirichlet boundaries on the default (SuperLU) backend.
+    ! 1D Poisson with Dirichlet boundaries on the default backend.
     ! Discretise -u'' = f on (0,1) with the tridiagonal stencil (-1, 2, -1)
     ! scaled by 1/h^2, manufacture u(x) = sin(pi x), and check the relative L2
     ! error and the residual.

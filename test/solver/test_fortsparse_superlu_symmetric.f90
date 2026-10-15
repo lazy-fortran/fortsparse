@@ -10,7 +10,8 @@ program test_fortsparse_superlu_symmetric
     use fortsparse, only: dp, csc_t, csc_z_t, csc_from_triplet, csc_matvec, &
         sparse_solver_t, sparse_factor, sparse_solve, sparse_free, &
         fortsparse_status_t, status_ok, FORTSPARSE_SYM_GENERAL, &
-        FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
+        FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
+        FORTSPARSE_BACKEND_SUPERLU
     implicit none
 
     integer, parameter :: m = 12, n = m*m + 1
@@ -50,6 +51,7 @@ contains
         call check(label//'_build', status_ok(status), nfail)
         xe = [(sin(0.37_dp*i) + 0.5_dp, i = 1, n)]
         b = csc_matvec(A, xe)
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
         solver%options%symmetry = symmetry
         call sparse_factor(solver, A, status)
         call check(label//'_factor', status_ok(status), nfail)
@@ -74,6 +76,7 @@ contains
         call check('spd_build', status_ok(status), nfail)
         xe = [(cos(0.21_dp*i), i = 1, n - 1)]
         b = csc_matvec(A, xe)
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
         solver%options%symmetry = FORTSPARSE_SYM_SPD
         call sparse_factor(solver, A, status)
         call check('spd_factor', status_ok(status), nfail)
@@ -115,6 +118,7 @@ contains
         call check(label//'_build', status_ok(status), nfail)
         xe = [(cmplx(sin(0.37_dp*i), cos(0.11_dp*i), dp), i = 1, n)]
         b = csc_matvec(A, xe)
+        solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
         solver%options%symmetry = symmetry
         call sparse_factor(solver, A, status)
         call check(label//'_factor', status_ok(status), nfail)

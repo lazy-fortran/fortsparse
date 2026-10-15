@@ -1,5 +1,5 @@
 program test_fortsparse_solve_real
-    ! Real solve on the default (SuperLU) backend: factor once, solve two RHS
+    ! Real solve on the default backend: factor once, solve two RHS
     ! reusing the factorization, and exercise sparse_solve_once. Checks the
     ! solution against the known answer and the residual A x - b.
     use, intrinsic :: iso_fortran_env, only: error_unit

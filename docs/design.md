@@ -37,8 +37,11 @@ type, public :: sparse_solver_t
 end type sparse_solver_t
 ```
 
-`FORTSPARSE_BACKEND_SUPERLU = 1` is the default. `FORTSPARSE_BACKEND_UMFPACK_IPC
-= 2` selects the out-of-process helper. KLU and PARDISO ids are reserved.
+The default is `FORTSPARSE_BACKEND_DEFAULT`: `FORTSPARSE_BACKEND_MUMPS = 3` when
+the library is built with a sequential MUMPS that provides ZMUMPS (macros
+`FORTSPARSE_HAVE_MUMPS` and `FORTSPARSE_HAVE_ZMUMPS`, no `FORTSPARSE_MUMPS_MPI`),
+otherwise `FORTSPARSE_BACKEND_SUPERLU = 1`. `FORTSPARSE_BACKEND_UMFPACK_IPC = 2`
+selects the out-of-process helper. KLU and PARDISO ids are reserved.
 
 `sparse_factor` allocates the concrete backend for `backend_id` through a
 `select case` factory, releasing any prior factorization first, then dispatches

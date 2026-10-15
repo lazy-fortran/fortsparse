@@ -1,5 +1,5 @@
 program test_fortsparse_solve_complex
-    ! Complex solve on the default (SuperLU) backend: factor a small complex
+    ! Complex solve on the default backend: factor a small complex
     ! system, solve, and check the solution and residual.
     use, intrinsic :: iso_fortran_env, only: error_unit
     use fortsparse, only: dp, csc_z_t, csc_from_triplet, csc_matvec, &
