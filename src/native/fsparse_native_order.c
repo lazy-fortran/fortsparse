@@ -6,16 +6,7 @@
 
 #ifdef FORTSPARSE_HAVE_METIS
 #include <metis.h>
-
-static int has_row(const int *ptr, const int *row, int column, int wanted) {
-    int lo = ptr[column] - 1, hi = ptr[column + 1] - 1;
-    while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;
-        if (row[mid] < wanted) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo < ptr[column + 1] - 1 && row[lo] == wanted;
-}
+#include "fsparse_order_graph.h"
 #endif
 
 /* Input: full symmetric canonical CSC, Fortran one-based indices.
@@ -30,26 +21,7 @@ int fsparse_native_order(int n, int nnz, const int *ptr, const int *row,
     idx_t *xadj = NULL, *adj = NULL, *p = NULL, *ip = NULL;
     idx_t options[METIS_NOPTIONS], vertices, count = 0;
     int result = 0;
-    if (n <= 0 || nnz < 0 || nnz == INT_MAX || !ptr || !perm || !inverse)
-        return 2;
-    if (nnz && !row) return 2;
-    if (ptr[0] != 1 || ptr[n] != nnz + 1) return 2;
-    for (int col = 0; col < n; ++col) {
-        if (ptr[col] < 1 || ptr[col] > ptr[col + 1] || ptr[col + 1] > nnz + 1)
-            return 2;
-        int previous = 0;
-        for (int entry = ptr[col] - 1; entry < ptr[col + 1] - 1; ++entry) {
-            if (row[entry] < 1 || row[entry] > n || row[entry] <= previous)
-                return 2;
-            previous = row[entry];
-        }
-    }
-    for (int col = 0; col < n; ++col) {
-        for (int entry = ptr[col] - 1; entry < ptr[col + 1] - 1; ++entry) {
-            if (row[entry] != col + 1 &&
-                !has_row(ptr, row, row[entry] - 1, col + 1)) return 2;
-        }
-    }
+    if (!perm || !inverse || !fsparse_graph_valid(n, nnz, ptr, row)) return 2;
     if ((size_t)n + 1 > SIZE_MAX / sizeof(idx_t) ||
         (size_t)nnz > SIZE_MAX / sizeof(idx_t)) return 6;
     xadj = malloc(((size_t)n + 1) * sizeof(*xadj));
