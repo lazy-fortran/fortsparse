@@ -222,20 +222,13 @@ the build is wrong.
 
 ## Roadmap
 
-- **Own clean-room LU.** Write a clean-room sparse LU under the MIT license to
-  retire the UMFPACK dependency. The helper and its GPL boundary then become
-  optional rather than the only route to UMFPACK-class fill-reducing direct
-  factorization.
-- **Enzyme AD.** The value path stays explicit so reverse-mode autodiff
-  (planned Enzyme integration) differentiates the solve without rewriting the
-  numerics. The `FORTSPARSE_ENABLE_ENZYME` CMake switch is the inert hook for
-  this.
-- **Device-memory sharing.** Extend the backend interface and, for the
-  out-of-process path, the shared mapping so factor and solve can run on
-  device memory. The `FORTSPARSE_ENABLE_DEVICE_OFFLOAD` switch is the inert
-  hook.
-- **More backends.** KLU and PARDISO behind the same API, by their reserved
-  ids. KLU is permissive and would run in-process; a PARDISO with copyleft or
-  proprietary terms would run behind the IPC boundary.
-- **fortnum reuse.** Adopt the sibling library fortnum for shared kinds and
-  numerical utilities once its API stabilizes.
+The authoritative plan is [ROADMAP.md](../ROADMAP.md). It defines the
+single-node native solver track, generated numerical mathematics, OpenMP/CUDA
+execution and per-case admission against retained backends. This design
+document describes the existing interfaces and implementation; unchecked
+roadmap milestones do not imply implemented capabilities.
+
+Solve derivatives follow the implicit equation contract already implemented
+in the public API. Enzyme is optional tooling, not a production dependency.
+The dormant Enzyme/device build switches and reserved backend ids are not
+evidence of implemented capabilities.

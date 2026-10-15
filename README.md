@@ -6,6 +6,9 @@ library that does the factorization. Factor a matrix once, solve any number of
 right-hand sides against that factorization, then free it. The backend is an
 integer tag on the solver; switching it never changes the calling code.
 
+The [roadmap](ROADMAP.md) defines the native single-node solver development
+track, generated CPU/GPU kernels and performance/memory admission gates.
+
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
 built with a sequential MUMPS (see [Backend selection](#backend-selection));
