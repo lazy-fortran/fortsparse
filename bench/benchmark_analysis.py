@@ -46,7 +46,8 @@ def summarize(records):
             values = [r[metric] for r in good if r.get(metric) is not None
                       and r[metric] >= 0]
             summary[metric] = (dict(median=statistics.median(values),
-                                    minimum=min(values), maximum=max(values))
+                                    minimum=min(values), maximum=max(values),
+                                    available_samples=len(values))
                                if values else None)
         summaries.append(summary)
     for summary in summaries:
@@ -140,7 +141,9 @@ def analyze_admission(summaries, expected_backends):
             else:
                 status = "not_competitive_over_observed_ranges"
             cuda_verified = backend != "native-cuda" or any(
-                n["actual_device"] is not None for n in native)
+                n["actual_device"] is not None and
+                n["actual_device"]["available_samples"] == n["samples"]
+                for n in native)
             results.append(dict(zip(("family", "level", "workload", "variant"), case),
                 backend=backend, status=status, production_path=backend != "native-reference",
                 device_execution_verified=cuda_verified, missing_comparators=missing,
