@@ -93,6 +93,11 @@ path remain planned.
 the native default 1.0 (maximum-candidate row pivoting after scaling). A numerical
 refactor always selects pivots anew. No derivative is taken through pivot choices.
 
+Opt-in [native structural row matching](native-matching.md) supplies a nonzero
+preferred diagonal for real/complex GENERAL LU without changing the original
+matrix. It recomputes matching on numeric refactors and charges its graph/maps
+to the host payload cap. The default policy is unchanged.
+
 ## Optional general LU ordering
 
 For real and complex general matrices, production native LU accepts

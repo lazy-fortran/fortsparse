@@ -47,6 +47,7 @@ module fortsparse_backend
     type :: sparse_options_t
         integer :: symmetry = FORTSPARSE_SYM_GENERAL
         integer :: ordering = FORTSPARSE_ORDER_DEFAULT
+        logical :: structural_matching = .false. ! native CPU GENERAL, nonzero row matching
         integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)
         integer :: device = -1 ! native: -1 CPU, >=0 explicit CUDA device
         logical :: verbose = .false.
