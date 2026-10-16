@@ -10,7 +10,7 @@ from offload_provenance import attach
 
 CASE_KEYS = ("family", "level", "workload", "variant", "io_mode", "requested_device")
 CONFIG_KEYS = ("requested_backend", "threads", "ordering", "repeats", "pool_budget_bytes",
-               "executable_sha256")
+               "executable_sha256", "series")
 OBJECTIVES = {
     "wall_host_rss": ("primary_phase_s", "parent_rss_kib"),
     "wall_device_total": ("primary_phase_s", "device_total_peak_bytes"),
@@ -31,6 +31,7 @@ def summarize(trials, required_trials=5, validated_trace=False):
     for trial in trials:
         trial = dict(trial)
         trial.setdefault("requested_backend", trial["backend"])
+        trial.setdefault("series", "candidate")
         trial["executable_sha256"] = trial.get("executable_sha256") or ""
         trial.setdefault("pool_budget_bytes", trial.get("gpu_pool_budget_bytes",
                          trial.get("pool_limit_bytes", -1)))
