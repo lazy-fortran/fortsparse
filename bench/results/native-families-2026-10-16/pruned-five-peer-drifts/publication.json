@@ -1,0 +1,46 @@
+{
+  "uploaded_utc": "2026-10-16T11:17:46.837967+00:00",
+  "retention": "ephemeral; expires after three days",
+  "artifacts": [
+    {
+      "name": "wall-training.png",
+      "url": "https://box.sloppy.at/df08c.png",
+      "sha256": "370d69c0f5ae8636d8f370240957b0f34c6fd1caf15168f2503996beef071ee8"
+    },
+    {
+      "name": "wall-heldout.png",
+      "url": "https://box.sloppy.at/80a0c.png",
+      "sha256": "379c7737987a0782dd266c2b1d0eb5c8c251d569076cb9c76ee79eefdc72609e"
+    },
+    {
+      "name": "cpu-training.png",
+      "url": "https://box.sloppy.at/9d092.png",
+      "sha256": "e84a4aaae97bb62fa47b19564d354ad0ccbdd14f054109b5646c28c0a1dc01b1"
+    },
+    {
+      "name": "phases-training.png",
+      "url": "https://box.sloppy.at/f8926.png",
+      "sha256": "b9ac4cc30e11aca2dd4a659627946a7ab08c6ccb5c8681bde88f26c4b4d4abd4"
+    },
+    {
+      "name": "solve-training.png",
+      "url": "https://box.sloppy.at/42911.png",
+      "sha256": "261b1d050038ee16ff23f76368df1c7a6dea8be0cc0aeb5f0ef6d0c0142a6b2c"
+    },
+    {
+      "name": "rss-training.png",
+      "url": "https://box.sloppy.at/53a2b.png",
+      "sha256": "64fdebce8dc50f524903a0ecb4765e88897a9d484b08b8159a66f648e3a2e9e6"
+    },
+    {
+      "name": "time-rss-training.png",
+      "url": "https://box.sloppy.at/cf37a.png",
+      "sha256": "a5d42e487c9328fc8c1828692babac8f55006a1897aa7adc5980d24cff090a9a"
+    },
+    {
+      "name": "time-rss-heldout.png",
+      "url": "https://box.sloppy.at/ea223.png",
+      "sha256": "e4e64235c596a18a90d16411158d4ffc0279bae8446363091ffac9e95196a1b3"
+    }
+  ]
+}

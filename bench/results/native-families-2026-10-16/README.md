@@ -22,10 +22,10 @@ are not matched before/after trials. Native factor teams remain serial at every
 requested budget. External active teams are unknown, rather than assumed.
 
 The AMD parent RSS measurement is valid process VmHWM; attributed peak bytes
-are unavailable and must never be treated as zero. UMFPACK currently uses the
-helper/IPC comparator. Its parent and helper lifecycle RSS cannot establish
+are unavailable and must never be treated as zero. That checkpoint uses the
+UMFPACK helper/IPC comparator. Its parent and helper lifecycle RSS cannot establish
 aggregate peak RSS. The time/RSS figures omit UMFPACK aggregate points explicitly.
-A standalone direct UMFPACK comparison is required before performance admission.
+The later five-peer checkpoints below add standalone direct UMFPACK.
 
 Regenerate the AMD plots outside source history:
 
@@ -74,3 +74,10 @@ It retains complete subprocess wall, completed CPU, RSS, factor phases and the
 exact additional 4*n owned bytes. Public medians improve; private factor time
 improves while whole-child ranges overlap. The checkpoint includes graph-closure
 oracles and sampled-profile provenance, with no new external-frontier claim.
+
+`pruned-five-peer-drifts/` is a separate source7e1f123 historical-five cohort:
+1,200 successful trials, 240 configurations and 80 indeterminate native
+wall/CPU-versus-RSS assessments. It joins no historical chain measurements and
+makes no robust frontier claim. It retains requested-budget scaling, pinned
+reproduction metadata and ephemeral links to inspected plots. The later
+contract-v4-six no-refinement UMFPACK comparator is outside this cohort.

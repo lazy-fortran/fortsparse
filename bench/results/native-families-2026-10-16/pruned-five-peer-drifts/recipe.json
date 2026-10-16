@@ -1,0 +1,43 @@
+{
+  "inputs": [
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/pruned-five-peer-drifts"
+  ],
+  "calibration": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json",
+  "calibration_attempts": 2052,
+  "calibration_rejections": [
+    {
+      "family": "drift-complex",
+      "backend": "umfpack",
+      "level": 128,
+      "threads": 4,
+      "trial": 0,
+      "status": "ok",
+      "process_wall_s": 0.74711566203041
+    }
+  ],
+  "files": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/pruned-five-peer-drifts/attempts.jsonl",
+      "sha256": "bbb373762d0b1347c5ee1c97c3c8de703dff4f9e1add4b11427c774d9f4acda1"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/pruned-five-peer-drifts/provenance.json",
+      "sha256": "aeb76043d2c13d70e9035ad023bc5f51e0b1b7f7d97fa88fd3250a13c96ee2fa"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json",
+      "sha256": "cb39c751f3832a279e3e378ef33b47fc3cf9c714ee5128e3aedf380e790a42dc"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/attempts.jsonl",
+      "sha256": "d9b52abee2ff57191e39ebc27344fe5c0744639f9ec83c5c26c8bf6b4bd26056"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/provenance.json",
+      "sha256": "ff60cf6de625ff8e00d5c33bd51071ae9b99ba3009f9c1bd3d2a22d86085ff87"
+    }
+  ],
+  "cpu_scope": "completed wait4 workflow, no helper double counting",
+  "memory_scope": "single-process VmHWM; IPC unknown aggregate, parent-only safe lower bound",
+  "assessment": "all 25 external configs; strict min/max time OR memory exclusion"
+}

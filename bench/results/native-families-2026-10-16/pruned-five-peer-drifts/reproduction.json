@@ -1,0 +1,14 @@
+{
+  "coverage": "historical-five",
+  "solver_measurement_source_revision": "7e1f123ea21fd8412480ec6a6ddf0696893acb2a",
+  "input": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/pruned-five-peer-drifts",
+  "raw_sha256": "bbb373762d0b1347c5ee1c97c3c8de703dff4f9e1add4b11427c774d9f4acda1",
+  "provenance_sha256": "aeb76043d2c13d70e9035ad023bc5f51e0b1b7f7d97fa88fd3250a13c96ee2fa",
+  "report_sources": {
+    "report.py": "39d13d53d086cf69e6d0b374bbce4277179629ae6a112c77ae8720bd96e44199",
+    "report_front.py": "2c088606bd9fd4091c7ebcd4f9906138be110639cb63dcbab5038b826365a80b"
+  },
+  "recipe_source_sha256": "0eb68364b858a01d1d2c6f30202de8843ec399e2a8cb8f1fc392dfc8f05506d3",
+  "scope": "only pruned drift receipts; historical calibration is a size gate, not joined chain measurements",
+  "scaling": "backend own t1median/tPmedian; efficiency /requested budget, not active-team efficiency"
+}
