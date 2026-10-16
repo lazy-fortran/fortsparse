@@ -3,14 +3,16 @@
 ## Active delivery
 
 Implement native single-node coverage and bounded-memory execution on `main`,
-using `ROADMAP.md` as the authoritative work order. Read README.md, ROADMAP.md
+using `ROADMAP.md` as the authoritative work order. Prioritize feature completeness
+and correctness before further performance tuning. Deliver native-only consumer
+branches and draft PRs with affected-test evidence and explicit unsupported paths. Read README.md, ROADMAP.md
 and the affected interface before changing behavior. Keep external backends
 available. Reach a usable GPU SPD checkpoint, then prioritize CPU matrix classes;
 full GPU frontier admission remains required later. MPI, multi-GPU execution
 and disk-backed factors are outside this plan.
 
-Continue profiling and optimizing unresolved cases until native execution is
-on the measured time/memory Pareto front. A working factorization, a microkernel
+After functional consumer coverage and correctness, resume profiling and optimizing
+unresolved cases until native execution is on the measured time/memory Pareto front. A working factorization, a microkernel
 win or a fallback to another library is not completion. Do not claim a novel
 algorithm merely because the implementation and generated schedules are new.
 
