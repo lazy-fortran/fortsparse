@@ -386,3 +386,20 @@ if(TARGET fortsparse_umfpack_helper)
     set_tests_properties(test_external_retained_ops_stale PROPERTIES
         ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:test_factor_only_umfpack_helper>;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+fortsparse_add_test(test_fortsparse_native_spd_refinement solver/test_fortsparse_native_spd_refinement.f90)
+set_tests_properties(test_fortsparse_native_spd_refinement PROPERTIES
+    LABELS "native;refinement;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_native_spd_refinement_allocations
+        ../test-cmake/native/test_native_spd_refinement_allocations.f90
+        ../test-cmake/native/refinement_allocation_counter.c)
+    target_link_libraries(test_native_spd_refinement_allocations PRIVATE fortsparse)
+    target_link_options(test_native_spd_refinement_allocations PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+    add_test(NAME test_native_spd_refinement_allocations COMMAND test_native_spd_refinement_allocations)
+    set_tests_properties(test_native_spd_refinement_allocations PROPERTIES
+        LABELS "native;refinement;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

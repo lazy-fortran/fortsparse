@@ -5,9 +5,8 @@ module fortsparse_native_general
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t
-    use fortsparse_spd_leaves, only: spd_update, spd_divide
-    use fortsparse_lu_leaves, only: lu_z_update, lu_z_finite
-    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    use fortsparse_spd_leaves, only: spd_update
+    use fortsparse_lu_leaves, only: lu_z_update
     use fortsparse_native_hpd, only: native_hpd_t
     use fortsparse_native_ldlt, only: native_ldlt_t
     use fortsparse_native_ldlt_z, only: native_ldlt_z_t
@@ -17,6 +16,7 @@ module fortsparse_native_general
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_RESOURCE_LIMIT, &
         FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR
+    use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
     public :: native_general_backend_t
@@ -702,8 +702,7 @@ contains
         real(dp), intent(in) :: values(:)
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
-        integer :: ierr,j,p,i
-        real(dp) :: magnitude,column_sum
+        integer :: ierr
         call status_set(status,FORTSPARSE_OK,'')
         if (.not.refine) return
         if (.not.allocated(self%original_ptr)) then
@@ -719,26 +718,9 @@ contains
         self%original_ptr=ptr
         self%original_rows=rows
         self%original_values=values
-        self%residual=0.0_dp
-        self%matrix_norm=0.0_dp
-        self%transpose_norm=0.0_dp
-        do j=1,n
-            column_sum=0.0_dp
-            do p=ptr(j),ptr(j+1)-1
-                i=rows(p)
-                magnitude=abs(values(p))
-                column_sum=spd_update(column_sum,-1.0_dp,magnitude)
-                self%residual(i)=spd_update(self%residual(i),-1.0_dp,magnitude)
-                if (.not.ieee_is_finite(column_sum) .or. .not.ieee_is_finite(self%residual(i))) then
-                    call status_set(status,FORTSPARSE_SINGULAR,'native refinement: original norm exceeds numerical range')
-                    return
-                end if
-            end do
-            self%transpose_norm=max(self%transpose_norm,column_sum)
-        end do
-        do i=1,n
-            self%matrix_norm=max(self%matrix_norm,self%residual(i))
-        end do
+        call native_original_norms(n,ptr,rows,values,self%residual, &
+            self%matrix_norm,self%transpose_norm,status)
+        if (.not.status_ok(status)) return
         self%refining=.true.
     end subroutine retain_real
 
@@ -748,8 +730,7 @@ contains
         complex(dp), intent(in) :: values(:)
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
-        integer :: ierr,j,p,i
-        real(dp) :: magnitude,column_sum,row_sum
+        integer :: ierr
         call status_set(status,FORTSPARSE_OK,'')
         if (.not.refine) return
         if (.not.allocated(self%original_ptr)) then
@@ -765,27 +746,9 @@ contains
         self%original_ptr=ptr
         self%original_rows=rows
         self%original_zvalues=values
-        self%zresidual=(0.0_dp,0.0_dp)
-        self%matrix_norm=0.0_dp
-        self%transpose_norm=0.0_dp
-        do j=1,n
-            column_sum=0.0_dp
-            do p=ptr(j),ptr(j+1)-1
-                i=rows(p)
-                magnitude=abs(values(p))
-                column_sum=spd_update(column_sum,-1.0_dp,magnitude)
-                row_sum=spd_update(real(self%zresidual(i),dp),-1.0_dp,magnitude)
-                if (.not.ieee_is_finite(column_sum) .or. .not.ieee_is_finite(row_sum)) then
-                    call status_set(status,FORTSPARSE_SINGULAR,'native refinement: original norm exceeds numerical range')
-                    return
-                end if
-                self%zresidual(i)=cmplx(row_sum,0.0_dp,dp)
-            end do
-            self%transpose_norm=max(self%transpose_norm,column_sum)
-        end do
-        do i=1,n
-            self%matrix_norm=max(self%matrix_norm,real(self%zresidual(i),dp))
-        end do
+        call native_original_norms(n,ptr,rows,values,self%zresidual, &
+            self%matrix_norm,self%transpose_norm,status)
+        if (.not.status_ok(status)) return
         self%refining=.true.
     end subroutine retain_complex
 
@@ -818,76 +781,19 @@ contains
         end if
     end subroutine solve_complex_values
 
-    ! Evaluate r/(a*x+b) by power-of-two scheduling of generated real leaves.
-    ! This avoids overflow/underflow of the norm product without accepting a
-    ! nonfinite residual or solution. It is a backward-error estimate, no bound.
-    real(dp) function backward_error(r,a,x,b) result(error)
-        real(dp), intent(in) :: r,a,x,b
-        real(dp) :: denominator,product,numerator
-        integer :: ep,eb,e
-        error=-1.0_dp
-        if (.not.ieee_is_finite(r) .or. .not.ieee_is_finite(a) .or. &
-            .not.ieee_is_finite(x) .or. .not.ieee_is_finite(b)) return
-        if (r==0.0_dp) then
-            error=0.0_dp
-            return
-        end if
-        ep=-huge(0)/2
-        eb=ep
-        if (a>0.0_dp .and. x>0.0_dp) ep=exponent(a)+exponent(x)
-        if (b>0.0_dp) eb=exponent(b)
-        if (ep==eb .and. ep==-huge(0)/2) return
-        e=max(ep,eb)
-        denominator=0.0_dp
-        if (a>0.0_dp .and. x>0.0_dp) then
-            product=spd_update(0.0_dp,-fraction(a),fraction(x))
-            denominator=spd_update(denominator,-1.0_dp,scale(product,ep-e))
-        end if
-        if (b>0.0_dp) denominator=spd_update(denominator,-1.0_dp,scale(fraction(b),eb-e))
-        numerator=scale(fraction(r),exponent(r)-e)
-        if (.not.ieee_is_finite(numerator)) return
-        error=spd_divide(numerator,denominator)
-        if (.not.ieee_is_finite(error)) error=-1.0_dp
-    end function backward_error
-
     subroutine refine_real(self,x,operation,status)
         class(native_general_backend_t), intent(inout) :: self
         real(dp), intent(inout) :: x(:)
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
-        integer :: step,j,p,i
-        real(dp) :: rn,xn,bn,an,error
-        real(dp) :: coefficient
+        integer :: step,i
+        real(dp) :: an,error
         an=self%matrix_norm
         if (operation/=0) an=self%transpose_norm
         do step=0,3
             self%stats%refinement_steps=step
-            self%residual=self%saved_rhs
-            do j=1,size(x)
-                do p=self%original_ptr(j),self%original_ptr(j+1)-1
-                    i=self%original_rows(p)
-                    coefficient=self%original_values(p)
-                    if (operation==0) then
-                        self%residual(i)=spd_update(self%residual(i),coefficient,x(j))
-                    else
-                        self%residual(j)=spd_update(self%residual(j),coefficient,x(i))
-                    end if
-                end do
-            end do
-            rn=0.0_dp
-            xn=0.0_dp
-            bn=0.0_dp
-            do i=1,size(x)
-                if (.not.ieee_is_finite(x(i)) .or. .not.ieee_is_finite(self%residual(i))) then
-                    self%stats%backward_error=-1.0_dp
-                    call status_set(status,FORTSPARSE_SINGULAR,'native refinement: nonfinite iterate/residual')
-                    return
-                end if
-                rn=max(rn,abs(self%residual(i)))
-                xn=max(xn,abs(x(i)))
-                bn=max(bn,abs(self%saved_rhs(i)))
-            end do
-            error=backward_error(rn,an,xn,bn)
+            call native_residual_error(self%original_ptr,self%original_rows,self%original_values, &
+                self%saved_rhs,x,operation,an,self%residual,error)
             self%stats%backward_error=error
             if (error<0.0_dp) then
                 call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward error exceeds numerical range')
@@ -912,40 +818,14 @@ contains
         complex(dp), intent(inout) :: x(:)
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
-        integer :: step,j,p,i
-        real(dp) :: rn,xn,bn,an,error
-        complex(dp) :: coefficient
+        integer :: step,i
+        real(dp) :: an,error
         an=self%matrix_norm
         if (operation/=0) an=self%transpose_norm
         do step=0,3
             self%stats%refinement_steps=step
-            self%zresidual=self%saved_zrhs
-            do j=1,size(x)
-                do p=self%original_ptr(j),self%original_ptr(j+1)-1
-                    i=self%original_rows(p)
-                    coefficient=self%original_zvalues(p)
-                    if (operation==2) coefficient=conjg(coefficient)
-                    if (operation==0) then
-                        self%zresidual(i)=lu_z_update(self%zresidual(i),coefficient,x(j))
-                    else
-                        self%zresidual(j)=lu_z_update(self%zresidual(j),coefficient,x(i))
-                    end if
-                end do
-            end do
-            rn=0.0_dp
-            xn=0.0_dp
-            bn=0.0_dp
-            do i=1,size(x)
-                if (.not.lu_z_finite(x(i)) .or. .not.lu_z_finite(self%zresidual(i))) then
-                    self%stats%backward_error=-1.0_dp
-                    call status_set(status,FORTSPARSE_SINGULAR,'native refinement: nonfinite iterate/residual')
-                    return
-                end if
-                rn=max(rn,abs(self%zresidual(i)))
-                xn=max(xn,abs(x(i)))
-                bn=max(bn,abs(self%saved_zrhs(i)))
-            end do
-            error=backward_error(rn,an,xn,bn)
+            call native_residual_error(self%original_ptr,self%original_rows,self%original_zvalues, &
+                self%saved_zrhs,x,operation,an,self%zresidual,error)
             self%stats%backward_error=error
             if (error<0.0_dp) then
                 call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward error exceeds numerical range')

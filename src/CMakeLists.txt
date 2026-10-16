@@ -19,6 +19,7 @@ target_sources(fortsparse PRIVATE
     generated/fortsparse_ldlt_z_leaves.f90
     generated/fortsparse_lu_leaves.f90
     generated/fortsparse_spd_leaves.f90
+    native/fortsparse_native_residual.f90
     native/fortsparse_native.f90
     native/fortsparse_native_general.f90
     native/fortsparse_native_hpd.f90
