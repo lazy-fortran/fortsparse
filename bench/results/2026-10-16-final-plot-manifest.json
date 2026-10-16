@@ -1,0 +1,745 @@
+{
+  "sources": [
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-training.json",
+      "name": "final-training",
+      "sha256": "6c251b52d6553b94ad7646e34937b2262e3b55764800aa8b3b6dee2152da20c2",
+      "revision": "19af66abc44d08715b657c5c7312ca93c76e99da",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "301dc2efcb9a93bdd2293efb284495ed75395f77a8075aace165a5707bb50be8",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "8e4ad6d93882cbbc2f8002f4bf852df36676ec3c8bc4ae14951ade2cb73906a6",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-heldout.json",
+      "name": "final-heldout",
+      "sha256": "6562191e6b93a641078ce552417f5d82f5e37f4002a25f5d4d98d80146bf52a6",
+      "revision": "19af66abc44d08715b657c5c7312ca93c76e99da",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "301dc2efcb9a93bdd2293efb284495ed75395f77a8075aace165a5707bb50be8",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "8e4ad6d93882cbbc2f8002f4bf852df36676ec3c8bc4ae14951ade2cb73906a6",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-bcsstk09.json",
+      "name": "final-bcsstk09",
+      "sha256": "1082629a0bbef2eb485e293ee64dd1651eb32a79e95a0f4b6e9ab644dbe9dc86",
+      "revision": "19af66abc44d08715b657c5c7312ca93c76e99da",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "301dc2efcb9a93bdd2293efb284495ed75395f77a8075aace165a5707bb50be8",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "8e4ad6d93882cbbc2f8002f4bf852df36676ec3c8bc4ae14951ade2cb73906a6",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-native-training.json",
+      "name": "final-native-training",
+      "sha256": "8d6bc23ef9a89771304c6df79b7e0be52c68fd76d71fffab3aa2f99140541cc7",
+      "revision": "d91affa9f6f3c4910e57dc8bce0323280f752aea",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "c4984a64f56d5b2a5973b6ada277b043cef467902bee75f779f8d85aa25987ee",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "79b8b42cddcb40048072421ad434a9c43f777b8493e55ec93b88dc9852d1a9fa",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-native-heldout.json",
+      "name": "final-native-heldout",
+      "sha256": "9869f6789ee722a15aac73197fe0fa99b82e820abfc13aed27886803c69fc446",
+      "revision": "d91affa9f6f3c4910e57dc8bce0323280f752aea",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "c4984a64f56d5b2a5973b6ada277b043cef467902bee75f779f8d85aa25987ee",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "79b8b42cddcb40048072421ad434a9c43f777b8493e55ec93b88dc9852d1a9fa",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-native-bcsstk09.json",
+      "name": "final-native-bcsstk09",
+      "sha256": "9fbf11ce9a2cd0a3bcf946f3c71397a109806c0fbc75158bd6d9f6f9915d5058",
+      "revision": "d91affa9f6f3c4910e57dc8bce0323280f752aea",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "c4984a64f56d5b2a5973b6ada277b043cef467902bee75f779f8d85aa25987ee",
+        "bench_spd_pardiso": "423d102077876ec552bb511db809ab814512c7fad62cc408b15f114605b6331f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cpu/CMakeCache.txt",
+        "cache_sha256": "4db53a997081fd7dea6c0b6ca9fa240403be7545aa6ca1426bffd7d7d2c672ee",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "/opt/intel/oneapi/mkl/2026.0",
+          "FORTSPARSE_BENCH_MKL_RT": "/opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "ON",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "MUMPS_DIR": "/mnt/storage/fs1-envs/mumps-local/cmake",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1"
+        },
+        "source_sha256": "79b8b42cddcb40048072421ad434a9c43f777b8493e55ec93b88dc9852d1a9fa",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-cuda-training.json",
+      "name": "final-cuda-training",
+      "sha256": "a399c3224bb09c150436979ae7b60704e44a5b7f37064864449846d5296b8fb4",
+      "revision": "19af66abc44d08715b657c5c7312ca93c76e99da",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "86167082dd5725f4e3d2024b067e27c4ecf2291a9b5cab91a5c686d71dbbf86f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cuda/CMakeCache.txt",
+        "cache_sha256": "bdee6c59e86992a1af2acf76025a880d86728f20a63cf0d10b94af1708707c21",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_CUDA_COMPILER": "/opt/cuda/bin/nvcc",
+          "CMAKE_CUDA_FLAGS": "",
+          "CMAKE_CUDA_FLAGS_DEBUG": "-g",
+          "CMAKE_CUDA_FLAGS_MINSIZEREL": "-O1 -DNDEBUG",
+          "CMAKE_CUDA_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_CUDA_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "OFF",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "ON",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "FORTSPARSE_METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "CMAKE_CUDA_FLAGS-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1",
+          "FORTSPARSE_METIS_INCLUDE_DIR-ADVANCED": "1",
+          "FORTSPARSE_METIS_LIBRARY-ADVANCED": "1"
+        },
+        "source_sha256": "8e4ad6d93882cbbc2f8002f4bf852df36676ec3c8bc4ae14951ade2cb73906a6",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_CUDA_COMPILER": [
+            "nvcc: NVIDIA (R) Cuda compiler driver",
+            "Copyright (c) 2005-2026 NVIDIA Corporation"
+          ]
+        }
+      }
+    },
+    {
+      "path": "/var/tmp/fortsparse-mvp/final-cuda-bcsstk09.json",
+      "name": "final-cuda-bcsstk09",
+      "sha256": "bee978c8f8ea35fa0dfcbd519cebf7302a7e9a8a82c5b974eb69bad1c0afb20a",
+      "revision": "19af66abc44d08715b657c5c7312ca93c76e99da",
+      "dirty": false,
+      "cpu_model": "AMD Ryzen 9 5950X 16-Core Processor",
+      "binary_hashes": {
+        "bench_spd": "86167082dd5725f4e3d2024b067e27c4ecf2291a9b5cab91a5c686d71dbbf86f"
+      },
+      "build_provenance": {
+        "cache_path": "/var/tmp/fortsparse-mvp/build-cuda/CMakeCache.txt",
+        "cache_sha256": "bdee6c59e86992a1af2acf76025a880d86728f20a63cf0d10b94af1708707c21",
+        "configuration": {
+          "CMAKE_BUILD_TYPE": "Release",
+          "CMAKE_CUDA_COMPILER": "/opt/cuda/bin/nvcc",
+          "CMAKE_CUDA_FLAGS": "",
+          "CMAKE_CUDA_FLAGS_DEBUG": "-g",
+          "CMAKE_CUDA_FLAGS_MINSIZEREL": "-O1 -DNDEBUG",
+          "CMAKE_CUDA_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_CUDA_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_C_COMPILER": "/usr/bin/cc",
+          "CMAKE_C_FLAGS": "",
+          "CMAKE_C_FLAGS_DEBUG": "-g",
+          "CMAKE_C_FLAGS_MINSIZEREL": "-Os -DNDEBUG",
+          "CMAKE_C_FLAGS_RELEASE": "-O3 -DNDEBUG",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO": "-O2 -g -DNDEBUG",
+          "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+          "CMAKE_Fortran_FLAGS": "",
+          "CMAKE_Fortran_FLAGS_DEBUG": "-g",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL": "-Os",
+          "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO": "-O2 -g",
+          "FORTSPARSE_BENCH_MKL_ROOT": "",
+          "FORTSPARSE_BUILD_BENCHMARKS": "ON",
+          "FORTSPARSE_BUILD_TESTING": "ON",
+          "FORTSPARSE_ENABLE_AMD": "ON",
+          "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+          "FORTSPARSE_ENABLE_ENZYME": "OFF",
+          "FORTSPARSE_ENABLE_METIS": "ON",
+          "FORTSPARSE_ENABLE_MUMPS": "OFF",
+          "FORTSPARSE_ENABLE_NATIVE_CUDA": "ON",
+          "FORTSPARSE_ENABLE_OPENMP": "ON",
+          "FORTSPARSE_ENABLE_SUPERLU": "ON",
+          "FORTSPARSE_GKLIB": "/mnt/storage/fs1-envs/mumps-local/lib/libGKlib.a",
+          "FORTSPARSE_INSTALL_HELPER": "ON",
+          "FORTSPARSE_METIS_INCLUDE_DIR": "/mnt/storage/fs1-envs/mumps-local/include",
+          "FORTSPARSE_METIS_LIBRARY": "/mnt/storage/fs1-envs/mumps-local/lib/libmetis.a",
+          "FORTSPARSE_TEST_OOM": "OFF",
+          "FORTSPARSE_USE_SYSTEM_DEPS": "ON",
+          "CMAKE_CUDA_FLAGS-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_CUDA_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_C_FLAGS-ADVANCED": "1",
+          "CMAKE_C_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_C_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_C_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_DEBUG-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_MINSIZEREL-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELEASE-ADVANCED": "1",
+          "CMAKE_Fortran_FLAGS_RELWITHDEBINFO-ADVANCED": "1",
+          "CMAKE_HOME_DIRECTORY": "/home/ert/code/worktrees/fortsparse-native-single-node-roadmap",
+          "FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR": "1",
+          "FORTSPARSE_METIS_INCLUDE_DIR-ADVANCED": "1",
+          "FORTSPARSE_METIS_LIBRARY-ADVANCED": "1"
+        },
+        "source_sha256": "8e4ad6d93882cbbc2f8002f4bf852df36676ec3c8bc4ae14951ade2cb73906a6",
+        "compiler_versions": {
+          "CMAKE_C_COMPILER": [
+            "cc (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_Fortran_COMPILER": [
+            "GNU Fortran (GCC) 16.2.1 20260810",
+            "Copyright (C) 2026 Free Software Foundation, Inc."
+          ],
+          "CMAKE_CUDA_COMPILER": [
+            "nvcc: NVIDIA (R) Cuda compiler driver",
+            "Copyright (c) 2005-2026 NVIDIA Corporation"
+          ]
+        }
+      }
+    }
+  ],
+  "workload": "warm",
+  "cases": [
+    [
+      "grid2",
+      7
+    ],
+    [
+      "grid3",
+      7
+    ]
+  ],
+  "scaling_cases": [
+    [
+      "grid2",
+      7
+    ],
+    [
+      "grid3",
+      7
+    ]
+  ],
+  "gpu_cases": [
+    [
+      "grid2",
+      3
+    ],
+    [
+      "grid3",
+      7
+    ],
+    [
+      "bcsstk09",
+      1
+    ]
+  ],
+  "variant": "training",
+  "configuration_selection": "Latest binary wins for a complete backend/case/workload thread series; identical binaries may merge disjoint thread configurations; latest duplicate wins",
+  "script_sha256": "f81db7ee250664eda5b77aa3a1f8493e912e9caccce181aac2884893eb0dab9c",
+  "matplotlib_version": "3.11.2",
+  "numeric_input": "/var/tmp/fortsparse-mvp/plots/final/plot-inputs.csv",
+  "numeric_input_sha256": "fc8ff53fad1fd8f00f8210569733442d73e41d4060c55debb4a0f6a5d1293ede",
+  "outputs": {
+    "/var/tmp/fortsparse-mvp/plots/final/pareto.png": "832f9a4c85be7600852189a0f579cc4fdbe1f368f19b3fc07d565310d7791e3e",
+    "/var/tmp/fortsparse-mvp/plots/final/scaling.png": "a6c2ccf6633b21c513875f7606ea427542f819cefdde3038d9dda52db369a7f0",
+    "/var/tmp/fortsparse-mvp/plots/final/cpu-vs-gpu.png": "bbb3faa56a1963601186926b124169d7368fddf1fd05b77a11c1457fb97ed1a6"
+  },
+  "failed_configurations": [],
+  "notes": [
+    "Empirical ranges, not confidence intervals.",
+    "UMFPACK aggregate peak memory unavailable; parent/helper shown separately.",
+    "CPU frontier excludes CUDA device memory and UMFPACK's unknown aggregate.",
+    "Whole-workflow CPU includes setup/checks/cleanup and warmup where applicable."
+  ],
+  "retained_numeric_evidence": [
+    {
+      "path": "bench/results/2026-10-16-final-plot-inputs.csv",
+      "sha256": "fc8ff53fad1fd8f00f8210569733442d73e41d4060c55debb4a0f6a5d1293ede"
+    },
+    {
+      "path": "bench/results/2026-10-16-final-cases.csv",
+      "sha256": "88e9fd22791edded6fe97d5ad81d62dd46d3fb3ad03436ce9c162a0dface554c"
+    },
+    {
+      "path": "bench/results/2026-10-16-final-front-audit.json",
+      "sha256": "610cffd8b74dca5851cd602dcbd29813a326a7f305d403fc6fce42fb2ad275e2"
+    }
+  ],
+  "report": {
+    "sha256": "0d68b4dba518a494e7f5d3ca7b54e5ae54ea42c51ace7566f139daf64eaf551a",
+    "coverage_complete": true,
+    "selected_cpu_trial_statuses": {
+      "ok": 17250
+    },
+    "case_groups": 115,
+    "front_audit": {
+      "definition": "WHOLE-workflow parent+helper user/system CPU, including warmup/setup/checks/free; not phase CPU",
+      "status_counts": {
+        "robust_front_member_over_observed_ranges": 115
+      },
+      "unresolved": [],
+      "elapsed_front_counts": {
+        "robust_front_member_over_observed_ranges": 115
+      },
+      "strict_gate_counts": {
+        "pass_over_observed_ranges": 109,
+        "indeterminate": 4,
+        "not_competitive_over_observed_ranges": 2
+      }
+    },
+    "generator_source_sha256": {
+      "report_spd.py": "c3b7f8437412863340d9ddad81ea519e4f6eaefda2e1cb264caebb87ffc89f5d",
+      "benchmark_analysis.py": "0dae019a0eaa1b44000c94b8a304dc3351fc262fc27a8685c29bc584c75616b5"
+    }
+  },
+  "gpu_validation": {
+    "measurement_revision": "19af66a",
+    "actual_device_ids": [
+      0
+    ],
+    "trial_statuses": {
+      "ok": 300
+    },
+    "cpu_revision": "d91affa",
+    "qualification": "CPU measurements use the later low-work CPU specialization; GPU measurements retain their actual source revision. No GPU speedup is claimed."
+  },
+  "durable_raw_archive": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-mvp",
+  "inspection": "All three final PNGs inspected at original resolution; axes/units, legends, range whiskers, ordering markers, actual teams, source IDs and memory distinctions checked.",
+  "csv_replay_verification": "All 372 retained configuration groups match raw JSON ranges, counts, statuses, active teams and device-verification fields exactly.",
+  "publication": {
+    "service": "slopbox",
+    "expiry": "Three days after upload",
+    "artifacts": [
+      {
+        "name": "pareto.png",
+        "url": "https://box.sloppy.at/39f37.png",
+        "sha256": "832f9a4c85be7600852189a0f579cc4fdbe1f368f19b3fc07d565310d7791e3e"
+      },
+      {
+        "name": "scaling.png",
+        "url": "https://box.sloppy.at/b955b.png",
+        "sha256": "a6c2ccf6633b21c513875f7606ea427542f819cefdde3038d9dda52db369a7f0"
+      },
+      {
+        "name": "cpu-vs-gpu.png",
+        "url": "https://box.sloppy.at/af158.png",
+        "sha256": "bbb3faa56a1963601186926b124169d7368fddf1fd05b77a11c1457fb97ed1a6"
+      }
+    ]
+  }
+}

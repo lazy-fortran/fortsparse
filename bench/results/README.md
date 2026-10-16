@@ -1,5 +1,10 @@
 # Native SPD development measurements
 
+The [final 2026-10-16 evidence](2026-10-16-final-evidence.md) supersedes the
+intermediate checkpoints below for current native CPU comparisons. It retains
+all 115 case-group statuses and distinguishes nondominance from the stronger
+same-comparator match/beat gate.
+
 ## 2026-10-16: simplicial reference checkpoint
 
 This is an intermediate reference, not the competitive production MVP.

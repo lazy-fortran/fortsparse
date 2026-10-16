@@ -1,0 +1,15 @@
+{
+  "definition": "WHOLE-workflow parent+helper user/system CPU, including warmup/setup/checks/free; not phase CPU",
+  "status_counts": {
+    "robust_front_member_over_observed_ranges": 115
+  },
+  "unresolved": [],
+  "elapsed_front_counts": {
+    "robust_front_member_over_observed_ranges": 115
+  },
+  "strict_gate_counts": {
+    "pass_over_observed_ranges": 109,
+    "indeterminate": 4,
+    "not_competitive_over_observed_ranges": 2
+  }
+}
