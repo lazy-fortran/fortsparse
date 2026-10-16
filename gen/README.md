@@ -68,3 +68,9 @@ The supernode fixture accepts `--cuda` to exercise sparse/block-boundary
 factorization, retained-context refactorization and recovery after a failed
 pivot on a real device. The CPU fixture exercises the same mathematical cases
 without CUDA.
+
+The CPU sparse schedule also recognizes exact contiguous update intersections.
+It lowers their diagonal block to BLAS SYRK and their remaining rectangle to
+GEMM directly in the destination factor. Irregular graph intersections retain
+the generated mapped-scatter schedule. This is a schedule for the same Schur
+update definitions; it does not introduce a second mathematical formulation.
