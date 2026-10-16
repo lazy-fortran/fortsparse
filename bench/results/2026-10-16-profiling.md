@@ -215,6 +215,30 @@ reversed it: 23.35 [23.15, 27.03] versus 25.89 [25.36, 27.97] ms. It also added
 about 0.2 MiB of code-page RSS. All checks passed; correctness alone did not
 justify retaining an optimization without reproducible end-to-end benefit.
 
+## Bounded-work CPU schedules and cold runtime memory
+
+Full comparison left four small cold groups with overlapping time/RSS ranges,
+while 111/115 groups were already robustly nondominated. Link wrappers measured
+the first DGEMM at 149–165 microseconds and a 2436 KiB RSS jump in both target
+small grids; the first SYRK/TRSV/GEMV calls added further resident code pages.
+Estimated factor work was 2.34/8.06 million operations for those grids versus
+37.9 million/1.13 billion for the frozen larger grids.
+
+CPU factors below ten million estimated operations now use existing generated
+Schur/scatter/gather/divide schedules. Panels of width at least 96 and GPU
+factors retain BLAS. Selection uses structural work and panel shape. Reused
+scratch and a generated first-row offset avoid array copies and hot allocations.
+The independent unequal-stride/padding oracle covers that offset. Generation
+is reproducible and all 375 candidate trials pass. A link wrapper verifies zero
+BLAS calls in the small 3D eight-RHS case.
+
+Small 2D cold one/eight-RHS time changes 0.923/1.182 to 0.741/1.036 ms; RSS
+falls about 2.8 MiB. Small 3D and HB also save about 2.8 MiB, with some warm
+or refactor phases costing an additional 0.1–0.17 ms. This is an explicit
+cold-time/memory versus reused-time tradeoff, subject to the final external
+frontier audit. Two register-accumulation schedules were rejected after losing
+end-to-end performance. Larger BLAS and GPU factor schedules remain selected.
+
 ## GPU diagnostic timeline
 
 Nsight Systems traced one cold factorization plus changed-value refactor on
