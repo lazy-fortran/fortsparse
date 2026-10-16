@@ -9,7 +9,11 @@ private fixture manifest and numeric exports.
 The 150 trials cover six backends, five requested thread budgets and five fresh
 processes, with all four RHS. Every wrapper/child/exact-audit status is retained
 in `attempt-statuses.csv`. All passed. `summary.csv` has 30 successful-trial
-configuration groups; `audits.csv` keeps exact benchmark-audit costs and scalar
+configuration groups. Requested-budget wall speedup is each backend's own
+one-thread median divided by its requested-budget median; requested-budget
+efficiency divides this ratio by the budget. These exclude exact auditing and
+are not active-team efficiencies: native factors remain serial and external
+active teams are unknown. `audits.csv` keeps exact benchmark-audit costs and scalar
 error diagnostics separately, including available data from failed audits when
 present. Empty summaries with count zero mean unavailable.
 

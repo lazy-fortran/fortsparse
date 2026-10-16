@@ -74,6 +74,19 @@ def audit_summary(safe):
     return rows
 
 
+def requested_scaling(rows):
+    keys = tuple(k for k in KEYS if k != 'threads')
+    baseline = {tuple(r[k] for k in keys): r for r in rows if r['threads'] == 1}
+    for row in rows:
+        first = baseline.get(tuple(row[k] for k in keys))
+        known = (first and first['process_wall_s_count'] and row['process_wall_s_count']
+                 and row['process_wall_s_median'] > 0)
+        speedup = first['process_wall_s_median']/row['process_wall_s_median'] if known else -1
+        row['requested_budget_wall_speedup_vs_1'] = speedup
+        row['requested_budget_wall_efficiency_vs_1'] = speedup/row['threads'] if known else -1
+    return rows
+
+
 def render(rows, audits, output):
     import matplotlib
     matplotlib.use('Agg')
@@ -207,8 +220,11 @@ def describe(receipt, wrappers, rows, audits, fronts, raw):
         'Audit CPU and peak memory were not measured. Child RSS is not audit-inclusive '
         'application memory. The child+audit wall sum excludes prerequisite audits, hashing, dependency '
         'inspection and other orchestration; it is not whole-application elapsed time.',
-        '- Native active factor teams and external unknown-team reports are retained '
-        'in the numeric CSV. Requested thread budgets are not actual measured team sizes.',
+        '- The CSV derives requested-budget wall speedup from each backend’s own '
+        'one-thread median divided by its requested-budget median; efficiency divides '
+        'that speedup by the requested budget. These exclude exact-audit costs. Native '
+        'factor teams are one and external active teams are unknown in this checkpoint: '
+        'these are requested-budget ratios, not measured active-team efficiencies.',
         '- Observed-range nondominance uses strict native max time < external min time '
         'OR native max RSS < external min RSS against all 25 external configurations. '
         'IPC aggregate RSS is unknown; only parent VmHWM is a safe lower bound for '
@@ -253,7 +269,7 @@ def main():
         parser.error('nonempty distinct measurement attempts required')
     pairs = [normalize(w, receipt['fixture_id']) for w in wrappers]
     normalized, safe = map(list, zip(*pairs))
-    rows, audits = summarize(normalized), audit_summary(safe)
+    rows, audits = requested_scaling(summarize(normalized)), audit_summary(safe)
     complete = set(observed) == expected and all(r['ok'] == r['attempts'] == 5 and r['parent_rss_kib_count'] == 5
                    and r['process_tree_cpu_s_count'] == 5 for r in rows)
     fronts = frontier(rows) if complete else [dict(status='indeterminate_failed_or_missing_trials')]

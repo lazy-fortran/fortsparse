@@ -10,10 +10,23 @@ from run import select_calibration_level, validate_selected_levels, invoke, EXTE
 from report import summarize
 from report_ab import aggregates
 from report_front import assess
-from report_private_real import normalize
+from report_private_real import normalize, requested_scaling
 
 
 class PrivateReport(unittest.TestCase):
+    def test_requested_budget_speedup_uses_each_backends_own_baseline(self):
+        point = dict(family='fixture', level=1, workload='rhs4', variant='training', operation='N')
+        rows = [dict(point, backend=b, threads=p, process_wall_s_count=count,
+                     process_wall_s_median=wall)
+                for b, p, count, wall in [('native-amd', 1, 5, .1),
+                    ('native-amd', 4, 5, .05), ('superlu', 1, 5, .2),
+                    ('superlu', 4, 5, .05), ('superlu', 8, 0, '')]]
+        requested_scaling(rows)
+        self.assertEqual(rows[1]['requested_budget_wall_speedup_vs_1'], 2)
+        self.assertEqual(rows[1]['requested_budget_wall_efficiency_vs_1'], .5)
+        self.assertEqual(rows[3]['requested_budget_wall_speedup_vs_1'], 4)
+        self.assertEqual(rows[4]['requested_budget_wall_efficiency_vs_1'], -1)
+
     def test_wrapper_audit_failure_overrides_successful_child_without_numeric_export(self):
         wrapper = dict(backend='native-amd', threads=1, trial=0, status='failed',
             candidate_path='/private/numeric-export.mtx',
