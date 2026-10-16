@@ -64,16 +64,19 @@
 
     ! Full rectangular Schur update C := C - left right^T.
     ! The caller owns parallel tasks; SIMD avoids nested thread teams here.
-    subroutine spd_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
+    subroutine spd_schur_update(c, ldc, left, ldl, right, ldr, m, n, k, first)
         integer, intent(in) :: ldc, ldl, ldr, m, n, k
         real(dp), intent(inout) :: c(ldc, n)
         real(dp), intent(in) :: left(ldl, k), right(ldr, k)
-        integer :: i, j, p
+        integer, optional, intent(in) :: first
+        integer :: i, j, p, offset
+        offset = 0
+        if (present(first)) offset = first-1
         do j = 1, n
             do p = 1, k
                 !$omp simd
                 do i = 1, m
-                    c(i,j) = spd_update(c(i,j), left(i,p), right(j,p))
+                    c(i,j) = spd_update(c(i,j), left(i+offset,p), right(j+offset,p))
                 end do
             end do
         end do

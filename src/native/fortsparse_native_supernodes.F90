@@ -6,7 +6,8 @@ module fortsparse_native_supernodes
         FORTSPARSE_NOT_FACTORED, FORTSPARSE_INDEX_OVERFLOW, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INTERNAL_ERROR
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
-        spd_scatter_mapped_update, spd_scatter_update
+        spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
+        spd_divide, spd_gather_update
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
         c_int, c_size_t, c_loc
@@ -43,7 +44,7 @@ module fortsparse_native_supernodes
         integer(i8) :: factor_storage_bytes = 0_i8, workspace_bytes = 0_i8
         real(dp) :: flops = 0.0_dp, numeric_s = 0.0_dp
         real(dp) :: group_target_flops = 0.0_dp
-        logical, private :: ready = .false.
+        logical, private :: ready = .false., use_blas = .true.
         type(panel_t), allocatable, private :: panels(:)
         integer, allocatable, private :: colnode(:), tokens(:), failures(:), rowmap(:,:)
         integer, allocatable, private :: incoming_ptr(:), incoming_source(:)
@@ -255,6 +256,11 @@ contains
                 first = group
             end do
         end do
+        ! Below this work budget, generated contractions avoid the first
+        ! BLAS workspace/code-page cost. Wide panels retain their BLAS TRSM
+        ! schedule, and device factors already pay runtime initialization.
+        self%use_blas = self%flops >= 1.0e7_dp .or. self%device >= 0
+        if (any(self%panels%width >= 96)) self%use_blas = .true.
         self%active_threads = 1
         if (nthreads == 0) then
             !$ self%active_threads = omp_get_max_threads()
@@ -517,46 +523,53 @@ contains
             end do
             return
         end if
-        ! Exact dense intersections can update their owning panel directly.
-        ! SYRK touches only the diagonal block's lower triangle; GEMM handles
-        ! its rectangular tail. Irregular intersections retain mapped scatter.
-        position = self%rowmap(self%panels(source)%rows(first),thread)
-        contiguous_rows = position > 0
-        if (contiguous_rows) then
-            do p = first+1, m
-                if (self%rowmap(self%panels(source)%rows(p),thread) &
-                    == position+p-first) cycle
-                contiguous_rows = .false.
-                exit
-            end do
-        end if
-        if (contiguous_rows) then
-            do j = 2, q
-                if (self%panels(source)%rows(first+j-1) &
-                    == self%panels(source)%rows(first)+j-1) cycle
-                contiguous_rows = .false.
-                exit
-            end do
-        end if
-        if (contiguous_rows) then
-            column = self%panels(source)%rows(first)-self%panels(dest)%first+1
-            dest_m = self%panels(dest)%m
-            dest_offset = self%panels(dest)%offset &
-                +int(column-1,c_size_t)*dest_m+position
-            dest_values => self%host_values(dest_offset:)
-            call dsyrk('L', 'N', q, w, -1.0_dp, source_values, m, &
-                1.0_dp, dest_values, dest_m)
-            if (m2 > q) then
-                dest_values => self%host_values(dest_offset+q:)
-                call dgemm('N', 'T', m2-q, q, w, -1.0_dp, &
-                    source_values(q+1:), m, source_values, m, &
-                    1.0_dp, dest_values, dest_m)
+        if (.not. self%use_blas) then
+            self%update_work(:m2*q,thread) = 0.0_dp
+            call spd_schur_update(self%update_work(1,thread), m2, &
+                self%panels(source)%values, m, self%panels(source)%values, m, &
+                m2, q, w, first)
+        else
+            ! Exact dense intersections can update their owning panel directly.
+            ! SYRK touches only the diagonal block's lower triangle; GEMM handles
+            ! its rectangular tail. Irregular intersections retain mapped scatter.
+            position = self%rowmap(self%panels(source)%rows(first),thread)
+            contiguous_rows = position > 0
+            if (contiguous_rows) then
+                do p = first+1, m
+                    if (self%rowmap(self%panels(source)%rows(p),thread) &
+                        == position+p-first) cycle
+                    contiguous_rows = .false.
+                    exit
+                end do
             end if
-            return
+            if (contiguous_rows) then
+                do j = 2, q
+                    if (self%panels(source)%rows(first+j-1) &
+                        == self%panels(source)%rows(first)+j-1) cycle
+                    contiguous_rows = .false.
+                    exit
+                end do
+            end if
+            if (contiguous_rows) then
+                column = self%panels(source)%rows(first)-self%panels(dest)%first+1
+                dest_m = self%panels(dest)%m
+                dest_offset = self%panels(dest)%offset &
+                    +int(column-1,c_size_t)*dest_m+position
+                dest_values => self%host_values(dest_offset:)
+                call dsyrk('L', 'N', q, w, -1.0_dp, source_values, m, &
+                    1.0_dp, dest_values, dest_m)
+                if (m2 > q) then
+                    dest_values => self%host_values(dest_offset+q:)
+                    call dgemm('N', 'T', m2-q, q, w, -1.0_dp, &
+                        source_values(q+1:), m, source_values, m, &
+                        1.0_dp, dest_values, dest_m)
+                end if
+                return
+            end if
+            call dgemm('N', 'T', m2, q, w, -1.0_dp, &
+                source_values, m, source_values, m, &
+                0.0_dp, self%update_work(1,thread), m2)
         end if
-        call dgemm('N', 'T', m2, q, w, -1.0_dp, &
-            source_values, m, source_values, m, &
-            0.0_dp, self%update_work(1,thread), m2)
         do j = 1, q
             column = self%panels(source)%rows(first+j-1)-self%panels(dest)%first+1
             offset = (j-1)*m2+j
@@ -571,12 +584,38 @@ contains
         class(supernodes_t), intent(inout) :: self
         real(dp), contiguous, intent(inout) :: b(:)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s, m, w, first, p
+        integer :: s, m, w, first, p, j, column
+        real(dp) :: value
         real(dp), pointer, contiguous :: values(:,:), tail(:)
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernode factor unavailable')
         if (.not. self%ready) return
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible supernode RHS')
         if (size(b) /= self%n) return
+        if (.not. self%use_blas) then
+            do s = 1, self%node_count
+                m = self%panels(s)%m
+                values => self%panels(s)%values
+                do j = 1, self%panels(s)%width
+                    column = self%panels(s)%first+j-1
+                    b(column) = spd_divide(b(column), values(j,j))
+                    call spd_scatter_update(b, self%panels(s)%rows(j+1:), &
+                        values(j+1:,j), m-j, b(column))
+                end do
+            end do
+            do s = self%node_count, 1, -1
+                m = self%panels(s)%m
+                values => self%panels(s)%values
+                do j = self%panels(s)%width, 1, -1
+                    column = self%panels(s)%first+j-1
+                    value = b(column)
+                    call spd_gather_update(value, self%panels(s)%rows(j+1:), &
+                        values(j+1:,j), b, m-j)
+                    b(column) = spd_divide(value, values(j,j))
+                end do
+            end do
+            call status_set(status, FORTSPARSE_OK, '')
+            return
+        end if
         do s = 1, self%node_count
             m = self%panels(s)%m
             w = self%panels(s)%width
@@ -647,6 +686,7 @@ contains
         self%device_bytes = 0_i8
         self%device = -1
         self%flops = 0.0_dp
+        self%use_blas = .true.
         self%numeric_s = 0.0_dp
         self%ready = .false.
     end subroutine supernodes_free
