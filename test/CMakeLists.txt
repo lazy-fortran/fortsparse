@@ -312,3 +312,8 @@ set_tests_properties(test_fortsparse_native_ldlt PROPERTIES
 fortsparse_add_test(test_fortsparse_native_general_api solver/test_fortsparse_native_general_api.f90)
 set_tests_properties(test_fortsparse_native_general_api PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1 WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+
+fortsparse_add_test(test_fortsparse_native_ldlt_z
+    solver/test_fortsparse_native_ldlt_z.f90)
+set_tests_properties(test_fortsparse_native_ldlt_z PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)
