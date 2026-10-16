@@ -194,6 +194,8 @@ Landed (stage 4, serial): `factor(ptr, rows, values, status)` assembles M throug
   - `native_factor_family` is `'LU_SUPERNODAL'` or `'LU_REAL'` after fallback.
   - Status stays OK after a successful fallback; the stats flag carries it.
 
+Landed (stages 5 and 6, real): `slu_factor_t%gate_reason` (NONFINITE, PERTURBATION, GROWTH), adapter mode 6 (mode 5 was already complex LDLT) with the validation solve, the scalar fallback (reasons above plus REFINEMENT, SINGULAR for a structurally singular matching, SOLVE for the solve-time refactor) and the stats fields. Deviations: a perturbed factor retains the original matrix for refinement even when `refine` is false (otherwise its solves would be unrefined); if that retention does not fit the cap the factor falls back with reason PERTURBATION. The solve-time refactor-with-fallback runs only without a host cap, since the retained original moves through a temporary. Options: `lu_method` (AUTO=0 behaves as SCALAR, SCALAR=1 default, SUPERNODAL=2), `pivot_perturbation`, `verify_factor`. Tests: `test_fortsparse_slu_fallback`, `test_fortsparse_slu_api`, `test_slu_allocations` (Linux allocator oracle).
+
 ## 7. Exact memory plan (bytes; i8 checked arithmetic via `memory_checked_mul/add`)
 
 With I = 4 and R = 8; ns = #supernodes; T = active threads.

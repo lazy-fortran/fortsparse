@@ -103,6 +103,14 @@ fortsparse_add_test(test_fortsparse_slu_factor
     solver/test_fortsparse_slu_factor.f90)
 set_tests_properties(test_fortsparse_slu_factor PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_api
+    solver/test_fortsparse_slu_api.f90)
+set_tests_properties(test_fortsparse_slu_api PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_fallback
+    solver/test_fortsparse_slu_fallback.f90)
+set_tests_properties(test_fortsparse_slu_fallback PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_supernode_memory
     solver/test_fortsparse_supernode_memory.f90)
 set_tests_properties(test_fortsparse_supernode_memory PROPERTIES
@@ -645,6 +653,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
     add_test(NAME test_mpm_allocations COMMAND test_mpm_allocations)
     set_tests_properties(test_mpm_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_slu_allocations
+        ../test-cmake/native/test_slu_allocations.f90
+        ../test-cmake/native/probe_spd_amd_allocations.c)
+    target_include_directories(test_slu_allocations PRIVATE ../src/native)
+    target_link_libraries(test_slu_allocations PRIVATE fortsparse)
+    target_link_options(test_slu_allocations PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free"
+        "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
+    add_test(NAME test_slu_allocations COMMAND test_slu_allocations)
+    set_tests_properties(test_slu_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

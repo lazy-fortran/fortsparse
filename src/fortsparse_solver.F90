@@ -22,7 +22,8 @@ module fortsparse_solver
         FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
         FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
-        FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT
+        FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
+        FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t
 #endif
@@ -968,6 +969,23 @@ contains
                 solver%factored = .false.
                 call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
                     'structural matching requires native CPU GENERAL factorization')
+                return
+            end if
+        end if
+        if (solver%options%lu_method < FORTSPARSE_LU_AUTO .or. &
+            solver%options%lu_method > FORTSPARSE_LU_SUPERNODAL) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'sparse solver: invalid LU method')
+            return
+        end if
+        if (solver%options%lu_method == FORTSPARSE_LU_SUPERNODAL) then
+            if (id /= FORTSPARSE_BACKEND_NATIVE .or. &
+                solver%options%symmetry /= FORTSPARSE_SYM_GENERAL .or. &
+                solver%options%device /= -1) then
+                solver%factored = .false.
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'supernodal LU requires native CPU GENERAL factorization')
                 return
             end if
         end if

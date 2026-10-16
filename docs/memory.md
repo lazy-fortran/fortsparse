@@ -171,6 +171,17 @@ failure (OUT_OF_MEMORY). A failed factor attempt leaves the public solver
 unfactored; callers may change limits and retry or destroy it. Different handles
 have independent limits. The limit applies per handle, not to their combined sum.
 
+The opt-in supernodal real LU (`lu_method=FORTSPARSE_LU_SUPERNODAL`) charges each
+analysis phase before allocating it: matching workspace and duals, the matched
+graph, the AMD arena and permutation, the symmetrized pattern with symbolic
+counts, descriptors and row lists, update lists and task groups, panels and
+scratch. Its retained layout is exact: `8*sum(2*m*w-w^2)` panel values, `4*n`
+block pivots, row lists, descriptors, schedule arrays, `4*n` row map, `8*maxwork`
+update scratch, `8*(n+max m)` solve scratch and `28*n` permutation/scaling
+vectors. The validation solve adds `24*n` transiently. Factor, refactor and
+solves allocate nothing. The scalar fallback runs afterwards under its own
+preflight and the same cap. ND and uncapped opaque AMD report an unknown peak.
+
 The plan excludes caller-owned A/B/X, fixed object descriptors, allocator page
 rounding, runtime/library code, stacks and process RSS. Exact layout means exact
 array payload, not an exact RSS prediction. New pivoted paths must label unknown
