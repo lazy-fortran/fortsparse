@@ -2,7 +2,7 @@
 
 Baseline `7e1f123ea21fd8412480ec6a6ddf0696893acb2a`, candidate `2f0cb01f902d5b38768402eddefbcea3de225692`. 240 interleaved ordinary attempts on CPU0: baseline 100 passed/20 timed out; candidate 120 passed. Each version/policy/case/workload/variant has five trials. Raw SHA256 `7292b8d45799c621f12e06d9a066450625aad6e73e94407948bd0181c2495832`.
 
-Policies are AUTO without a cap, AUTO with a 64 MiB cap, and LOW without a cap. The optional positive LOW-cap campaign is not present here. Native factorization is serial. No external-frontier or thread-scaling claim follows.
+Policies are AUTO without a cap, AUTO with a 64 MiB cap, and LOW without a cap. A separate 40-trial positive LOW-cap checkpoint at source cac6656 is retained in ../low-positive-cap; it is not merged into these 240 trials. Native factorization is serial. No external-frontier or thread-scaling claim follows.
 
 LOW complete process wall milliseconds, median [minimum,maximum]:
 
@@ -39,4 +39,4 @@ Separate instrumented profile/counter evidence:
 
 - The 54,871,019,988 copied bytes (~54.87 decimal GB) are cumulative traffic, not peak memory. Diagnostic phase-maximum payload rises from 14,899,228 to 15,187,408 bytes; retained payload also rises slightly versus old exact LOW.
 - The historical perf sample uses source 3b9384b: 740 samples, zero lost, reserve 64.99% own cycles and visit 5.23%. It is separate from the ordinary 7e1f123 A/B snapshot. Instrumented diagnostic runtimes and allocations are not ordinary performance measurements. Whole-process allocation counters also include runtime work.
-- Dense80 diagnostic evidence retains one exact retry after the hinted growth attempt: success with peak 144,812 bytes at that cap, failure one byte below, required 38,880 versus available 38,879. Actual peak is max across sequential attempts, never their sum. These diagnostics are not the pending ordinary positive LOW-cap campaign. Source-only final cleanup is distinguished in the diagnostic archive from the final replay’s instrumented algorithm.
+- Dense80 diagnostic evidence retains one exact retry after the hinted growth attempt: success with peak 144,812 bytes at that cap, failure one byte below, required 38,880 versus available 38,879. Actual peak is max across sequential attempts, never their sum. These diagnostics remain distinct from the separate ordinary positive LOW-cap checkpoint. Source-only final cleanup is distinguished in the diagnostic archive from the final replay’s instrumented algorithm.

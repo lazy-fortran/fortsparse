@@ -88,3 +88,8 @@ Cumulative copy traffic falls sharply in separate instrumented diagnostics,
 while candidate real LOW has higher process RSS than AUTO despite lower
 retained payload. The report makes no RSS-saving or external-frontier claim;
 ordinary LOW with a positive cap is outside this frozen campaign.
+
+`low-positive-cap/` separately retains 40/40 ordinary native LOW passes at
+source cac6656: real 16 MiB and complex 5 MiB, all reported owned peaks within cap.
+It does not replace the older 20 timeouts or join source 7e1f123/2f0cb01
+measurements; there is no external-frontier or matched cap-overhead claim.

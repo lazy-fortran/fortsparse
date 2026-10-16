@@ -3,14 +3,16 @@
 The ordinary frozen comparison has 240 interleaved CPU0 attempts: baseline
 7e1f123 completes 100 and times out on all 20 real-LOW attempts; candidate
 2f0cb01 completes all 120. Its 48 version/configuration groups each contain
-five trials across real16k/complex4k, training/heldout, cold RHS8 and
+five trials across real 16k/complex4k, training/heldout, cold RHS8 and
 prime+refactor. `summary.csv` is regenerated directly from immutable raw
 receipts, independently of the previously corrected archived summary filter.
 No solver, build or new timing invocation is part of this report recipe.
 
 The three policies are AUTO without a cap, AUTO with a 67,108,864-byte cap
-(64 MiB), and LOW without a cap. **Ordinary positive-cap LOW measurements are
-not included.** Dense80 instrumented retry tests do not replace that campaign.
+(64 MiB), and LOW without a cap. **The separate [positive-cap LOW checkpoint](../low-positive-cap/README.md)
+contains 40/40 passes at source cac6656**, with real 16 MiB/complex 5 MiB caps.
+It is not merged with this 240-trial uncapped-policy A/B. Dense80 instrumented
+retry tests remain distinct from that ordinary positive-cap campaign.
 Later production integrations f4f329d/9354c60 are distinct from these measured
 snapshot identities. The manifest retains executable/library hashes and the
 candidate's additional METIS dependency.
