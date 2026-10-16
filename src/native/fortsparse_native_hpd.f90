@@ -35,6 +35,7 @@ module fortsparse_native_hpd
         procedure, private :: solve_vector => hpd_solve_vector
         procedure, private :: solve_block => hpd_solve_block
         generic :: solve => solve_vector, solve_block
+        procedure :: solve_inplace => hpd_solve_inplace
         procedure :: free => hpd_free
         procedure :: dimension => hpd_dimension
         procedure :: is_factored => hpd_is_factored
@@ -42,6 +43,7 @@ module fortsparse_native_hpd
         procedure :: memory_current_bytes => hpd_memory_current
         procedure :: memory_peak_bytes => hpd_memory_peak
         procedure :: memory_payloads => hpd_memory_payloads
+        procedure :: memory_failure_bytes => hpd_memory_failure
         final :: hpd_finalize
     end type native_hpd_t
 contains
@@ -145,14 +147,17 @@ contains
         logical, intent(out), optional :: reused
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory
-        logical :: same
+        logical :: same, retained_low_memory
         integer :: p
+        integer(i8) :: retained_limit
 
         if (present(reused)) reused = .false.
         self%ready = .false.
         if (present(memory_limit_bytes)) then
             if (memory_limit_bytes > 0_i8) then
                 if (self%budget%current > memory_limit_bytes) then
+                    self%budget%failed_required = self%budget%current
+                    self%budget%failed_available = memory_limit_bytes
                     call status_set(status, FORTSPARSE_RESOURCE_LIMIT, &
                                     'native HPD: new cap is below retained payload')
                     return
@@ -183,7 +188,12 @@ contains
             if (present(reused)) reused = .true.
             call numeric_factor(self, A, status)
         else
-            call self%factor(A, status)
+            ! Preserve the selected policy explicitly across a new analysis;
+            ! this call must not depend on free's configuration-reset semantics.
+            retained_limit = self%budget%limit
+            retained_low_memory = self%low_memory
+            call self%factor(A, status, memory_limit_bytes=retained_limit, &
+                             low_memory=retained_low_memory)
         end if
     end subroutine hpd_refactor
 
@@ -332,11 +342,26 @@ contains
         complex(dp), intent(out) :: x(:)
         type(fortsparse_status_t), intent(out) :: status
         integer, intent(in), optional :: operation
-        integer :: op, j
+        integer :: op
 
         op = 0
         if (present(operation)) op = operation
         call solve_shape(self, size(b), size(x), op, status)
+        if (status%code /= FORTSPARSE_OK) return
+        x = b
+        call self%solve_inplace(x, status, op)
+    end subroutine hpd_solve_vector
+
+    subroutine hpd_solve_inplace(self, b, status, operation)
+        class(native_hpd_t), intent(in) :: self
+        complex(dp), intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, intent(in), optional :: operation
+        integer :: op, j
+
+        op = 0
+        if (present(operation)) op = operation
+        call solve_shape(self, size(b), size(b), op, status)
         if (status%code /= FORTSPARSE_OK) return
         do j = 1, self%n
             if (.not. finite_complex(b(j))) then
@@ -345,16 +370,15 @@ contains
                 return
             end if
         end do
-        x = b
-        call triangular_solve(self, x, op)
+        call triangular_solve(self, b, op)
         do j = 1, self%n
-            if (.not. finite_complex(x(j))) then
+            if (.not. finite_complex(b(j))) then
                 call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
                                 'native HPD: nonfinite solution')
                 return
             end if
         end do
-    end subroutine hpd_solve_vector
+    end subroutine hpd_solve_inplace
 
     subroutine hpd_solve_block(self, B, X, status, operation)
         class(native_hpd_t), intent(in) :: self
@@ -515,6 +539,15 @@ contains
         if (allocated(self%work)) workspace_bytes = workspace_bytes + &
             zb*size(self%work, kind=i8)
     end subroutine hpd_memory_payloads
+
+    subroutine hpd_memory_failure(self, required_bytes, available_bytes)
+        ! Last denied reservation: increment versus remaining capacity. For a
+        ! cap tightened below live payload: retained total versus proposed cap.
+        class(native_hpd_t), intent(in) :: self
+        integer(i8), intent(out) :: required_bytes, available_bytes
+        required_bytes = self%budget%failed_required
+        available_bytes = self%budget%failed_available
+    end subroutine hpd_memory_failure
 
     integer(i8) function hpd_memory_current(self) result(bytes)
         class(native_hpd_t), intent(in) :: self
