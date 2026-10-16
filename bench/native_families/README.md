@@ -90,17 +90,40 @@ python bench/native_families/run.py --build build --mode calibrate \
   --output /home/ert/code/sparse-dev/benchmarks/DATE-native-families-calibration
 ```
 
-The generated `calibration_selection.json` admits a candidate size only when
-all requested external configurations/trials succeeded below 0.5 s for cold
-factorization plus normal RHS8. This initial calibration uses one provisional
-level per case (500 attempts with four backends, five thread budgets and five
-trials), not the full workload cross product. Peers are interleaved at each
-matched point with rotating backend order, fixed affinity and recorded host
-load. Missing
-comparators, failures and timeouts remain raw receipts and prevent silently
-claiming a complete selection. Freeze that file before tuning, then pass it
-with `--levels-from PATH` in measurement mode. No performance levels or
-calibration success are asserted in the initial source contract. Measurements
+The frozen scan uses drift levels 16/32/64/128 (n=256/1024/4096/16384) and
+chain levels 128/512/2048/8192 (n=256/1024/4096/16384). Drift levels are bounded
+by 128; chain levels separately by 8192. Mini5 remains latency/correctness only.
+Fixture assembly, CSR conversion and original-matrix checking require O(n+nnz)
+storage and work (bounded stencil degree), never a dense large-case oracle.
+The fixture test checks the maximum dimensions with an independent tridiagonal
+action. Dense fixture checks remain confined to the small smoke examples.
+
+The generated `calibration_selection.json` admits a candidate only after every
+declared external/backend/thread/trial point succeeds below 0.5 s process wall
+for cold factorization plus normal RHS8. Peers are interleaved with rotating
+backend order, fixed affinity and recorded host load. Scan levels ascend;
+the first failed, unavailable, timeout or slow attempt ends that family's scan.
+Every attempted receipt is retained, the rejected candidate is classified, and
+all larger candidates remain explicitly unmeasured. Thus selection means the
+largest passing **scanned prefix**, not a claim of monotonic solver performance
+or an extrapolation beyond the first failure. Missing comparators are recorded
+separately from size/time or numerical failures.
+
+With four external backends, five thread budgets and five trials, a completely
+passing four-level scan needs at most 1700 processes across these five cases.
+Each failure ends its family immediately; the process watchdog is 0.9 s.
+Native execution never participates in calibration or size selection. No
+ordinary measurements accompany this source change. Freeze the raw receipts
+and resulting selection before tuning or timing larger native cases.
+
+`--levels-from PATH` verifies the raw receipt hash, selected family/candidate,
+complete passing coverage, and the declared SuperLU/UMFPACK/MUMPS/Intel-PARDISO
+baselines at all requested 1/2/4/8/16 thread budgets and at least five trials.
+A selection from fewer declared baselines is rejected by default. Explicit
+`--diagnostic` permits an incomplete selection, labels its provenance as a
+diagnostic subset, and cannot establish performance admission. It still needs
+complete passing raw observations for its declared subset. No performance
+levels or calibration success are asserted by the source contract. Measurements
 can be restricted with `--cases`, `--backends`, `--threads`; exclusions must be
 reported. `--workloads`, `--operations` and `--variants` select bounded follow-up
 subsets; record those exclusions. `--window-note` retains the controller

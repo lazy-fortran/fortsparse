@@ -17,6 +17,12 @@ if(FORTSPARSE_BENCH_MKL_ROOT)
         ${CMAKE_DL_LIBS} Threads::Threads m)
 endif()
 if(FORTSPARSE_BUILD_TESTING)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME native_family_selector COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_selector.py")
+        set_tests_properties(native_family_selector PROPERTIES
+            LABELS "benchmark;fast" TIMEOUT 1)
+    endif()
     add_executable(test_native_family_fixtures test_fixtures.f90)
     target_link_libraries(test_native_family_fixtures PRIVATE
         fortsparse_family_fixtures)

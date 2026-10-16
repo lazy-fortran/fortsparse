@@ -64,8 +64,49 @@ program test_native_family_fixtures
             deallocate (dense, x, b, y)
         end do
     end do
+    call larger_linear_fixtures()
     print '(a)', 'native family fixture dense/structural/original-data oracles: PASS'
 contains
+    subroutine larger_linear_fixtures()
+        type(family_fixture_t) :: large
+        complex(dp), allocatable :: input(:),actual(:),expected(:)
+        complex(dp) :: edge
+        integer :: k,kind
+        do kind = 1,3
+            select case(kind)
+            case(1)
+                call make_family_fixture('hpd-chain',8192,.false.,large,'')
+            case(2)
+                call make_family_fixture('ldlt-chain',8192,.false.,large,'')
+            case(3)
+                call make_family_fixture('drift-real',128,.false.,large,'')
+            end select
+            call require(large%n == 16384,'largest frozen linear-size layout')
+            if (kind == 3) then
+                call require(size(large%val) == 5*large%n-4*128,'2D stencil count')
+                cycle
+            end if
+            call require(size(large%val) == 3*large%n-2,'chain count')
+            allocate(input(large%n),actual(large%n),expected(large%n))
+            input = cmplx(1.0_dp,0.25_dp,dp)
+            expected = cmplx(0.0_dp,0.0_dp,dp)
+            if (kind == 1) expected = 3.21_dp*input
+            do k = 1,large%n-1
+                edge = cmplx(-0.4_dp,0.13_dp,dp)
+                if (kind == 2) then
+                    edge = cmplx(0.125_dp+0.21_dp/8,0.0_dp,dp)
+                    if (mod(k,2) == 1) edge = cmplx(2.21_dp,0.0_dp,dp)
+                end if
+                expected(k) = expected(k)+edge*input(k+1)
+                expected(k+1) = expected(k+1)+conjg(edge)*input(k)
+            end do
+            call fixture_action(large,input,actual,0)
+            call require(maxval(abs(actual-expected)) < 2.e-15_dp, &
+                         'independent large tridiagonal action')
+            deallocate(input,actual,expected)
+        end do
+    end subroutine larger_linear_fixtures
+
     subroutine require(condition, label)
         logical, intent(in) :: condition
         character(*), intent(in) :: label

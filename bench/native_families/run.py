@@ -5,6 +5,8 @@ import csv
 import hashlib
 import io
 import json
+import itertools
+import math
 import os
 from pathlib import Path
 import signal
@@ -78,7 +80,102 @@ def invoke(binary, args, threads, cores, timeout):
         record["workflow_cpu_s"] = record["parent_cpu_s"]+record["helper_cpu_s"]
         receipt["record"] = record
         receipt["status"] = record["status"]
+        if process.returncode != 0 and record["status"] == "ok":
+            receipt["status"] = "failed"
     return receipt
+
+
+
+def attempt_passes(attempt, limit_s=0.5):
+    """A completed successful external point below the strict wall-time gate."""
+    try:
+        wall = float(attempt["process_wall_s"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (attempt.get("status") == "ok" and attempt.get("returncode", 0) == 0
+            and math.isfinite(wall) and 0 <= wall < limit_s)
+
+
+def select_calibration_level(receipts, family, candidates, backends, threads,
+                             trials, limit_s=0.5):
+    """Largest complete passing prefix; never extrapolate past a failed level."""
+    if not backends or any(backend not in EXTERNAL for backend in backends):
+        raise ValueError("size selection requires external comparators only")
+    if trials < 1 or not threads or any(nt < 1 for nt in threads):
+        raise ValueError("positive trials and thread counts required")
+    if len(set(backends)) != len(backends) or len(set(threads)) != len(threads):
+        raise ValueError("duplicate calibration configurations")
+    if sorted(set(candidates)) != list(candidates) or not candidates:
+        raise ValueError("candidate levels must be nonempty and strictly increasing")
+    expected = set(itertools.product(backends, threads, range(trials)))
+    selected, outcomes, failed = None, [], False
+    for level in candidates:
+        if failed:
+            outcomes.append(dict(level=level, status="unmeasured_after_failure"))
+            continue
+        sample = [row for row in receipts if row.get("family") == family
+                  and row.get("level") == level and row.get("backend") in backends
+                  and row.get("workload") == "rhs8" and row.get("operation") == "N"
+                  and row.get("variant") == "training"]
+        keys = [(row.get("backend"), row.get("threads"), row.get("trial"))
+                for row in sample]
+        complete = set(keys) == expected and len(keys) == len(expected)
+        passed = complete and all(attempt_passes(row, limit_s) for row in sample)
+        outcome = "pass" if passed else "incomplete_configurations"
+        if not passed:
+            statuses = {row.get("status") for row in sample}
+            if statuses.intersection({"unavailable", "backend_unavailable"}):
+                outcome = "comparator_unavailable"
+            elif "timeout" in statuses:
+                outcome = "timeout"
+            elif any(row.get("status") != "ok" or row.get("returncode", 0) != 0
+                     for row in sample):
+                outcome = "solver_or_accuracy_failure"
+            elif any(not attempt_passes(row, limit_s) for row in sample):
+                outcome = "wall_gate_exceeded"
+        outcomes.append(dict(level=level, status=outcome,
+            attempts=len(sample), expected_attempts=len(expected), complete=complete,
+            rejected_attempts=sum(not attempt_passes(row, limit_s) for row in sample)))
+        if passed:
+            selected = level
+        else:
+            failed = True
+    return selected, outcomes
+
+
+
+def validate_selected_levels(selection, manifest, families, receipts,
+                             diagnostic=False):
+    """Recheck claimed levels against hashed raw external-only observations."""
+    if selection.get("mode") != "external_only" or selection.get(
+            "fixture_source_sha256") != manifest["fixture_source_sha256"]:
+        raise ValueError("selection does not describe these frozen external-only fixtures")
+    peers, threads, trials = (selection.get("backends", []),
+                              selection.get("threads", []), selection.get("trials", 0))
+    if not peers or any(peer not in EXTERNAL for peer in peers):
+        raise ValueError("native or unknown comparator in size selection")
+    complete = (set(peers) == set(manifest["required_external_backends"])
+                and set(threads) == set(manifest["thread_sweep"])
+                and trials >= manifest["fresh_process_trials"])
+    if not complete and not diagnostic:
+        raise ValueError("selection omits declared external/thread/trial baselines; "
+                         "only explicit --diagnostic use is allowed")
+    for family in families:
+        if family not in manifest["cases"]:
+            raise ValueError("unknown selected family")
+        expected, _ = select_calibration_level(receipts, family,
+            manifest["cases"][family]["calibration_candidates"], peers, threads, trials)
+        if expected is None or selection.get("levels", {}).get(family) != expected:
+            raise ValueError("selected family level lacks complete passing raw evidence")
+    return "complete_declared_baselines" if complete else "diagnostic_subset"
+
+
+def matched_points(backends, threads, trials, workloads, variants, operations):
+    for nt, workload, variant, operation, trial in itertools.product(
+            threads, workloads, variants, operations, range(trials)):
+        offset = trial % len(backends)
+        for backend in backends[offset:]+backends[:offset]:
+            yield backend, nt, workload, variant, operation, trial
 
 
 def main():
@@ -97,6 +194,8 @@ def main():
     parser.add_argument("--operations", default="N,T,H")
     parser.add_argument("--variants", default="training,heldout")
     parser.add_argument("--window-note", default="uncoordinated diagnostic window")
+    parser.add_argument("--diagnostic", action="store_true",
+                        help="allow explicitly incomplete external-only selection evidence")
     args = parser.parse_args()
     if not 0 < args.timeout < 1 or args.trials < 1:
         parser.error("positive trials and timeout strictly below one second required")
@@ -110,6 +209,8 @@ def main():
     backends = args.backends.split(",")
     if any(b not in ("native", *EXTERNAL) for b in backends):
         parser.error("unknown backend")
+    selected = None
+    selection_scope = "not_applicable"
     if args.mode == "calibrate":
         backends = [b for b in backends if b != "native"]
         if not backends or any(b not in EXTERNAL for b in backends):
@@ -128,8 +229,25 @@ def main():
     if args.mode == "measure" and any(
             manifest["performance_levels"].get(case) is None for case in cases):
         parser.error("requested case has no complete external-only size selection")
-    if any(nt < 1 for nt in threads):
-        parser.error("positive thread counts required")
+    if any(nt < 1 for nt in threads) or len(set(threads)) != len(threads):
+        parser.error("distinct positive thread counts required")
+    if len(set(backends)) != len(backends):
+        parser.error("distinct backends required")
+    if any(case not in manifest["cases"] for case in cases):
+        parser.error("unknown case")
+    if selected is not None:
+        raw = Path(selected["attempts_path"])
+        if not raw.is_absolute():
+            raw = args.levels_from.resolve().parent/raw
+        raw_bytes = raw.read_bytes()
+        if hashlib.sha256(raw_bytes).hexdigest() != selected.get("attempts_sha256"):
+            parser.error("calibration raw receipt hash differs from the selection")
+        raw_receipts = [json.loads(line) for line in raw_bytes.decode().splitlines() if line]
+        try:
+            selection_scope = validate_selected_levels(selected, manifest, cases,
+                raw_receipts, diagnostic=args.diagnostic)
+        except ValueError as error:
+            parser.error(str(error))
     cores = physical_cores()
     if (args.output/"attempts.jsonl").exists():
         parser.error("output already contains attempts; use a new directory")
@@ -140,6 +258,10 @@ def main():
             ["git", "-C", str(ROOT), "status", "--porcelain"], text=True),
         contract=manifest, mode=args.mode, trials=args.trials, physical_cores=cores,
         timeout_s=args.timeout, window_note=args.window_note,
+        selection_scope=selection_scope, diagnostic=args.diagnostic,
+        requested_backends=backends, requested_cases=cases, requested_threads=threads,
+        requested_workloads=args.workloads or manifest["workloads"],
+        requested_operations=args.operations, requested_variants=args.variants,
         background_load=os.getloadavg(), binaries={})
     for backend in backends:
         path = args.build.resolve() / "bin" / ("bench_native_families_pardiso" if
@@ -158,40 +280,40 @@ def main():
     raw_path = args.output / "attempts.jsonl"
     with raw_path.open("w") as output:
         for family in cases:
-            level = manifest["initial_calibration_levels"][family] if args.mode == "calibrate" else \
-                manifest["performance_levels"][family]
-            for nt in threads:
+            levels = manifest["cases"][family]["calibration_candidates"] if args.mode == "calibrate" else \
+                [manifest["performance_levels"][family]]
+            for level in levels:
                 workloads = ["rhs8"] if args.mode == "calibrate" else (
                     args.workloads.split(",") if args.workloads else manifest["workloads"])
                 variants = ["training"] if args.mode == "calibrate" else args.variants.split(",")
                 operations = ["N"] if args.mode == "calibrate" else args.operations.split(",")
-                for workload in workloads:
-                    for variant in variants:
-                        for operation in operations:
-                            for trial in range(args.trials):
-                                # Interleave peers at each matched point, rotating first position.
-                                offset = trial % len(backends)
-                                peers = backends[offset:]+backends[:offset]
-                                for backend in peers:
-                                    binary = args.build.resolve()/"bin"/("bench_native_families_pardiso"
-                                        if backend == "intel-pardiso" else "bench_native_families")
-                                    command = [family, str(level), str(nt), workload, operation,
-                                               variant, str(ROOT/"bench/fixtures/neo2-mini5/matrix.mtx")]
-                                    if backend != "intel-pardiso":
-                                        command.insert(0, backend)
-                                    if args.dry_run:
-                                        print(str(binary), *command)
-                                        continue
-                                    if nt > len(cores) or not binary.exists():
-                                        receipt = dict(status="unavailable", backend=backend,
-                                            family=family, level=level, threads=nt, trial=trial,
-                                            reason="physical cores or comparator binary unavailable")
-                                    else:
-                                        receipt = invoke(binary, command, nt, cores[:nt], args.timeout)
-                                        receipt["trial"] = trial
-                                    output.write(json.dumps(receipt)+"\n")
-                                    output.flush()
-                                    receipts.append(receipt)
+                failed_candidate = False
+                for backend, nt, workload, variant, operation, trial in matched_points(
+                        backends, threads, args.trials, workloads, variants, operations):
+                    binary = args.build.resolve()/"bin"/("bench_native_families_pardiso"
+                        if backend == "intel-pardiso" else "bench_native_families")
+                    command = [family, str(level), str(nt), workload, operation,
+                               variant, str(ROOT/"bench/fixtures/neo2-mini5/matrix.mtx")]
+                    if backend != "intel-pardiso":
+                        command.insert(0, backend)
+                    if args.dry_run:
+                        print(str(binary), *command)
+                        continue
+                    if nt > len(cores) or not binary.exists():
+                        receipt = dict(status="unavailable",
+                            reason="physical cores or comparator binary unavailable")
+                    else:
+                        receipt = invoke(binary, command, nt, cores[:nt], args.timeout)
+                    receipt.update(backend=backend, family=family, level=level, threads=nt,
+                        workload=workload, variant=variant, operation=operation, trial=trial)
+                    output.write(json.dumps(receipt)+"\n")
+                    output.flush()
+                    receipts.append(receipt)
+                    if args.mode == "calibrate" and not attempt_passes(receipt):
+                        failed_candidate = True
+                        break  # The remaining configurations cannot make this level pass.
+                if failed_candidate:
+                    break  # Larger levels remain explicitly unmeasured for this family.
     groups = {}
     for attempt in receipts:
         row = attempt.get("record")
@@ -209,20 +331,21 @@ def main():
                                       minimum=min(values), maximum=max(values))
         summaries.append(summary)
     if args.mode == "calibrate" and not args.dry_run:
-        levels = {}
+        levels, candidate_outcomes = {}, {}
         for family in cases:
-            eligible = []
-            for level in [manifest["initial_calibration_levels"][family]]:
-                sample = [r for r in receipts if r.get("record", {}).get("family") == family
-                          and r.get("record", {}).get("level") == level]
-                expected = len(backends)*len(threads)*args.trials
-                if len(sample) == expected and all(r["status"] == "ok" and
-                        r["process_wall_s"] < 0.5 for r in sample):
-                    eligible.append(level)
-            levels[family] = max(eligible) if eligible else None
+            levels[family], candidate_outcomes[family] = select_calibration_level(
+                receipts, family, manifest["cases"][family]["calibration_candidates"],
+                backends, threads, args.trials)
         selection = dict(mode="external_only", fixture_source_sha256=manifest[
             "fixture_source_sha256"], levels=levels, backends=backends,
-            threads=threads, trials=args.trials, attempts_path=str(raw_path.resolve()),
+            threads=threads, trials=args.trials, candidate_outcomes=candidate_outcomes,
+            declared_external_backends=manifest["required_external_backends"],
+            calibration_scope=("complete_declared_baselines" if
+                set(backends) == set(manifest["required_external_backends"]) and
+                set(threads) == set(manifest["thread_sweep"]) and
+                args.trials >= manifest["fresh_process_trials"] else "diagnostic_subset"),
+            scan_scope="largest passing scanned prefix; larger levels after failure unmeasured",
+            attempts_path=str(raw_path.resolve()),
             attempts_sha256=hashlib.sha256(raw_path.read_bytes()).hexdigest(),
             admission="unknown; calibration establishes size only")
         (args.output / "calibration_selection.json").write_text(
