@@ -42,9 +42,10 @@ actual active factorization threads.
 
 Build with `FORTSPARSE_ENABLE_NATIVE_CUDA=ON` to enable explicit native GPU
 factorization, and set `solver%options%device = 0` for CUDA device 0. Panels
-and Schur updates remain resident during factorization; one downloaded factor
-allocation serves subsequent CPU solves. The context is retained for numeric
-refactorization. The default device is `-1` (CPU); a GPU request in a CPU build
+and Schur updates remain resident during factorization. Generated triangular
+solves reuse device factors, with RHS batches of eight and no mandatory factor
+download. Host-array interfaces transfer RHS and results; the context and
+factors are retained for solves and numeric refactorization. The default device is `-1` (CPU); a GPU request in a CPU build
 returns backend unavailable. Device statistics cover attributed allocations,
 excluding unreported driver/vendor internal pools. GPU correctness is tested
 on real hardware; performance admission remains case dependent.

@@ -228,7 +228,8 @@ mathematical implementations.
   downloads; independent primal/JVP/VJP and actual-device tests, complete memory
   attribution and matched GPU-library diagnostics. Full GPU frontier is deferred
   until CPU coverage, not removed. Current CUDA factorization is implemented;
-  host triangular solves and incomplete peak-VRAM evidence remain limitations.
+  device triangular solves and RHS tiling are implemented and verified. Complete
+  peak-VRAM benchmark admission remains open.
 - [ ] **M6.1: bounded-memory native execution.** Planning, caps and RAM-only
   LOW_MEMORY for existing SPD paths first; require the same contract for every
   new family. Test analysis/numeric exhaustion, reuse overlap and recovery.
