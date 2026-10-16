@@ -75,6 +75,13 @@ module fortsparse_native_supernodes
             real(dp), intent(in) :: alpha, beta, a(lda,*), b(ldb,*)
             real(dp), intent(inout) :: c(ldc,*)
         end subroutine dgemm
+        subroutine dsyrk(uplo, trans, n, k, alpha, a, lda, beta, c, ldc)
+            import dp
+            character, intent(in) :: uplo, trans
+            integer, intent(in) :: n, k, lda, ldc
+            real(dp), intent(in) :: alpha, beta, a(lda,*)
+            real(dp), intent(inout) :: c(ldc,*)
+        end subroutine dsyrk
         subroutine dgemv(trans, m, n, alpha, a, lda, x, incx, beta, y, incy)
             import dp
             character, intent(in) :: trans
@@ -472,7 +479,9 @@ contains
     subroutine accumulate_update(self, source, dest, first, q, thread)
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: source, dest, first, q, thread
-        integer :: m, w, m2, j, column, offset
+        integer :: m, w, m2, j, p, column, offset, position, dest_m
+        integer(c_size_t) :: dest_offset
+        logical :: contiguous_rows
         real(dp), pointer, contiguous :: source_values(:), dest_values(:)
         if (self%failures(source) /= 0) self%failures(dest) = self%failures(source)
         if (self%failures(dest) /= 0) return
@@ -480,6 +489,43 @@ contains
         w = self%panels(source)%width
         m2 = m-first+1
         source_values => self%host_values(self%panels(source)%offset+first:)
+        ! Exact dense intersections can update their owning panel directly.
+        ! SYRK touches only the diagonal block's lower triangle; GEMM handles
+        ! its rectangular tail. Irregular intersections retain mapped scatter.
+        position = self%rowmap(self%panels(source)%rows(first),thread)
+        contiguous_rows = position > 0
+        if (contiguous_rows) then
+            do p = first+1, m
+                if (self%rowmap(self%panels(source)%rows(p),thread) &
+                    == position+p-first) cycle
+                contiguous_rows = .false.
+                exit
+            end do
+        end if
+        if (contiguous_rows) then
+            do j = 2, q
+                if (self%panels(source)%rows(first+j-1) &
+                    == self%panels(source)%rows(first)+j-1) cycle
+                contiguous_rows = .false.
+                exit
+            end do
+        end if
+        if (contiguous_rows) then
+            column = self%panels(source)%rows(first)-self%panels(dest)%first+1
+            dest_m = self%panels(dest)%m
+            dest_offset = self%panels(dest)%offset &
+                +int(column-1,c_size_t)*dest_m+position
+            dest_values => self%host_values(dest_offset:)
+            call dsyrk('L', 'N', q, w, -1.0_dp, source_values, m, &
+                1.0_dp, dest_values, dest_m)
+            if (m2 > q) then
+                dest_values => self%host_values(dest_offset+q:)
+                call dgemm('N', 'T', m2-q, q, w, -1.0_dp, &
+                    source_values(q+1:), m, source_values, m, &
+                    1.0_dp, dest_values, dest_m)
+            end if
+            return
+        end if
         call dgemm('N', 'T', m2, q, w, -1.0_dp, &
             source_values, m, source_values, m, &
             0.0_dp, self%update_work(1,thread), m2)

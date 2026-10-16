@@ -109,3 +109,32 @@ task coarsening before further thread comparisons. Portable CPU correctness,
 explicit AMD/ND permutation/refactor checks and absent-ordering status tests
 remain required. Numeric factor payload, retained auxiliary bytes and actual
 process peaks are different measurements.
+
+## Task granularity and direct dense updates
+
+Destination-panel tasks reduced the 16-thread 2D warm time from 143.5 to
+49.4 ms, but libgomp still consumed over 85% of sampled cycles. Batching by
+estimated work reduced that case to 15.7 ms with five actual workers for a
+16-thread request. Contiguous batches introduced extra dependency chains in
+3D; complete elimination subtrees are the next schedule to measure.
+
+A diagnostic link wrapper counted 10,563,508 mapped-scatter values in the
+13,824-unknown 3D case: 27% belonged to entirely contiguous updates. Those
+intersections now lower directly to lower-triangle BLAS SYRK and rectangular
+GEMM on the owning destination panel. Irregular intersections retain generated
+mapped scatter. No additional factor copy or scratch is introduced, and unused
+upper triangles remain untouched. Independent native value/refactor/block
+oracles and all five focused CPU tests pass.
+
+Five fresh-process trials before/after, 3D one thread: warm factor-plus-solve
+68.68 / 64.82 ms, changed-value refactor-plus-solve 43.68 / 39.66 ms, with
+approximately 39.6 / 32.1 MiB process peaks in those respective workflows.
+Warm memory includes two complete factorization lifetimes; refactor retains
+one analysis. All 80 candidate trials pass their independent residual checks.
+The complete external comparison has 5500/5500 passing trials; the frozen
+HB/bcsstk09 structural stiffness case adds 500/500 external passes.
+
+Two other bounded experiments were rejected: BLAS triangular-solve lowering
+provided no end-to-end gain, and segmented generated scatter introduced 2D
+regressions despite some 3D improvement. Their raw diagnostics remain in
+`/var/tmp/fortsparse-mvp/`; their implementation changes were removed.

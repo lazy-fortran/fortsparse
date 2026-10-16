@@ -96,7 +96,7 @@ if(FORTSPARSE_ENABLE_MUMPS)
                 get_target_property(_metis_location ${_metis_target}
                     INTERFACE_LINK_LIBRARIES)
             endif()
-            if(_metis_location MATCHES "\.a(;|$)")
+            if(_metis_location MATCHES "[.]a(;|$)")
                 find_library(FORTSPARSE_GKLIB NAMES GKlib
                     HINTS "${MUMPS_DIR}/.." "${MUMPS_DIR}/../lib")
                 if(FORTSPARSE_GKLIB)
