@@ -26,10 +26,6 @@ program test_matching_api
             bind(C, name='fsparse_native_amd_bounded_available')
             import c_int
         end function
-        integer(c_int) function nd_available() &
-            bind(C, name='fsparse_native_order_available')
-            import c_int
-        end function
     end interface
     k = 0
     do j = 1, n
@@ -45,7 +41,7 @@ program test_matching_api
     solver%options%pivot_tolerance = 0.1_dp
     do ord = FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND
         if (ord == 1 .and. amd_available() /= 1) cycle
-        if (ord == FORTSPARSE_ORDER_ND .and. nd_available() /= 1) cycle
+        if (.not. native_ordering_available(ord)) cycle
         solver%options%ordering = ord
         do cycle = 1, 2
             dense = 0
@@ -217,7 +213,7 @@ program test_matching_api
     call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
                'ND rejects LOW before opaque ordering')
     solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
-    if (nd_available() /= 1) then
+    if (.not. native_ordering_available(FORTSPARSE_ORDER_ND)) then
         call sparse_factor(solver, a, status)
         call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
                    'METIS-off explicit ordering status')

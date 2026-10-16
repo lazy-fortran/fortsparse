@@ -7,17 +7,6 @@ module fortsparse_native_c_api
     implicit none
     private
 
-    interface
-        integer(c_int) function amd_available() &
-                bind(C,name='fsparse_native_order_amd_available')
-            import :: c_int
-        end function
-        integer(c_int) function nd_available() &
-                bind(C,name='fsparse_native_order_available')
-            import :: c_int
-        end function
-    end interface
-
     type, bind(C) :: memory_info_t
         integer(c_int64_t) :: host_limit_bytes = 0, device_limit_bytes = 0
         integer(c_int64_t) :: host_current_bytes = 0, host_peak_bytes = 0
@@ -104,18 +93,10 @@ contains
         integer(c_int32_t), value :: ordering
         integer(c_int32_t) :: code
 
-        select case(ordering)
-        case(FORTSPARSE_ORDER_DEFAULT)
-            code = FORTSPARSE_OK
-        case(FORTSPARSE_ORDER_AMD)
-            code = FORTSPARSE_BACKEND_UNAVAILABLE
-            if (amd_available() == 1) code = FORTSPARSE_OK
-        case(FORTSPARSE_ORDER_ND)
-            code = FORTSPARSE_BACKEND_UNAVAILABLE
-            if (nd_available() == 1) code = FORTSPARSE_OK
-        case default
-            code = FORTSPARSE_INVALID_MATRIX
-        end select
+        code = FORTSPARSE_INVALID_MATRIX
+        if (ordering < FORTSPARSE_ORDER_DEFAULT .or. ordering > FORTSPARSE_ORDER_ND) return
+        code = FORTSPARSE_BACKEND_UNAVAILABLE
+        if (native_ordering_available(int(ordering))) code = FORTSPARSE_OK
     end function
 
     function fs_native_set_ordering(handle, ordering) bind(C) result(code)

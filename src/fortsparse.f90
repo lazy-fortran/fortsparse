@@ -74,5 +74,35 @@ module fortsparse
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD
     public :: FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
     public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+    public :: native_ordering_available
+
+contains
+
+    logical function native_ordering_available(ordering) result(available)
+        ! Built native graph capability only; matrix class, device and memory
+        ! policy are still checked by factorization. No graph is allocated here.
+        use, intrinsic :: iso_c_binding, only: c_int
+        integer, intent(in) :: ordering
+        interface
+            integer(c_int) function amd_available() &
+                bind(C, name='fsparse_native_order_amd_available')
+                import c_int
+            end function
+            integer(c_int) function nd_available() &
+                bind(C, name='fsparse_native_order_available')
+                import c_int
+            end function
+        end interface
+        select case(ordering)
+        case(FORTSPARSE_ORDER_DEFAULT)
+            available = .true.
+        case(FORTSPARSE_ORDER_AMD)
+            available = amd_available() == 1
+        case(FORTSPARSE_ORDER_ND)
+            available = nd_available() == 1
+        case default
+            available = .false.
+        end select
+    end function native_ordering_available
 
 end module fortsparse

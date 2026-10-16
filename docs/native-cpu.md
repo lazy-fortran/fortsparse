@@ -114,6 +114,9 @@ are removed before ordering. With structural matching, either ordering consumes
 the matched `P*A` graph while numerical values stay in the original CSC.
 DEFAULT remains natural ordering. NATIVE_REFERENCE remains natural and rejects
 explicit graph orderings. Missing graph libraries return BACKEND_UNAVAILABLE.
+`native_ordering_available(ordering)` queries the built native graph capability
+without allocating or factoring. Matrix-class, device and memory-policy support
+are still checked by factorization; this query is not a strict-cap guarantee.
 
 Value-only refactors reuse the retained column order when the canonical pattern
 and requested ordering strategy match; numerical row pivots are selected anew.
