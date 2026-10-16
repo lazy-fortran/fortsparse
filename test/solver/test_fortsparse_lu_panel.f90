@@ -28,7 +28,7 @@ contains
         real(dp) :: x(8, n), original(8, n), y(8, n), dx(8, n), dx0(8, n)
         real(dp) :: seed(8, n), xb(8, n), v(m), dv(m), c(8), dc(8), vb(m), cb(8)
         real(dp) :: left, right, expected, tangent
-        integer :: i, j, mask, active, marks(n), checkmarks(n)
+        integer :: i, j, mask, active, marks(n), checkmarks(n), lanes
         do j = 1, n
             do i = 1, 8
                 original(i, j) = real(3*i - j, dp)/17
@@ -42,40 +42,44 @@ contains
             c(i) = real(i - 3, dp)/7
             dc(i) = real(i + 1, dp)/13
         end do
-        do mask = 0, 255
-            active = mask; marks = 0; checkmarks = 0
-            x = original; dx = dx0; y = original
-            call spd_panel_scatter(x, marks, rows, v, m, c, 7, active)
-            call spd_panel_scatter_jvp(y, dx, checkmarks, rows, v, dv, m, c, dc, 7, &
-                                       active)
-            if (any(marks /= checkmarks)) error stop 'panel primal/JVP graph mismatch'
-            do j = 1, n
-                do i = 1, 8
-                    expected = original(i, j); tangent = dx0(i, j)
-                    if (any(rows == j) .and. i <= 7) then
-                        if (btest(mask, i - 1)) then
-                            block
-                                integer :: k
-                                do k = 1, m
-                                    if (rows(k) /= j) cycle
-                                    expected = original(i, j) - v(k)*c(i)
-                                    tangent = dx0(i, j) - dv(k)*c(i) - v(k)*dc(i)
-                                end do
-                            end block
+        do lanes = 1, 8
+            do mask = 0, 255
+                active = mask; marks = 0; checkmarks = 0
+                x = original; dx = dx0; y = original
+                call spd_panel_scatter(x, marks, rows, v, m, c, lanes, active)
+                call spd_panel_scatter_jvp(y, dx, checkmarks, rows, v, dv, &
+                    m, c, dc, lanes, active)
+                if (any(marks /= checkmarks)) &
+                    error stop 'panel primal/JVP graph mismatch'
+                do j = 1, n
+                    do i = 1, 8
+                        expected = original(i, j); tangent = dx0(i, j)
+                        if (any(rows == j) .and. i <= lanes) then
+                            if (btest(mask, i - 1)) then
+                                block
+                                    integer :: k
+                                    do k = 1, m
+                                        if (rows(k) /= j) cycle
+                                        expected = original(i, j) - v(k)*c(i)
+                                        tangent = dx0(i, j) - dv(k)*c(i) - v(k)*dc(i)
+                                    end do
+                                end block
+                            end if
                         end if
-                    end if
-                    if (abs(x(i, j) - expected) > 2e-15_dp .or. &
-                        abs(y(i, j) - expected) > 2e-15_dp) &
-                        error stop 'panel masked value/padding oracle'
-                    if (abs(dx(i, j) - tangent) > 2e-15_dp) &
-                        error stop 'panel tangent oracle'
+                        if (abs(x(i, j) - expected) > 2e-15_dp .or. &
+                            abs(y(i, j) - expected) > 2e-15_dp) &
+                            error stop 'panel masked value/padding oracle'
+                        if (abs(dx(i, j) - tangent) > 2e-15_dp) &
+                            error stop 'panel tangent oracle'
+                    end do
                 end do
+                xb = seed; vb = 0; cb = 0
+                call spd_panel_scatter_vjp(original, xb, rows, v, m, c, &
+                    lanes, active, vb, cb)
+                left = sum(seed*dx)
+                right = sum(xb*dx0) + sum(vb*dv) + sum(cb*dc)
+                if (abs(left - right) > 2e-13_dp) error stop 'panel VJP duality'
             end do
-            xb = seed; vb = 0; cb = 0
-            call spd_panel_scatter_vjp(original, xb, rows, v, m, c, 7, active, vb, cb)
-            left = sum(seed*dx)
-            right = sum(xb*dx0) + sum(vb*dv) + sum(cb*dc)
-            if (abs(left - right) > 2e-13_dp) error stop 'panel VJP duality'
         end do
         marks = 4; x = original
         call spd_panel_scatter(x, marks, rows, v, 0, c, 8, 255)
