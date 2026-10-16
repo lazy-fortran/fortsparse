@@ -93,3 +93,10 @@ ordinary LOW with a positive cap is outside this frozen campaign.
 source cac6656: real 16 MiB and complex 5 MiB, all reported owned peaks within cap.
 It does not replace the older 20 timeouts or join source 7e1f123/2f0cb01
 measurements; there is no external-frontier or matched cap-overhead claim.
+
+`reach-count-ab/` records the retained LU count-pass fusion: 80 public and ten
+private attempts, all passing, with unchanged factor fill and live payload.
+Real training RHS8 improves in all five paired wall measurements (median ratio
+1.029). Other cases retain mixed signs, overlapping ranges and observed complex
+and private end-to-end median increases. This bounded schedule checkpoint makes
+no uniform speedup or external-frontier claim.

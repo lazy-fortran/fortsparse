@@ -1,0 +1,243 @@
+{
+  "summary_script": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-ab/summarize_evidence.py",
+    "sha256": "18561065b9e138ac6eec61994bb9b7267c03d34fe767000ec764092e88188845"
+  },
+  "public_manifest": {
+    "scope": "ordinary fresh-process interleaved A/B, CPU1, native AMD, no helper",
+    "source_baseline": "cac6656",
+    "source_candidate": "8848e2d6c3b8e60804ee5ca799f690f33ca353ae",
+    "environment_extra": {
+      "LD_LIBRARY_PATH": "unset"
+    },
+    "trials": 5,
+    "baseline_runtime_difference": "Both have no native RUNPATH and resolve the same system AMD/config/OpenBLAS runtime; no LD_LIBRARY_PATH override. Both contain the same LOW growth and optional-cap adapter; only the fused reach count changes.",
+    "binaries": {
+      "baseline": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/integrated-baseline-cac6656/bin/bench_native_families",
+        "sha256": "35bab7166064b492102d046c5ba926fbdda1315bf3c3e878556cd7355a7e28d9",
+        "ldd": "\tlinux-vdso.so.1 (0x00007f268137a000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007f2680b64000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007f267e148000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f26812b9000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007f267e137000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f267d800000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f267e02f000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f267d7ca000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f267d400000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f268137c000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007f267d70c000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007f267e029000)\n"
+      },
+      "candidate": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-composed-candidate/bin/bench_native_families",
+        "sha256": "c67b438c111b1c08d7a158134568769819020863d12b42b7d39271480db21ff2",
+        "ldd": "\tlinux-vdso.so.1 (0x00007fa6b048e000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007fa6b039e000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007fa6ad1e0000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007fa6b0331000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007fa6b0320000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007fa6ac800000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fa6ad0d8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fa6b02e8000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fa6ac400000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fa6b0490000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007fa6ad01a000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007fa6b02e0000)\n"
+      }
+    },
+    "library_sha256": {
+      "/usr/lib/libsuperlu.so.7.0.1": "d041e76db9867254de1c32fdda16ebbc60948670cbcf5d6dc23f47b4bbd993d2",
+      "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+      "/usr/lib/libgomp.so.1.0.0": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+      "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+      "/usr/lib/libgfortran.so.5.0.0": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+      "/usr/lib/libm.so.6": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+      "/usr/lib/libgcc_s.so.1": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+      "/usr/lib/libc.so.6": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+      "/usr/lib/ld-linux-x86-64.so.2": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+      "/usr/lib/libblas.so.3.12.0": "f55be1fca60044a3611ad918a9049c5429be30310c34d11f31727ea62b010fe5",
+      "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad"
+    }
+  },
+  "public_raw": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-ab/attempts.jsonl",
+    "sha256": "b0da6ec1c2d001a25dc1217814ff36ba536a6977f046f0327070219bc7847858"
+  },
+  "public_runner": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-ab/run_ab.py",
+    "sha256": "c8200fa35a4f978ea006f0ecd137d7101754913c9c59979dd34119b40fcfe772"
+  },
+  "private_aggregate": {
+    "fixture_id": "neo2-lorentz-tag6-4856-v1",
+    "raw_path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/count-ab-cac6656-8848e2d/attempts.jsonl",
+    "raw_sha256": "6e3faace9a3c0708f8d624292563ee73e9524bdfcfa1b7e1cbc688796a53a1a8",
+    "script_sha256": "222a74109165169390895c9d94dba0d620ef99f9f2bb41ff2904571078b13a10",
+    "frozen_policy_sha256": "c03da85fc3dfae66b8c09874a69faf78d10de0d9b368b18d6b91813046a42d54",
+    "fixture_manifest_sha256": "08741c8f0261d20ff2d04b5a2c87706c9f6c9aebe5d6047304656a5ffdfa4516",
+    "qualification_receipt_sha256": {
+      "baseline": [
+        "341409d64c48dbbfd132335506efdeae2036e60c2d5bf55d601c3a76b0562cb1"
+      ],
+      "pruned": [
+        "0725c5f115b0e417b1d257e32febdd19cda87219ee069b07fd4854f8306a6e7a"
+      ]
+    }
+  },
+  "profile_manifest": {
+    "source": "e4295cf07871f8ba7ca81894cb7d8c73864adaa5",
+    "binary_sha256": "d307e8d43257c66346dc2e51e89e88dd39e3ab8db36f4711286801ff6c88e202",
+    "kind": "Nonexclusive diagnostic; source-line attribution only, no ordinary timing claim",
+    "flags": "-O3 -g -march=znver3",
+    "commands": [
+      {
+        "case": "drift-real-128-rhs8",
+        "command": [
+          "perf",
+          "record",
+          "-F",
+          "1999",
+          "-e",
+          "cycles:u",
+          "-g",
+          "--call-graph",
+          "dwarf,8192",
+          "-o",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8.data",
+          "--",
+          "bash",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8-replay.sh"
+        ],
+        "replays": 5,
+        "status": 0
+      },
+      {
+        "case": "drift-real-128-refactor",
+        "command": [
+          "perf",
+          "record",
+          "-F",
+          "1999",
+          "-e",
+          "cycles:u",
+          "-g",
+          "--call-graph",
+          "dwarf,8192",
+          "-o",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor.data",
+          "--",
+          "bash",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor-replay.sh"
+        ],
+        "replays": 5,
+        "status": 0
+      },
+      {
+        "case": "drift-complex-64-refactor",
+        "command": [
+          "perf",
+          "record",
+          "-F",
+          "1999",
+          "-e",
+          "cycles:u",
+          "-g",
+          "--call-graph",
+          "dwarf,8192",
+          "-o",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor.data",
+          "--",
+          "bash",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor-replay.sh"
+        ],
+        "replays": 5,
+        "status": 0
+      }
+    ]
+  },
+  "profile_binary": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/baseline-debug-elf",
+    "sha256": "d307e8d43257c66346dc2e51e89e88dd39e3ab8db36f4711286801ff6c88e202"
+  },
+  "profile_files": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor-annotate.txt",
+      "sha256": "151fddb3ea5078bcaf7f51795cfc2e039d94e6b1a246b5549cf1a0e8b29f2d15"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor-replay.sh",
+      "sha256": "c146c023fd55070c72fef4974be125e31e9f851a62efc3b75796a9577a9f5129"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor.data",
+      "sha256": "15f604e516c19da6cd528ef4df2e145ec31aa192993c28e0fda37c2cffe1bdaa"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-complex-64-refactor.stderr",
+      "sha256": "684e46441ec7ec1506800f1577a2959f32173f61e518c5fcad4674c6d0aa069e"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor-annotate.txt",
+      "sha256": "d364dfff194e4fe3414eb9c2c3c23f6c8709cf0b16b88ea1e37b02f0a66740dd"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor-replay.sh",
+      "sha256": "0c4692b5d0b52bf0c6fc4ad17fb8bc864ecdfc594f75d5a746a68fbf4042ac34"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor.data",
+      "sha256": "80043cc79a7b64cd6fa1f15ad7678ae9c21a7fb9f7e502e27fcf8018d14fec45"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-refactor.stderr",
+      "sha256": "d706ec4c1d1f3d947697b6b0791f0f54fe209ee52855443da19528237f1e6d4e"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8-annotate.txt",
+      "sha256": "a948cb735a036ae9c992e1e0d020ed77835c2005deaa26a3eff007f53c7e0e6f"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8-replay.sh",
+      "sha256": "840afe88dc565764a01a5ec1a476337d2f44e9164bc626bc36b1a4dba63f621b"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8.data",
+      "sha256": "c6271542d295dc56afcca98bcf1a2faa95356ace033cf891bc7c5eb6262147d4"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/reach-count-profiles/drift-real-128-rhs8.stderr",
+      "sha256": "85480fba93861fdfe83ff69dbb34db2d5251305bc9624e38c9398e4d8c6684da"
+    }
+  ],
+  "optimization_commit": "7fefa6169946ea64e3991556cece328b1af11f0f",
+  "composition_commit": "8848e2d6c3b8e60804ee5ca799f690f33ca353ae",
+  "scope": "Bounded schedule optimization; no universal gain, private E2E win or external frontier claim.",
+  "hardware": "AMD Ryzen 9 5950X; 16 physical cores, 32 logical threads, one NUMA node",
+  "ordinary_recipe": {
+    "compiler_flags": "-O3 -march=znver3",
+    "AMD_DIR": "/usr/lib/cmake/AMD",
+    "SuiteSparse_config_DIR": "/usr/lib/cmake/SuiteSparse_config",
+    "affinity": [
+      0
+    ],
+    "watchdog_s": 0.9,
+    "trials": 5,
+    "environment": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_PLACES": "cores",
+      "OMP_PROC_BIND": "close",
+      "MKL_NUM_THREADS": "1",
+      "MKL_DYNAMIC": "FALSE",
+      "MKL_THREADING_LAYER": "GNU"
+    },
+    "LD_LIBRARY_PATH": "unset",
+    "command": "bench_native_families native-amd FAMILY LEVEL 1 WORKLOAD N VARIANT bench/fixtures/neo2-mini5/matrix.mtx",
+    "families_levels": [
+      [
+        "drift-real",
+        128
+      ],
+      [
+        "drift-complex",
+        64
+      ]
+    ],
+    "variants": [
+      "training",
+      "heldout"
+    ],
+    "workloads": [
+      "rhs8",
+      "refactor"
+    ],
+    "interleave": "For each case, baseline,candidate on zero-based even trials; candidate,baseline on odd trials."
+  },
+  "summary_definition": "Median/min/max of all five valid trials per configuration; baseline/candidate ratios paired by trial; completed CPU is wait4 user+system; negative metrics are unavailable/blank.",
+  "checks": {
+    "public_attempts": 80,
+    "private_attempts": 10,
+    "all_passed": true,
+    "matched_pair_fill_and_current_bytes_unchanged": true,
+    "maximum_public_backward_error": 1.0509085146029484e-15,
+    "maximum_public_forward_error": 2.6789522848988178e-15
+  }
+}
