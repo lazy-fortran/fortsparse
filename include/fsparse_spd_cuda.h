@@ -29,6 +29,15 @@ int fsparse_spd_cuda_scatter_update(void *context, size_t update_offset,
                                     int m, int n, size_t destination_offset,
                                     int destination_rows, int destination_columns,
                                     size_t row_map_offset, size_t column_map_offset);
+/* Fused C(mapped rows, mapped columns) -= left right^T for source i >= j.
+ * Maps are one-based; absent/out-of-range entries are skipped. Positive row
+ * and column entries must be unique, as in the analyzed sparse update plan.
+ * No product scratch is required. */
+int fsparse_spd_cuda_schur_scatter(void *context, size_t left_offset, int ldl,
+                                   size_t right_offset, int ldr, int m, int n, int k,
+                                   size_t destination_offset, int destination_rows,
+                                   int destination_columns, size_t row_map_offset,
+                                   size_t column_map_offset);
 int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset, int n, int ldl,
                                  size_t b_offset, int m, int ldb);
 int fsparse_spd_cuda_schur_update(void *context, size_t c_offset, int ldc,

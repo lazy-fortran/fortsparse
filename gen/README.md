@@ -14,8 +14,8 @@ Large contractions may use BLAS rather than these reference schedules.
 The Schur schedule accepts an optional first-row index (default one), allowing
 strided panel tails to share their original contiguous storage. CPU factors
 below ten million estimated operations use the generated contraction and
-indexed triangular solves to avoid BLAS initialization; panels of at least
-96 columns and device factors retain the BLAS schedules.
+indexed triangular solves to avoid BLAS initialization; CPU panels of at least
+96 columns retain BLAS triangular solves.
 
 From the repository root, with a built FortSym at the retained revision:
 
@@ -34,7 +34,8 @@ The generator uses FortSym's native simplifier. Ordinary library builds use
 the committed output and require neither FortSym nor a CAS. Compile the
 generated Fortran module into `fortsparse`; register
 `test/solver/test_fortsparse_spd_leaves.f90` with the existing focused test
-helper. The generated CUDA header contains device leaves only: launch geometry,
+helper. The generated CUDA header also retains the per-output contraction and
+mapped lower-scatter schedule from `spd_schedule.cuh.inc`. Launch geometry,
 residency and stream ownership belong to the optional native CUDA adapter.
 
 The focused test uses known values, independent central differences and
@@ -51,7 +52,11 @@ and explicit workspace; CUDA context/cuBLAS internal memory must additionally
 be measured by the benchmark process/device accounting.
 
 Small diagonal panels use generated numerical leaves in one cooperative
-CUDA block. Larger triangular solves and Schur contractions lower to cuBLAS.
+CUDA block. Source panels up to eight columns use a fused generated negative
+dot product and mapped scatter, avoiding product scratch and a second launch.
+Wider Schur contractions and triangular solves lower to cuBLAS. The fused
+schedule skips absent map entries and preserves unused destination cells;
+its local reduction order can differ from the vendor GEMM reduction.
 Upload/download calls enqueue copies; callers must synchronize before reusing
 host buffers and check factor info before consuming a failed panel. Each
 context belongs to one caller and one stream. The supernode engine's optional

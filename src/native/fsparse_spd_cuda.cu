@@ -84,6 +84,17 @@ __global__ void scatter_update(double *destination, int ldd, int columns,
     double *entry = destination+(row-1)+static_cast<size_t>(column-1)*ldd;
     spd_update_value(*entry, -1.0, update[index], entry);
 }
+
+__global__ void schur_scatter(const double *left, int ldl,
+                              const double *right, int ldr, int m, int n, int k,
+                              double *destination, int ldd, int columns,
+                              const int *rows, const int *cols, const int *info)
+{
+    if (*info != 0) return;
+    const size_t index = threadIdx.x+static_cast<size_t>(blockIdx.x)*blockDim.x;
+    spd_schur_scatter_entry(left, ldl, right, ldr, m, n, k,
+                            destination, ldd, columns, rows, cols, index);
+}
 } // namespace
 
 extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capacity)
@@ -242,6 +253,36 @@ extern "C" int fsparse_spd_cuda_scatter_update(void *context, size_t update_offs
         ctx->arena+destination_offset, destination_rows, destination_columns,
         ctx->arena+update_offset, m, n, ctx->maps+row_map_offset,
         ctx->maps+column_map_offset, ctx->info);
+    return cudaGetLastError();
+}
+
+extern "C" int fsparse_spd_cuda_schur_scatter(void *context,
+                                             size_t left_offset, int ldl,
+                                             size_t right_offset, int ldr,
+                                             int m, int n, int k,
+                                             size_t destination_offset,
+                                             int destination_rows, int destination_columns,
+                                             size_t row_map_offset, size_t column_map_offset)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (!matrix_fits(ctx, left_offset, ldl, m, k) ||
+        !matrix_fits(ctx, right_offset, ldr, n, k) ||
+        !matrix_fits(ctx, destination_offset, destination_rows,
+                     destination_rows, destination_columns)) return -1;
+    if (row_map_offset > ctx->map_count || column_map_offset > ctx->map_count) return -1;
+    if (static_cast<size_t>(m) > ctx->map_count-row_map_offset ||
+        static_cast<size_t>(n) > ctx->map_count-column_map_offset) return -1;
+    int result = activate(ctx);
+    if (result || m == 0 || n == 0 || k == 0) return result;
+    const size_t limit = std::numeric_limits<size_t>::max();
+    if (static_cast<size_t>(m) > limit/static_cast<size_t>(n)) return -1;
+    const size_t count = static_cast<size_t>(m)*n;
+    const size_t blocks = count/256+(count%256 != 0);
+    if (blocks > std::numeric_limits<unsigned>::max()) return -1;
+    schur_scatter<<<static_cast<unsigned>(blocks),256,0,ctx->stream>>>(
+        ctx->arena+left_offset, ldl, ctx->arena+right_offset, ldr, m, n, k,
+        ctx->arena+destination_offset, destination_rows, destination_columns,
+        ctx->maps+row_map_offset, ctx->maps+column_map_offset, ctx->info);
     return cudaGetLastError();
 }
 

@@ -13,6 +13,7 @@ module fortsparse_native_cuda
     public :: spd_cuda_panel_solve, spd_cuda_schur_update, spd_cuda_schur_product
     public :: spd_cuda_allocated_bytes
     public :: spd_cuda_set_maps, spd_cuda_begin_factor, spd_cuda_scatter_update
+    public :: spd_cuda_schur_scatter
 
     interface
         integer(c_int) function spd_cuda_create(context, device, capacity) &
@@ -120,6 +121,18 @@ module fortsparse_native_cuda
             integer(c_size_t), value :: update_offset, destination_offset, row_map, column_map
             integer(c_int), value :: m, n, destination_rows, destination_columns
         end function spd_cuda_scatter_update
+
+        integer(c_int) function spd_cuda_schur_scatter(context, left_offset, ldl, &
+            right_offset, ldr, m, n, k, destination_offset, destination_rows, &
+            destination_columns, row_map, column_map) &
+            bind(C, name='fsparse_spd_cuda_schur_scatter')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: left_offset, right_offset, destination_offset
+            integer(c_size_t), value :: row_map, column_map
+            integer(c_int), value :: ldl, ldr, m, n, k
+            integer(c_int), value :: destination_rows, destination_columns
+        end function spd_cuda_schur_scatter
     end interface
 #else
     logical, parameter :: native_cuda_available = .false.
