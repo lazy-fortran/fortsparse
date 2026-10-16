@@ -93,6 +93,12 @@ void *fsbench_cholmod_create(int n, int nnz, const int *ptr,
     return c;
 }
 
+void fsbench_cholmod_release_factor(void *opaque)
+{
+    struct cholmod_bench *c = opaque;
+    cholmod_l_free_factor(&c->factor, &c->common);
+}
+
 int fsbench_cholmod_analyze(void *opaque)
 {
     struct cholmod_bench *c = opaque;
