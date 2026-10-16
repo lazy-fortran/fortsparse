@@ -8,8 +8,8 @@ module fortsparse_native
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
-        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND, &
-        FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
+        sparse_options_t, FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, &
+        FORTSPARSE_ORDER_ND, FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
@@ -17,7 +17,9 @@ module fortsparse_native
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
     use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
-        plan_natural_spd_memory, refinement_payload_bytes, memory_checked_add
+        plan_natural_spd_memory, refinement_payload_bytes, memory_checked_add, &
+        spd_symbolic_nnz, validate_spd_pattern, MEMORY_PLAN_EXACT_LAYOUT, &
+        MEMORY_PLAN_BOUND
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_amd, only: bounded_amd_size, bounded_amd_order
     use fortsparse_native_symbolic, only: native_symbolic_counts, &
@@ -28,7 +30,7 @@ module fortsparse_native
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
-    public :: native_backend_t
+    public :: native_backend_t, native_plan_ordered_spd
     interface
         function symbolic_alloc(bytes) result(owner) &
                 bind(C, name='fsparse_native_symbolic_alloc')
@@ -127,6 +129,90 @@ contains
                                                 col_ptr, row_idx, val, refine, &
                                                 status, reused)
     end subroutine native_refactor_raw
+
+    subroutine native_plan_ordered_spd(A, options, refine, budget, plan, status, nrhs)
+        ! Exact compact AMD payload phases. Reuse production ordering, never an
+        ! independent permutation policy. Old retained factors are read-only.
+        type(csc_t), intent(in) :: A
+        type(sparse_options_t), intent(in) :: options
+        logical, intent(in) :: refine
+        type(memory_budget_t), intent(in) :: budget
+        type(sparse_memory_plan_t), intent(out) :: plan
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: nrhs
+        type(native_backend_t) :: temporary
+        type(memory_budget_t) :: forecast
+        integer(i8) :: checker, nz, retained, graph, symbolic, peak, baseline
+        integer :: rhs
+
+        plan = sparse_memory_plan_t()
+        if (options%ordering /= FORTSPARSE_ORDER_AMD .or. &
+            options%memory_policy /= FORTSPARSE_MEMORY_LOW) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'memory plan: ordered compact layout requires AMD and LOW_MEMORY')
+            return
+        end if
+        rhs = 1
+        if (present(nrhs)) rhs = nrhs
+        if (rhs < 0) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'memory plan: negative RHS count')
+            return
+        end if
+        call validate_spd_pattern(A, status)
+        if (.not. status_ok(status)) return
+        temporary%options = options
+        temporary%reference_only = .true.
+        temporary%bounded_memory = .true.
+        temporary%host_budget = budget
+        baseline = budget%current
+        call temporary%host_budget%reserve(0_i8, status)
+        if (.not. status_ok(status)) return
+        checker = 0_i8
+        if (refine) then
+            call refinement_payload_bytes(int(A%ncol, i8), int(A%nnz, i8), &
+                                          8_i8, checker, status)
+            if (.not. status_ok(status)) return
+        end if
+        ! Virtual reservation: production retains this checker before ordering.
+        call temporary%host_budget%reserve(checker, status, 'SPD planned refinement')
+        if (.not. status_ok(status)) return
+        call prepare_ordering(temporary, A, status)
+        if (.not. status_ok(status)) goto 900
+        call spd_symbolic_nnz(temporary%ordered, nz, temporary%host_budget, status)
+        if (.not. status_ok(status)) goto 900
+        ! Dimensions and nz are validated 32-bit indices, so these 64-bit
+        ! products and sums cannot overflow. graph is the production graph
+        ! arrays; symbolic is the same n-dependent production count schedule.
+        graph = 32_i8*A%ncol + 4_i8
+        symbolic = ordered_symbolic_workspace_bytes(A%ncol)
+        retained = temporary%host_budget%current - baseline + graph + 12_i8*nz
+        peak = max(temporary%host_budget%peak - baseline, retained, &
+                   temporary%host_budget%current - baseline + graph + symbolic)
+        plan%symbolic_nnz = nz
+        plan%factor_host_bytes = 8_i8*nz
+        plan%persistent_host_bytes = retained - plan%factor_host_bytes
+        ! Workspace is the peak increment beyond the retained compact layout;
+        ! the ordering arena and count workspace have disjoint lifetimes.
+        plan%workspace_host_bytes = peak - retained
+        plan%peak_host_bytes = peak
+        plan%prediction_quality = MEMORY_PLAN_EXACT_LAYOUT
+        if (baseline > 0_i8) plan%prediction_quality = MEMORY_PLAN_BOUND
+        forecast = budget
+        call forecast%reserve(peak, status, &
+            'SPD ordered compact plan with retained overlap')
+        if (.not. status_ok(status)) goto 900
+        plan%fits = .true.
+        plan%max_rhs_batch = rhs
+900     call temporary%free()
+    end subroutine native_plan_ordered_spd
+
+    pure function ordered_symbolic_workspace_bytes(n) result(bytes)
+        integer, intent(in) :: n
+        integer(i8) :: bytes
+        bytes = 0_i8
+        if (n >= 4096) bytes = native_symbolic_workspace_bytes(n)
+    end function ordered_symbolic_workspace_bytes
 
     subroutine native_factor(self, A, refine, status)
         class(native_backend_t), intent(inout) :: self
@@ -528,7 +614,7 @@ contains
         if (self%n >= 4096 .and. allocated(self%perm)) then
             ! Dense filled paths need not be enumerated just to count them.
             ! Keep the simple low-fill/small setup schedule below.
-            count_bytes = native_symbolic_workspace_bytes(self%n)
+            count_bytes = ordered_symbolic_workspace_bytes(self%n)
             if (account_analysis) then
                 call self%host_budget%reserve(count_bytes, status, &
                     'native SPD graph count scratch')

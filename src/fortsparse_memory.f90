@@ -10,6 +10,7 @@ module fortsparse_memory
     private
     public :: memory_budget_t, memory_checked_add, memory_checked_mul
     public :: sparse_memory_plan_t, plan_natural_spd_memory, refinement_payload_bytes
+    public :: spd_symbolic_nnz, validate_spd_pattern
     public :: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, MEMORY_PLAN_ESTIMATE
     integer, parameter :: MEMORY_PLAN_EXACT_LAYOUT = 1
     integer, parameter :: MEMORY_PLAN_BOUND = 2, MEMORY_PLAN_ESTIMATE = 3
@@ -48,9 +49,7 @@ contains
         integer, intent(in), optional :: nrhs
         logical, intent(in), optional :: refine
         type(memory_budget_t) :: tracker, forecast
-        type(fortsparse_status_t) :: ignored
-        integer, allocatable :: parent(:), count(:), mark(:)
-        integer :: n, rhs, j, p, i, ierr
+        integer :: n, rhs
         integer(i8) :: scratch, nz, part, total, checker, preparation
 
         plan = sparse_memory_plan_t()
@@ -91,51 +90,9 @@ contains
             end if
             return
         end if
-        call tracker%reserve(scratch, status, 'SPD planning graph scratch')
-        if (status%code /= FORTSPARSE_OK) then
-            if (present(budget)) budget = tracker
-            return
-        end if
-        allocate (parent(n), count(n), mark(n), stat=ierr)
-        if (ierr /= 0) then
-            if (allocated(parent)) deallocate (parent)
-            if (allocated(count)) deallocate (count)
-            if (allocated(mark)) deallocate (mark)
-            call tracker%release(scratch, ignored)
-            if (present(budget)) budget = tracker
-            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-                'memory plan: graph scratch allocation failed')
-            return
-        end if
-        parent = 0
-        count = 0
-        mark = 0
-        do j = 1, n
-            do p = A%col_ptr(j), A%col_ptr(j+1)-1
-                i = A%row_idx(p)
-                if (i >= j) exit
-                do while (i /= 0)
-                    if (mark(i) == j) exit
-                    mark(i) = j
-                    count(i) = count(i)+1
-                    if (parent(i) == 0) parent(i) = j
-                    i = parent(i)
-                    if (i == j) exit
-                end do
-            end do
-        end do
-        nz = int(n,i8)
-        do j = 1, n
-            nz = nz+int(count(j),i8)
-        end do
-        deallocate (parent, count, mark)
-        call tracker%release(scratch, ignored)
+        call spd_symbolic_nnz(A, nz, tracker, status)
         if (present(budget)) budget = tracker
-        if (nz >= int(huge(n),i8)) then
-            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
-                'memory plan: factor exceeds supported index range')
-            return
-        end if
+        if (status%code /= FORTSPARSE_OK) return
         plan%symbolic_nnz = nz
         plan%prediction_quality = MEMORY_PLAN_EXACT_LAYOUT
         ! lv(L), li(L), ap(n+1), ai(nnz), lp(n+1), five integer n
@@ -177,6 +134,64 @@ contains
         plan%fits = .true.
         plan%max_rhs_batch = rhs
     end subroutine plan_natural_spd_memory
+
+    subroutine spd_symbolic_nnz(A, nz, tracker, status)
+        ! Independent structural count; callers validate the canonical CSC.
+        type(csc_t), intent(in) :: A
+        integer(i8), intent(out) :: nz
+        type(memory_budget_t), intent(inout) :: tracker
+        type(fortsparse_status_t), intent(out) :: status
+        type(fortsparse_status_t) :: ignored
+        integer, allocatable :: parent(:), count(:), mark(:)
+        integer :: n, j, p, i, ierr
+        integer(i8) :: scratch
+        n = A%ncol
+        nz = 0_i8
+        scratch = 12_i8*n
+        call tracker%reserve(scratch, status, 'SPD planning graph scratch')
+        if (status%code /= FORTSPARSE_OK) then
+            return
+        end if
+        allocate (parent(n), count(n), mark(n), stat=ierr)
+        if (ierr /= 0) then
+            if (allocated(parent)) deallocate (parent)
+            if (allocated(count)) deallocate (count)
+            if (allocated(mark)) deallocate (mark)
+            call tracker%release(scratch, ignored)
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                            'memory plan: graph scratch allocation failed')
+            return
+        end if
+        parent = 0
+        count = 0
+        mark = 0
+        do j = 1, n
+            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                i = A%row_idx(p)
+                if (i >= j) exit
+                do while (i /= 0)
+                    if (mark(i) == j) exit
+                    mark(i) = j
+                    count(i) = count(i) + 1
+                    if (parent(i) == 0) parent(i) = j
+                    i = parent(i)
+                    if (i == j) exit
+                end do
+            end do
+        end do
+        nz = int(n, i8)
+        do j = 1, n
+            nz = nz + int(count(j), i8)
+        end do
+        deallocate (parent, count, mark)
+        call tracker%release(scratch, ignored)
+        if (nz >= int(huge(n), i8)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                            'memory plan: factor exceeds supported index range')
+            return
+        end if
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine spd_symbolic_nnz
 
     subroutine validate_spd_pattern(A, status)
         type(csc_t), intent(in) :: A
