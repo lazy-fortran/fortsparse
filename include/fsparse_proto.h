@@ -23,14 +23,16 @@ enum {
     FSPARSE_OP_SOLVE_REAL = 3,
     FSPARSE_OP_SOLVE_COMPLEX = 4,
     FSPARSE_OP_FREE = 5,
-    FSPARSE_OP_SHUTDOWN = 6
+    FSPARSE_OP_SHUTDOWN = 6,
+    FSPARSE_OP_CAPABILITIES = 7
 };
 
 /* Normalized status codes written by the helper into header->status. */
 enum {
     FSPARSE_ST_OK = 0,
     FSPARSE_ST_SINGULAR = 1,
-    FSPARSE_ST_ERROR = 2
+    FSPARSE_ST_ERROR = 2,
+    FSPARSE_ST_RESOURCE_LIMIT = 3
 };
 
 /* Header at offset 0 of the shared mapping. The volatile request/response
@@ -52,6 +54,14 @@ typedef struct fsparse_shm_header {
     int64_t off_x;      /* double solution (real, or complex real parts) */
     int64_t off_xz;     /* double complex solution imaginary parts */
     int64_t data_bytes; /* size of the data region after the header */
+    int64_t factor_protocol; /* request1 -> response2; rejects stale helpers */
+    double pivot_tolerance;
+    int64_t memory_budget_bytes;
+    int64_t symbolic_peak_bytes;
+    int64_t estimated_peak_bytes;
+    int64_t numeric_peak_bytes;
+    double effective_pivot_tolerance;
+    int64_t numeric_started;
 } fsparse_shm_header;
 
 #endif /* FSPARSE_PROTO_H */

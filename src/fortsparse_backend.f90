@@ -40,17 +40,27 @@ module fortsparse_backend
         integer :: ordering = FORTSPARSE_ORDER_DEFAULT
         integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)
         logical :: verbose = .false.
+        ! UMFPACK IPC: negative keeps its native pivot defaults; [0,1] overrides.
+        real(dp) :: pivot_tolerance = -1.0_dp
+        ! UMFPACK estimated peak only, excluding caller/IPC storage; 0: no gate.
+        integer(i8) :: memory_budget_bytes = 0_i8
     end type sparse_options_t
 
     ! Factorization statistics; -1 / -1.0 mark a quantity the backend does not
     ! report.
     type :: sparse_factor_stats_t
-        integer(i8) :: factor_nnz = -1      ! entries stored in the factors
+        integer(i8) :: factor_nnz = -1 ! entries stored in the factors
         real(dp)    :: factor_mem_mb = -1.0_dp ! peak factorization memory
-        real(dp)    :: flops = -1.0_dp      ! factorization operations
+        real(dp)    :: flops = -1.0_dp ! factorization operations
         real(dp)    :: analysis_s = -1.0_dp ! wall time of ordering + symbolic
-        real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
-        integer     :: nthreads = -1        ! threads requested
+        real(dp)    :: factor_s = -1.0_dp ! wall time of the numerical factor
+        integer     :: nthreads = -1 ! threads requested
+        integer(i8) :: symbolic_peak_bytes = -1_i8
+        integer(i8) :: estimated_peak_bytes = -1_i8
+        integer(i8) :: numeric_peak_bytes = -1_i8
+        integer(i8) :: ipc_bytes = -1_i8
+        real(dp) :: effective_pivot_tolerance = -1.0_dp
+        logical :: numeric_started = .false.
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t

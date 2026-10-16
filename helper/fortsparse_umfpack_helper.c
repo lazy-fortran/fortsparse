@@ -16,6 +16,7 @@
 #include "fsparse_proto.h"
 
 #include <stdint.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -163,21 +164,76 @@ static void free_factors(factors_t *f)
     }
 }
 
+/* Info memory counts are UMFPACK Units, whose byte size is also in Info.
+ * Preserve unknown sentinels and saturate overflow; a gate fails closed. */
+static int64_t memory_bytes(const double *Info, int entry)
+{
+    long double bytes = (long double) Info[entry] * Info[UMFPACK_SIZE_OF_UNIT];
+    if (!isfinite(bytes) || Info[entry] < 0 ||
+        Info[UMFPACK_SIZE_OF_UNIT] <= 0) return -1;
+    if (bytes >= INT64_MAX) return INT64_MAX;
+    return (int64_t) ceill(bytes);
+}
+
+static int factor_control(fsparse_shm_header *h, double *Control)
+{
+    if (h->factor_protocol != 1) return 0;
+    h->factor_protocol = 2;
+    h->symbolic_peak_bytes = -1;
+    h->estimated_peak_bytes = -1;
+    h->numeric_peak_bytes = -1;
+    h->numeric_started = 0;
+    umfpack_dl_defaults(Control);
+    if (!isfinite(h->pivot_tolerance) || h->pivot_tolerance > 1 ||
+        h->memory_budget_bytes < 0) return 0;
+    if (h->pivot_tolerance >= 0) {
+        Control[UMFPACK_PIVOT_TOLERANCE] = h->pivot_tolerance;
+        Control[UMFPACK_SYM_PIVOT_TOLERANCE] = h->pivot_tolerance;
+    }
+    h->effective_pivot_tolerance = Control[UMFPACK_PIVOT_TOLERANCE];
+    return 1;
+}
+
+/* Symbolic analysis runs first. Its peak estimate includes both Symbolic and
+ * Numeric objects/workspace, but NOT the caller, shared mapping or runtime.
+ * It is an estimate gate, not a hard allocator limit. */
+static int32_t check_budget(fsparse_shm_header *h, const double *Info,
+                            factors_t *f)
+{
+    h->symbolic_peak_bytes = memory_bytes(Info, UMFPACK_SYMBOLIC_PEAK_MEMORY);
+    h->estimated_peak_bytes = memory_bytes(Info, UMFPACK_PEAK_MEMORY_ESTIMATE);
+    if (h->memory_budget_bytes > 0 &&
+        (h->estimated_peak_bytes < 0 ||
+         h->estimated_peak_bytes == INT64_MAX ||
+         h->estimated_peak_bytes > h->memory_budget_bytes)) {
+        free_factors(f);
+        return FSPARSE_ST_RESOURCE_LIMIT;
+    }
+    return FSPARSE_ST_OK;
+}
+
 static int32_t do_factor_real(fsparse_shm_header *h, void *region,
                               factors_t *f)
 {
     int64_t *colptr = (int64_t *) base(region, h->off_colptr);
     int64_t *rowidx = (int64_t *) base(region, h->off_rowidx);
     double *ax = (double *) base(region, h->off_ax);
+    double Control[UMFPACK_CONTROL], Info[UMFPACK_INFO];
+    int32_t gate;
     int st;
 
     free_factors(f);
     f->is_complex = 0;
+    if (!factor_control(h, Control)) return FSPARSE_ST_ERROR;
     st = umfpack_dl_symbolic(h->n, h->n, colptr, rowidx, ax, &f->symbolic,
-                             NULL, NULL);
+                             Control, Info);
     if (st != UMFPACK_OK) return norm_status(st);
+    gate = check_budget(h, Info, f);
+    if (gate != FSPARSE_ST_OK) return gate;
+    h->numeric_started = 1;
     st = umfpack_dl_numeric(colptr, rowidx, ax, f->symbolic, &f->numeric,
-                            NULL, NULL);
+                            Control, Info);
+    h->numeric_peak_bytes = memory_bytes(Info, UMFPACK_PEAK_MEMORY);
     return norm_status(st);
 }
 
@@ -188,15 +244,22 @@ static int32_t do_factor_complex(fsparse_shm_header *h, void *region,
     int64_t *rowidx = (int64_t *) base(region, h->off_rowidx);
     double *ax = (double *) base(region, h->off_ax);
     double *az = (double *) base(region, h->off_az);
+    double Control[UMFPACK_CONTROL], Info[UMFPACK_INFO];
+    int32_t gate;
     int st;
 
     free_factors(f);
     f->is_complex = 1;
+    if (!factor_control(h, Control)) return FSPARSE_ST_ERROR;
     st = umfpack_zl_symbolic(h->n, h->n, colptr, rowidx, ax, az, &f->symbolic,
-                             NULL, NULL);
+                             Control, Info);
     if (st != UMFPACK_OK) return norm_status(st);
+    gate = check_budget(h, Info, f);
+    if (gate != FSPARSE_ST_OK) return gate;
+    h->numeric_started = 1;
     st = umfpack_zl_numeric(colptr, rowidx, ax, az, f->symbolic, &f->numeric,
-                            NULL, NULL);
+                            Control, Info);
+    h->numeric_peak_bytes = memory_bytes(Info, UMFPACK_PEAK_MEMORY);
     return norm_status(st);
 }
 
@@ -256,6 +319,13 @@ static int32_t do_solve_complex(fsparse_shm_header *h, void *region,
 static int dispatch(fsparse_shm_header *h, void *region, factors_t *f)
 {
     switch (h->opcode) {
+    case FSPARSE_OP_CAPABILITIES:
+        h->status = FSPARSE_ST_ERROR;
+        if (h->factor_protocol == 1) {
+            h->factor_protocol = 2;
+            h->status = FSPARSE_ST_OK;
+        }
+        return 0;
     case FSPARSE_OP_FACTOR_REAL:
         h->status = do_factor_real(h, region, f);
         return 0;
