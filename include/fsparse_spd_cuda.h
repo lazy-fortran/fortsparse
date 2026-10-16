@@ -12,6 +12,11 @@ extern "C" {
  * Layout is column-major. Overlapping operands are unsupported.
  */
 int fsparse_spd_cuda_create(void **context, int device, size_t capacity);
+/* Setup-only thin path: create without a cuBLAS handle/workspace. Explicit
+ * BLAS operations require prepare_blas before begin_factor; they never allocate
+ * it implicitly. Existing create retains its eager preparation semantics. */
+int fsparse_spd_cuda_create_deferred(void **context, int device, size_t capacity);
+int fsparse_spd_cuda_prepare_blas(void *context);
 int fsparse_spd_cuda_destroy(void *context);
 int fsparse_spd_cuda_upload(void *context, size_t offset,
                             const double *source, size_t count);
@@ -19,6 +24,10 @@ int fsparse_spd_cuda_download(void *context, size_t offset,
                               double *destination, size_t count);
 int fsparse_spd_cuda_synchronize(void *context);
 int fsparse_spd_cuda_panel_factor(void *context, size_t offset, int n, int lda);
+/* Width 0..8 lower panel plus its trailing solve in one cooperative block.
+ * rows>=width, lda>=max(1,rows); upper entries and padding are preserved. */
+int fsparse_spd_cuda_front_factor(void *context, size_t offset,
+                                  int width, int rows, int lda);
 int fsparse_spd_cuda_factor_info(void *context, int *info);
 /* Setup only: retain compact integer row/column maps on the device. */
 int fsparse_spd_cuda_set_maps(void *context, const int *maps, size_t count);

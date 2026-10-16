@@ -15,7 +15,8 @@ function(fortsparse_add_cuda_tests)
         COMMAND test_fortsparse_native_supernodes --cuda)
     set_tests_properties(test_fortsparse_native_supernodes_cuda PROPERTIES
         LABELS "native;cuda;fast" TIMEOUT 1)
-    foreach(test IN ITEMS test_fortsparse_spd_cuda_leaves test_fortsparse_spd_cuda)
+    foreach(test IN ITEMS test_fortsparse_spd_cuda_leaves test_fortsparse_spd_cuda
+            test_fortsparse_spd_cuda_thin_panel)
         add_executable(${test} ${PROJECT_SOURCE_DIR}/test-cmake/cuda/${test}.cu)
         target_link_libraries(${test} PRIVATE fortsparse)
         target_include_directories(${test} PRIVATE
