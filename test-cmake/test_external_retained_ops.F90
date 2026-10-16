@@ -3,6 +3,7 @@ program test_external_retained_ops
         fortsparse_status_t, status_ok, csc_from_triplet, sparse_factor, &
         sparse_solve, sparse_solve_op, sparse_solve_block_op, sparse_free, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_UNAVAILABLE, &
+        FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_SYM_INDEFINITE
 #ifdef FS_TEST_MUMPS
     use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
@@ -13,8 +14,10 @@ program test_external_retained_ops
     integer, parameter :: cols(9) = [1, 1, 1, 2, 2, 2, 3, 3, 3]
     real(dp) :: a(3, 3), op_a(3, 3), rx(3), rb(3), ry(3), rq(3)
     real(dp) :: rknown(3, 2), rblock(3, 2), rresult(3, 2)
+    real(dp) :: rempty(3, 0), rempty_result(3, 0), rbadshape(2, 0)
     complex(dp) :: z(3, 3), op_z(3, 3), zx(3), zb(3), zy(3), zq(3)
     complex(dp) :: zknown(3, 2), zblock(3, 2), zresult(3, 2), values(9)
+    complex(dp) :: zempty(3, 0), zempty_result(3, 0), zbadshape(2, 0)
     type(csc_t) :: matrix
     type(csc_z_t) :: zmatrix
     type(sparse_solver_t) :: solver
@@ -35,6 +38,7 @@ program test_external_retained_ops
     rknown(:, 2) = [-0.3_dp, 0.2_dp, 1.7_dp]
     zknown = cmplx(rknown, reshape([0.2_dp, -0.6_dp, 0.7_dp, &
                                     -0.4_dp, 0.1_dp, 0.9_dp], [3, 2]), dp)
+    call check_unfactored_empty()
     do refinement = 0, 1
         solver%backend_id = backend
         solver%refine = refinement == 1
@@ -44,6 +48,7 @@ program test_external_retained_ops
         call sparse_factor(solver, matrix, status)
         if (status%code == FORTSPARSE_BACKEND_UNAVAILABLE) stop 77
         call require_ok('real factor')
+        call check_real_empty()
         do operation = 0, 2
             op_a = a
             if (operation /= 0) op_a = transpose(a)
@@ -97,6 +102,7 @@ program test_external_retained_ops
                 exit
             end if
             call require_ok('complex factor')
+            call check_complex_empty()
             do operation = 0, 2
                 op_z = z
                 if (operation == 1) op_z = transpose(z)
@@ -129,11 +135,50 @@ program test_external_retained_ops
         end do
         solver%options%symmetry = FORTSPARSE_SYM_GENERAL
     end do
+    call check_unfactored_empty()
 #ifdef FS_TEST_MUMPS
     if (backend == FORTSPARSE_BACKEND_MUMPS) call test_mpi_finalize()
 #endif
     print *, 'PASS retained external operations'
 contains
+    subroutine check_real_empty()
+        integer :: op
+        do op = 0, 2
+            call sparse_solve_block_op(solver, rempty, rempty_result, op, status)
+            call require_ok('real empty block')
+            call sparse_solve_block_op(solver, rempty, rbadshape, op, status)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) error stop 'empty real shape'
+        end do
+        do op = -1, 3, 4
+            call sparse_solve_block_op(solver, rempty, rempty_result, op, status)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) error stop 'empty real operation'
+        end do
+    end subroutine check_real_empty
+
+    subroutine check_complex_empty()
+        integer :: op
+        do op = 0, 2
+            call sparse_solve_block_op(solver, zempty, zempty_result, op, status)
+            call require_ok('complex empty block')
+            call sparse_solve_block_op(solver, zempty, zbadshape, op, status)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) error stop 'empty complex shape'
+        end do
+        do op = -1, 3, 4
+            call sparse_solve_block_op(solver, zempty, zempty_result, op, status)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) error stop 'empty complex operation'
+        end do
+    end subroutine check_complex_empty
+
+    subroutine check_unfactored_empty()
+        integer :: op
+        do op = 0, 2
+            call sparse_solve_block_op(solver, rempty, rempty_result, op, status)
+            if (status%code /= FORTSPARSE_NOT_FACTORED) error stop 'empty real unfactored'
+            call sparse_solve_block_op(solver, zempty, zempty_result, op, status)
+            if (status%code /= FORTSPARSE_NOT_FACTORED) error stop 'empty complex unfactored'
+        end do
+    end subroutine check_unfactored_empty
+
     subroutine require_ok(label)
         character(*), intent(in) :: label
         if (.not. status_ok(status)) then
