@@ -5,25 +5,32 @@ unchecked items are planned capabilities, not implementation claims.
 
 ## Goal and scope
 
-Develop native sparse solvers alongside the retained external backends. Admit
-native paths case by case when independent correctness, accuracy, elapsed-time
-and memory evidence justify replacing an existing backend for that workload.
-Keep external solvers available for capabilities or performance not yet covered.
+Deliver native sparse factorization and solves for the audited single-node
+requirements of ITPplasma codes. Retain external backends as explicit alternatives
+and independent comparison oracles. BLAS/LAPACK and graph-ordering dependencies
+are permitted; an external sparse factorization is not native execution.
 
-The target is the fastest validated total solve at the requested accuracy and
-memory budget on a declared corpus and hardware. Time and minimum memory can
-conflict: retain the measured Pareto frontier and explicit per-case limits.
-Report native performance separately from performance obtained by fallback.
+The release requirement is measured time/memory Pareto-front membership for
+every declared representative workload at matched accuracy and hardware.
+Pursue the fastest and the smallest-memory configurations, reporting their
+tradeoffs: one configuration need not minimize both. Retain the stronger
+same-comparator match/beat result separately. Missing comparator access or
+unknown memory limits the claim; fallback never establishes native admission.
 
-Execution is **single node, single process**. OpenMP, NUMA-aware CPU execution
-and native CUDA are part of the first production slice. MPI, distributed
-ordering and multi-node execution are out of scope. Multiple GPUs within one
-node are a later, evidence-driven milestone. Comparison backends use their
-sequential or shared-memory configurations.
+Predictable memory, user-supplied host/device limits and low-memory execution
+are first-class requirements, especially for NEO-2 and cluster-node sizing.
+A limit covers solver-owned allocations, not the entire process. Publish
+process/runtime overhead and explicit headroom separately.
 
-Use the smallest complete implementation for each admitted case. Keep state
-explicit and reentrant, and expose native and external paths through the same
-status-bearing solve contracts.
+Execution is **single node, single process**, with OpenMP, NUMA-aware CPU
+execution and optional CUDA. MPI, distributed execution, multiple GPUs and
+out-of-core factors are outside this plan. Reach a usable GPU SPD checkpoint,
+then prioritize CPU matrix-class coverage. Full GPU Pareto admission remains
+a requirement later; it does not block CPU development.
+
+Use `main` for coherent, locally verified integration and regular publication.
+Use explicit, reentrant state and preserve existing calling conventions through
+defaults. Update checked milestones only when their executable evidence exists.
 
 ## Implemented baseline
 
@@ -121,10 +128,26 @@ available parallelism, transfers and memory capacity. Verify factorization,
 refactorization, RHS batching and transpose solves on an actual device.
 
 Allocate during setup or bounded workspace growth, never inside hot numerical
-kernels. SPD analysis sizes the required structures. Later indefinite paths
-must account explicitly for delayed pivots and factor growth: enforce a memory
-budget, repair task dependencies as needed, and return a clear failure/fallback
-status. Reuse keys must cover every structural assumption on which reuse rests.
+kernels. Use checked 64-bit byte arithmetic. Add `host_memory_limit_bytes` and
+`device_memory_limit_bytes` (zero means unlimited), with AUTO and LOW_MEMORY
+policies, independently of UMFPACK's existing estimate-only memory gate.
+
+A reusable analysis/planning API reports factor storage, persistent metadata,
+peak workspace, supported RHS batch size and prediction quality (exact layout,
+conservative bound or estimate). Count ordering and analysis scratch, padding,
+task metadata, pinned buffers, pools, all copies and old/new overlap during
+refactorization. Reserve before allocating, including growth and derivative work.
+Opaque allocations cannot be advertised as strictly bounded: use an accountable
+path or report the strict-budget operation unsupported.
+
+LOW_MEMORY reduces concurrency, scratch, supernode padding and RHS batches;
+it never silently changes solver, drops accuracy or spills to disk. If the
+factors cannot fit, return budget-exceeded status with phase and required versus
+available bytes. Enforce numerical-pivot growth limits even when pre-factor
+fill is only an estimate. Preserve safe cleanup and recovery after exhaustion.
+Report current/peak attributed storage separately from process RSS and runtime
+cost; provide cluster-sizing guidance with explicit headroom and uncertainty.
+Reuse keys cover every structural and scheduling assumption.
 
 ## Benchmark and admission rules
 
@@ -186,56 +209,53 @@ mathematical implementations.
 
 ## Milestones and exit evidence
 
-- [x] **M5.0 — Baselines and contracts.** Freeze the first real SPD fixtures,
-  matrix/derivative/error contracts, raw external-solver baselines and memory
-  accounting. Name the consumer and independent correctness oracle for each.
-- [ ] **M5.1 — Generated numerical leaves.** Retain FortSym panel/update and
-  residual definitions; generate CPU and CUDA schedules with reusable workspace.
-  Exit with reproducible generation, independent value/JVP/VJP checks, actual
-  GPU results and matched microbenchmarks for the measured shape distribution.
-- [x] **M5.2 — Native SPD reference.** Implement a simple simplicial real SPD
-  analysis/factor/solve path, permutation handling and nonpositive-pivot
-  rejection. Verify factor reuse, block RHS, derivatives and error statuses
-  against independent small-matrix and retained-backend oracles.
-- [x] **M5.3 — Native production SPD, CPU MVP.** Add blocked/supernodal factorization,
-  generated kernels, OpenMP task scheduling and CPU/GPU placement. Admit cases
-  only after full-workflow time, accuracy and peak-memory gates pass, including
-  setup, transfers, reuse, requested derivatives and checking.
-  CPU admission is established on the declared corpus. The optional native
-  GPU engine is verified and measured but remains outside performance admission.
-- [ ] **M5.4 — Additional matrix classes.** Admit complex Hermitian positive
-  definite and robust symmetric-indefinite paths as separate slices. The latter
-  needs stable 1x1/2x2 pivots, delayed-pivot memory handling and adversarial
-  stability tests. Add unsymmetric LU only for a concrete consumer with its own
-  stability, transpose-solve, derivative and performance gates.
-- [ ] **M5.G — Matched GPU admission.** Compare native CUDA with cuDSS and
-  standalone CHOLMOD CUDA on the frozen FP64 SPD workflows in
-  `bench/GPU_BENCHMARKS.md`. Establish actual offload, complete host/device
-  memory accounting and external-only size calibration before native tuning.
-  Profile losing cases; improve generic emission upstream and regenerate the
-  consumer. The generic reciprocal lowering is published in FortGen/FortSym;
-  generated thin Schur/scatter fusion reduces the diagnostic matched campaign
-  from 54 to 33 timeouts out of 240 trials. See
-  `bench/results/2026-10-16-gpu-fusion.json`. The largest frozen 2D case still
-  times out and the larger 3D cases remain slower than external GPU libraries.
-  Batch safe per-panel updates and fuse narrow panel solves next; rerun the
-  frozen cases before accepting either optimization. Shared-device timings
-  and unknown aggregate VRAM do not establish GPU admission.
-  Admit host and device-resident workflows separately, preserving
-  the CPU frontier and all failed or unavailable comparisons.
-- [ ] **M5.5 — Measured extensions within one node.** Consider multiple GPUs
-  and approximate/compressed factors or preconditioners only for workloads
-  that justify them, with explicit memory and accuracy budgets.
+- [x] **M5.0--M5.3: real-SPD CPU MVP.** Native simplicial and production
+  supernodal Cholesky, generated leaves, reuse, block RHS, implicit derivatives
+  and observed-range CPU frontier evidence on the frozen 115-group corpus.
+  Wider standalone kernel coverage and stronger match/beat outcomes remain open.
+- [ ] **M6.0: consumer coverage.** Audit actual call paths, matrix classes,
+  storage/index limits, transpose operations, RHS/reuse, accuracy, threading and
+  memory needs across ITPplasma codes. Freeze consumer and held-out fixtures,
+  including NEO-2; distinguish unavailable evidence from verified coverage.
+- [ ] **M6.G: usable GPU SPD checkpoint.** Device triangular solves, bounded
+  RHS batches, retained factors across solves/refactors, no mandatory factor
+  downloads; independent primal/JVP/VJP and actual-device tests, complete memory
+  attribution and matched GPU-library diagnostics. Full GPU frontier is deferred
+  until CPU coverage, not removed. Current CUDA factorization is implemented;
+  host triangular solves and incomplete peak-VRAM evidence remain limitations.
+- [ ] **M6.1: bounded-memory native execution.** Planning, caps and RAM-only
+  LOW_MEMORY for existing SPD paths first; require the same contract for every
+  new family. Test analysis/numeric exhaustion, reuse overlap and recovery.
+- [ ] **M6.2: real unsymmetric LU.** Sparse pivoted reference, then blocked/
+  supernodal production execution; scaling, threshold pivoting, normal/transpose
+  solves, refinement, diagnostics, bounded growth and consumer frontier gates.
+- [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
+  explicit real-pairing derivatives; retain separate complex-class evidence.
+- [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex
+  leaves, correct conjugation, bounded-memory CPU schedules and admission.
+- [ ] **M6.5: indefinite native factors.** Separately admit pivoted real
+  symmetric, complex Hermitian and complex transpose-symmetric factorizations;
+  stable 1x1/2x2 pivots, delayed-pivot dependencies, growth caps and adversarial
+  stability tests. Do not substitute unpivoted LDL for robust indefinite solves.
+- [ ] **M6.6: consumer integration and CPU independence.** Consumer-required
+  sparse preconditioners (Krylov remains in FortNum), native configuration tests
+  without external sparse solvers, representative/held-out admission evidence,
+  cluster-memory predictions and migration documentation. Expand index width
+  when the consumer inventory demonstrates a requirement.
+- [ ] **M6.7: GPU admission and coverage.** Profile unresolved frozen SPD cases
+  to the GPU-library Pareto frontier, then add consumer-required GPU classes
+  with the same correctness, derivative, memory and performance gates.
 
-Develop M5.1 and the SPD reference together so a CPU-only prototype does not
-dictate the production architecture. A slow reference is a verifier, not a
-performance admission. The real-SPD CPU MVP exit is established on the frozen
-corpus, including HB/bcsstk09. Further work is driven by a concrete consumer:
-many-RHS batching and stronger thread scaling can improve existing tradeoffs;
-GPU work needs a justified crossover case. Wider standalone microbenchmark
-coverage in M5.1 remains open. Explicit AMD/ND and thread configurations remain
-independent measurements; a case-specific tuned win does not establish that
-AUTO or the default ordering always wins.
+For each family implement a small independent reference, verify the public
+lifecycle and derivative contracts, then profile production execution until the
+declared gates pass. Maintain the existing CPU corpus throughout. Native default
+selection is promoted only for admitted classes/configurations; correctness or
+an optimized microkernel alone is not performance admission.
+
+Normal, transpose and conjugate-transpose solves reuse the same factors; public
+APIs retain normal solves by default. Diagnostics distinguish invalid matrices,
+nonpositive pivots, singularity, allocation failure, budget exhaustion and
+unsupported claims. Never relabel an estimate as a rigorous error certificate.
 
 ## Ownership and retained work
 

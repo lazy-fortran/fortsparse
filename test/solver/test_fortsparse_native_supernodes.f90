@@ -1,7 +1,8 @@
 program test_fortsparse_native_supernodes
     use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_t, csc_from_triplet, csc_matvec
-    use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED
+    use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, &
+        FORTSPARSE_NOT_FACTORED, FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_cuda, only: native_cuda_available
     implicit none
@@ -220,7 +221,7 @@ contains
         end if
         a%val(1) = -1.0_dp
         call solver%factor(a, status)
-        if (status%code /= 8) error stop 'missing supernode failed pivot'
+        if (status%code /= FORTSPARSE_NOT_POSITIVE_DEFINITE) error stop 'missing supernode failed pivot'
         call solver%solve(x, status)
         if (status%code /= FORTSPARSE_NOT_FACTORED) error stop 'stale supernode factor reused'
         a%val(1) = 0.75_dp*matrix(1,1)

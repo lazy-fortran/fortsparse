@@ -8,6 +8,11 @@ integer tag on the solver; switching it never changes the calling code.
 
 The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
+The next requirements are native CPU coverage across audited ITPplasma matrix
+classes and predictable, user-limited memory with RAM-only low-memory modes.
+These are planned capabilities, not yet implemented public options. Development
+continues on `main`; GPU usability precedes CPU coverage, with full GPU Pareto
+admission retained as a later gate. MPI and disk-backed factors are out of scope.
 
 The [measured real-SPD MVP](bench/results/2026-10-16-mvp.md) is on the observed
 CPU time/memory Pareto front for all 115 frozen case/workload groups, including

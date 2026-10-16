@@ -2,18 +2,19 @@
 
 ## Active delivery
 
-Implement the single-node real-SPD MVP on `m5/native-single-node-roadmap` in
-steps, using `ROADMAP.md` as the authoritative work order. Read README.md,
-ROADMAP.md and the affected interface before changing behavior. Keep external
-backends available. MPI, distributed ordering and indefinite/unsymmetric native
-factorizations are outside this MVP.
+Implement native single-node coverage and bounded-memory execution on `main`,
+using `ROADMAP.md` as the authoritative work order. Read README.md, ROADMAP.md
+and the affected interface before changing behavior. Keep external backends
+available. Reach a usable GPU SPD checkpoint, then prioritize CPU matrix classes;
+full GPU frontier admission remains required later. MPI, multi-GPU execution
+and disk-backed factors are outside this plan.
 
 Continue profiling and optimizing unresolved cases until native execution is
 on the measured time/memory Pareto front. A working factorization, a microkernel
 win or a fallback to another library is not completion. Do not claim a novel
 algorithm merely because the implementation and generated schedules are new.
 
-Commit and push complete, locally verified increments to the active branch
+Commit and push complete, locally verified increments to `main`
 regularly. Publish performance numbers after implementation milestones and
 material optimizations. Preserve unrelated changes, stage explicit paths and
 keep worker integration under one controller. Remove task worktrees only after
@@ -31,6 +32,11 @@ their work is integrated and their owned processes have stopped.
 - Use explicit, reentrant state and bounded reusable workspaces. Numerical
   hot paths allocate nothing. Include padding, task metadata, pinned storage,
   allocator pools and CPU/GPU copies in memory accounting.
+- Enforce explicit solver-owned host/device allocation limits before allocation,
+  including analysis, transient growth, reuse overlap and derivative work.
+  LOW_MEMORY trades concurrency/workspace for RAM without changing accuracy.
+  Mark predictions as layout sizes, bounds or estimates; never equate an
+  estimate-only vendor gate with a hard cap. Account process overhead separately.
 - OpenMP and optional native CUDA are production execution paths. Control
   task/BLAS thread budgets, NUMA placement and device residency. Record actual
   active threads as well as requested threads. CPU builds require no CUDA.
