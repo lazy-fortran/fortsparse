@@ -4,7 +4,8 @@ module fortsparse_native_supernodes
     use fortsparse_status, only: fortsparse_status_t, status_set, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_NOT_FACTORED, FORTSPARSE_INDEX_OVERFLOW, &
-        FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INTERNAL_ERROR
+        FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INTERNAL_ERROR, &
+        FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
         spd_divide, spd_gather_update
@@ -24,7 +25,8 @@ module fortsparse_native_supernodes
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
     private
-    integer, parameter :: EXACT_WIDTH = 128, RELAXED_WIDTH = 32, NOT_SPD = 8
+    integer, parameter :: EXACT_WIDTH = 128, RELAXED_WIDTH = 32, &
+        NOT_SPD = FORTSPARSE_NOT_POSITIVE_DEFINITE
 
     type :: panel_t
         integer :: first = 0, width = 0, m = 0
