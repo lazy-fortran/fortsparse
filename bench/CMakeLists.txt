@@ -8,6 +8,7 @@ target_include_directories(fortsparse_spd_fixtures PUBLIC
 add_executable(bench_spd bench_spd.f90)
 target_link_libraries(bench_spd PRIVATE fortsparse fortsparse_spd_fixtures)
 fortsparse_colocate_helper(bench_spd)
+include(gpu/native.cmake)
 if(FORTSPARSE_BUILD_TESTING)
     add_executable(test_spd_fixtures test_spd_fixtures.f90)
     target_link_libraries(test_spd_fixtures PRIVATE fortsparse_spd_fixtures)
