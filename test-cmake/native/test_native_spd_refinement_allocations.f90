@@ -31,7 +31,7 @@ program test_native_spd_refinement_allocations
     call factor%factor_real(a,.true.,status)
     call finish(count,bytes)
     call checked()
-    if(bytes-baseline_bytes/=92) error stop 'measured SPD refinement payload differs from accounting' 
+    if(bytes-baseline_bytes/=92) error stop 'measured SPD refinement payload differs from accounting'
     factor%lv(factor%lp(1))=factor%lv(factor%lp(1))*(1+1e-4_dp)
     b=[2._dp,-5._dp]
     call begin()
