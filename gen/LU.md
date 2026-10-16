@@ -27,7 +27,8 @@ and `lu_factor_z_t`. Both expose:
 - `factor_raw(n,col_ptr,row_idx,values,status,...)`, with the same optional controls;
 - generic `solve(rhs,status,operation)` for one vector or a block of RHS;
 - `free()` and `memory_bytes()`;
-- `n`, `factor_nnz`, `peak_memory_bytes`, and `last_reused_pattern` diagnostics.
+- `n`, `factor_nnz`, `peak_memory_bytes`, `last_reused_pattern`,
+  `failed_required_bytes`, and `failed_available_bytes` diagnostics.
 
 Operation codes are `LU_NORMAL=0`, `LU_TRANSPOSE=1`, and `LU_ADJOINT=2`.
 For real values the last two operations coincide. Operations and dimensions are
@@ -65,7 +66,10 @@ unused factor capacity, indices, permutations, retained input pattern, numeric
 work and row scaling. It excludes caller input/RHS, derived-object descriptors
 and allocator overhead. Peak payload includes both old and replacement arrays
 during growth and partial successful allocations before an allocation failure.
-The cap is checked before allocations, including this copy peak. Default growth
+The cap is checked before allocations, including this copy peak. On a budget
+failure, `failed_required_bytes` records the additional allocation payload
+requested and `failed_available_bytes` records `max(0, cap-current payload)`.
+Both diagnostics reset at each factor attempt and on free. Default growth
 is geometric; low-memory mode grows only to the required factor count. It can
 trade more copying for less unused capacity. Process RSS remains a separate
 measurement. `factor_nnz` counts L/U including both diagonals, even though L's

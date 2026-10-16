@@ -15,6 +15,7 @@ module fortsparse_native_lu
     type, public :: lu_factor_t
         integer :: n=0
         integer(i8) :: factor_nnz=0_i8, peak_memory_bytes=0_i8
+        integer(i8) :: failed_required_bytes=0_i8, failed_available_bytes=0_i8
         logical :: last_reused_pattern=.false.
         logical, private :: ready=.false., low=.false.
         integer(i8), private :: limit=0_i8
@@ -41,6 +42,8 @@ contains
         logical, intent(in), optional :: low_memory
         self%ready=.false.
         self%factor_nnz=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%peak_memory_bytes=self%memory_bytes()
         if (.not.csc_is_valid(a) .or. a%nrow/=a%ncol) then
@@ -72,6 +75,8 @@ contains
 
         self%ready=.false.
         self%factor_nnz=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%peak_memory_bytes=self%memory_bytes()
         threshold=1.0_dp
@@ -146,6 +151,8 @@ contains
         if (.not.allocated(self%ap)) then
             fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
             if (cap>0 .and. fixed>cap) then
+                self%failed_required_bytes=fixed
+                self%failed_available_bytes=max(0_i8,cap-self%memory_bytes())
                 call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'LU fixed workspace exceeds memory cap')
                 return
             end if
@@ -364,6 +371,8 @@ contains
             peak=current+wanted*(ib+vb)
         end if
         if (self%limit>0 .and. peak>self%limit) then
+            self%failed_required_bytes=wanted*(ib+vb)
+            self%failed_available_bytes=max(0_i8,self%limit-current)
             call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'LU factor growth exceeds memory cap including copy')
             return
         end if
@@ -563,6 +572,8 @@ contains
         self%un=0
         self%factor_nnz=0_i8
         self%peak_memory_bytes=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%ready=.false.
         self%limit=0_i8
@@ -585,6 +596,7 @@ module fortsparse_native_lu_z
     type, public :: lu_factor_z_t
         integer :: n=0
         integer(i8) :: factor_nnz=0_i8, peak_memory_bytes=0_i8
+        integer(i8) :: failed_required_bytes=0_i8, failed_available_bytes=0_i8
         logical :: last_reused_pattern=.false.
         logical, private :: ready=.false., low=.false.
         integer(i8), private :: limit=0_i8
@@ -611,6 +623,8 @@ contains
         logical, intent(in), optional :: low_memory
         self%ready=.false.
         self%factor_nnz=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%peak_memory_bytes=self%memory_bytes()
         if (.not.csc_is_valid(a) .or. a%nrow/=a%ncol) then
@@ -642,6 +656,8 @@ contains
 
         self%ready=.false.
         self%factor_nnz=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%peak_memory_bytes=self%memory_bytes()
         threshold=1.0_dp
@@ -716,6 +732,8 @@ contains
         if (.not.allocated(self%ap)) then
             fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
             if (cap>0 .and. fixed>cap) then
+                self%failed_required_bytes=fixed
+                self%failed_available_bytes=max(0_i8,cap-self%memory_bytes())
                 call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'LU fixed workspace exceeds memory cap')
                 return
             end if
@@ -934,6 +952,8 @@ contains
             peak=current+wanted*(ib+vb)
         end if
         if (self%limit>0 .and. peak>self%limit) then
+            self%failed_required_bytes=wanted*(ib+vb)
+            self%failed_available_bytes=max(0_i8,self%limit-current)
             call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'LU factor growth exceeds memory cap including copy')
             return
         end if
@@ -1133,6 +1153,8 @@ contains
         self%un=0
         self%factor_nnz=0_i8
         self%peak_memory_bytes=0_i8
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%ready=.false.
         self%limit=0_i8
