@@ -529,6 +529,10 @@ checks, numeric fixtures and benchmark recipes. Preserve the MIT core and the
 existing separate GPL UMFPACK helper boundary; inspect each added dependency's
 terms before choosing an integration boundary. Public algorithm descriptions
 do not grant permission to copy incompatible implementations.
+Before frontier admission or consumer PRs use the supernodal LU, scan its new
+sources and generated leaves for code similarity against the retained solver
+snapshots (SuperLU, SuiteSparse, MUMPS, PaStiX, STRUMPACK, SPRAL), review every
+hit and record the result with the algorithm citations in the LU design.
 
 The local research collection is `~/code/sparse-dev/`: repositories, downloaded
 papers, library cards, availability records and a report. It is supporting
