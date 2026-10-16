@@ -146,3 +146,26 @@ untouched entries, empty batches, finite differences, and the retained symbolic
 JVP/VJP using the ordinary real component pairing. LU factor fixtures also cover
 one-element and diagonal matrices with empty L storage, N/T/H solves, column
 permutations, re-pivoting and unchanged owned memory across solves.
+
+Witnessed LU pruning keeps the complete numerical L while DFS traverses a
+reduced adjacency prefix. An edge from an earlier pivot to row r is removed
+only when an actual retained path through the newly completed pivot reaches r.
+The witness edge to that pivot remains in the prefix. Pair-partitioning row
+indices and coefficients keeps every numerical factor entry aligned; scatter
+and triangular solves still use the full column. Exact cancellations cannot
+justify a removal because membership uses only retained nonzero L entries.
+Adding each new column and deleting these witnessed edges preserves the graph's
+transitive closure. This is a conservative transitive reduction, not a new
+factorization algorithm. General pruning motivation is described in Demmel et
+al., *A Supernodal Approach to Sparse Partial Pivoting* (1999), section 4.2;
+the retained paper is indexed in the sparse-dev solver library cards.
+
+The internal low-level factor option defaults to the full graph. The production
+native adapter enables the candidate schedule; NATIVE_REFERENCE selects the full
+graph. Enabled pruning owns one integer endpoint per column and preflights that
+allocation alongside retained factors; disabling it releases that metadata.
+Every factor/refactor rebuilds graph state, including after a failed attempt.
+The focused pruning fixture checks actual graph partitions against independent
+Boolean graph closure, aligned real/complex coefficients, an exact-cancellation
+counterexample, pivot permutations, implicit derivatives and allocation caps.
+Performance retention requires the controller's matched end-to-end measurements.

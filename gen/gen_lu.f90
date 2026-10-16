@@ -167,8 +167,8 @@ contains
         character(:), allocatable :: finite,norm,zero,adjoint
         character(:), allocatable :: scatter,gather
         character(1024) :: buffer
-        character(8), parameter :: arrays(*)=[character(8) :: &
-            'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach','lv','uv','work','row_norm']
+        character(9), parameter :: arrays(*)=[character(9) :: &
+            'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach','prune_end','lv','uv','work','row_norm']
         integer :: input,ios,i
         name='fortsparse_native_lu'; kind='lu_factor_t'; scalar='real(dp)'; csc='csc_t'
         leaves='fortsparse_spd_leaves';divide='spd_divide'
@@ -192,10 +192,10 @@ contains
                 do i=1,size(arrays)
                     if(line=='@FREE@') then
                         write(unit,'(a)') '        if(allocated(self%'//trim(arrays(i))//')) deallocate(self%'//trim(arrays(i))//')'
-                    else if(i<=13) then
+                    else if(i<=14) then
                         write(unit,'(a)') '        if(allocated(self%'//trim(arrays(i))// &
                             ')) bytes=bytes+ib*size(self%'//trim(arrays(i))//',kind=i8)'
-                    else if(i<=16) then
+                    else if(i<=17) then
                         write(unit,'(a)') '        if(allocated(self%'//trim(arrays(i))// &
                             ')) bytes=bytes+vb*size(self%'//trim(arrays(i))//',kind=i8)'
                     else
