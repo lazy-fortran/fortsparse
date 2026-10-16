@@ -38,6 +38,24 @@ int fsparse_spd_cuda_schur_scatter(void *context, size_t left_offset, int ldl,
                                    size_t destination_offset, int destination_rows,
                                    int destination_columns, size_t row_map_offset,
                                    size_t column_map_offset);
+/* Setup-only plan for thin (0 <= k <= 8) updates. Batch pointers are
+ * zero-based task offsets, length batch_count+1. In each batch, nonempty
+ * destinations must be ordered, disjoint full panel slices; all operand
+ * reads must precede the first destination. Unique maps have the same
+ * contract as schur_scatter. These conditions make one source panel safe
+ * without atomics; batches remain stream ordered. set_maps invalidates this
+ * plan. Empty batches/tasks enqueue no work. No factor-time allocation. */
+typedef struct fsparse_spd_cuda_schur_task {
+    size_t left_offset, right_offset, destination_offset;
+    size_t row_map_offset, column_map_offset;
+    int ldl, ldr, m, n, k, destination_rows, destination_columns;
+} fsparse_spd_cuda_schur_task;
+int fsparse_spd_cuda_set_schur_batches(void *context,
+    const fsparse_spd_cuda_schur_task *tasks, size_t task_count,
+    const size_t *batch_ptr, size_t batch_count);
+int fsparse_spd_cuda_schur_batch(void *context, size_t batch);
+/* Retained host context and launch metadata, separate from device bytes. */
+size_t fsparse_spd_cuda_host_plan_bytes(void *context);
 int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset, int n, int ldl,
                                  size_t b_offset, int m, int ldb);
 int fsparse_spd_cuda_schur_update(void *context, size_t c_offset, int ldc,

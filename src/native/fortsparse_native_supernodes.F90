@@ -16,7 +16,8 @@ module fortsparse_native_supernodes
         spd_cuda_upload, spd_cuda_download, spd_cuda_synchronize, &
         spd_cuda_panel_factor, spd_cuda_factor_info, spd_cuda_panel_solve, &
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
-        spd_cuda_scatter_update, spd_cuda_schur_scatter, spd_cuda_allocated_bytes
+        spd_cuda_scatter_update, spd_cuda_allocated_bytes, spd_cuda_schur_task, &
+        spd_cuda_set_schur_batches, spd_cuda_schur_batch, spd_cuda_host_plan_bytes
 #endif
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
@@ -40,6 +41,9 @@ module fortsparse_native_supernodes
         integer :: n = 0, node_count = 0, active_threads = 1, task_groups = 0
         integer(i8) :: factor_nnz = 0_i8
         integer(i8) :: device_bytes = 0_i8
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        integer(i8), private :: cuda_host_bytes = 0_i8
+#endif
         integer(i8) :: symbolic_nnz = 0_i8
         integer(i8) :: factor_storage_bytes = 0_i8, workspace_bytes = 0_i8
         real(dp) :: flops = 0.0_dp, numeric_s = 0.0_dp
@@ -684,6 +688,9 @@ contains
         self%workspace_bytes = 0_i8
         self%numeric_count = 0_c_size_t
         self%device_bytes = 0_i8
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        self%cuda_host_bytes = 0_i8
+#endif
         self%device = -1
         self%flops = 0.0_dp
         self%use_blas = .true.
@@ -700,6 +707,9 @@ contains
         class(supernodes_t), intent(in) :: self
         integer :: s
         bytes = 0_i8
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        bytes = self%cuda_host_bytes
+#endif
         if (.not. allocated(self%panels)) return
         do s = 1, self%node_count
             if (allocated(self%panels(s)%rows)) &
@@ -954,17 +964,21 @@ contains
         integer, intent(in) :: maxwork
         type(fortsparse_status_t), intent(out) :: status
         integer(c_int), allocatable, target :: maps(:)
-        integer :: s, first, group, dest, q, m2, u, count_updates, base, p, ierr
+        type(spd_cuda_schur_task), allocatable, target :: tasks(:)
+        integer(c_size_t), allocatable, target :: batch_ptr(:)
+        integer :: s, first, group, dest, q, m2, u, v, count_updates, count_thin, base, p, ierr
         integer(i8) :: count_maps
         integer(c_int) :: code
 
         count_updates = 0
+        count_thin = 0
         count_maps = 0_i8
         do s = 1, self%node_count
             first = self%panels(s)%width+1
             do while (first <= self%panels(s)%m)
                 call update_group(self, s, first, group, dest)
                 count_updates = count_updates+1
+                if (self%panels(s)%width <= 8) count_thin = count_thin+1
                 count_maps = count_maps+self%panels(s)%m-first+1+group-first
                 first = group
             end do
@@ -973,14 +987,17 @@ contains
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'CUDA scatter maps too large')
             return
         end if
-        allocate(self%updates(count_updates), maps(int(count_maps)), stat=ierr)
+        allocate(self%updates(count_updates), maps(int(count_maps)), &
+            tasks(count_thin), batch_ptr(self%node_count+1), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'CUDA scatter map allocation failed')
             return
         end if
         base = 0
         u = 0
+        v = 0
         do s = 1, self%node_count
+            batch_ptr(s) = int(v,c_size_t)
             self%panels(s)%update_first = u+1
             first = self%panels(s)%width+1
             do while (first <= self%panels(s)%m)
@@ -1003,6 +1020,17 @@ contains
                 maps(base+1:base+q) = self%panels(s)%rows(first:group-1) &
                     -self%panels(dest)%first+1
                 base = base+q
+                if (self%panels(s)%width <= 8) then
+                    v = v+1
+                    tasks(v) = spd_cuda_schur_task( &
+                        self%panels(s)%offset+int(first-1,c_size_t), &
+                        self%panels(s)%offset+int(first-1,c_size_t), &
+                        self%panels(dest)%offset, self%updates(u)%row_map, &
+                        self%updates(u)%column_map, int(self%panels(s)%m,c_int), &
+                        int(self%panels(s)%m,c_int), int(m2,c_int), int(q,c_int), &
+                        int(self%panels(s)%width,c_int), int(self%panels(dest)%m,c_int), &
+                        int(self%panels(dest)%width,c_int))
+                end if
                 do p = 1, self%panels(dest)%m
                     self%rowmap(self%panels(dest)%rows(p),1) = 0
                 end do
@@ -1010,14 +1038,27 @@ contains
             end do
             self%panels(s)%update_last = u
         end do
+        batch_ptr(self%node_count+1) = int(v,c_size_t)
         code = spd_cuda_create(self%cuda, int(self%device,c_int), &
             self%numeric_count+int(maxwork,c_size_t))
         if (code == 0) then
             if (count_maps > 0) &
                 code = spd_cuda_set_maps(self%cuda, c_loc(maps), int(count_maps,c_size_t))
         end if
+        if (code == 0) then
+            if (v > 0) then
+                code = spd_cuda_set_schur_batches(self%cuda, c_loc(tasks), int(v,c_size_t), &
+                    c_loc(batch_ptr), int(self%node_count,c_size_t))
+            else
+                code = spd_cuda_set_schur_batches(self%cuda, c_null_ptr, 0_c_size_t, &
+                    c_loc(batch_ptr), int(self%node_count,c_size_t))
+            end if
+        end if
         call cuda_status(code, status)
-        if (code == 0) self%device_bytes = int(spd_cuda_allocated_bytes(self%cuda),i8)
+        if (code == 0) then
+            self%device_bytes = int(spd_cuda_allocated_bytes(self%cuda),i8)
+            self%cuda_host_bytes = int(spd_cuda_host_plan_bytes(self%cuda),i8)
+        end if
     end subroutine setup_cuda
 
     subroutine factor_cuda(self, status)
@@ -1041,26 +1082,22 @@ contains
             code = spd_cuda_panel_factor(self%cuda, offset, w, m)
             if (code == 0 .and. m > w) &
                 code = spd_cuda_panel_solve(self%cuda, offset, w, m, offset+w, m-w, m)
+            if (code == 0 .and. w <= 8) then
+                code = spd_cuda_schur_batch(self%cuda, int(s-1,c_size_t))
+                cycle
+            end if
             do u = self%panels(s)%update_first, self%panels(s)%update_last
                 if (code /= 0) exit
                 dest = self%updates(u)%dest
                 m2 = m-self%updates(u)%first+1
                 source_offset = offset+self%updates(u)%first-1
-                if (w <= 8) then
-                    code = spd_cuda_schur_scatter(self%cuda, source_offset, m, &
-                        source_offset, m, m2, self%updates(u)%q, w, &
-                        self%panels(dest)%offset, self%panels(dest)%m, &
-                        self%panels(dest)%width, self%updates(u)%row_map, &
-                        self%updates(u)%column_map)
-                else
-                    code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
-                        source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
-                    if (code /= 0) exit
-                    code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
-                        m2, self%updates(u)%q, self%panels(dest)%offset, &
-                        self%panels(dest)%m, self%panels(dest)%width, &
-                        self%updates(u)%row_map, self%updates(u)%column_map)
-                end if
+                code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
+                    source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
+                if (code /= 0) exit
+                code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
+                    m2, self%updates(u)%q, self%panels(dest)%offset, &
+                    self%panels(dest)%m, self%panels(dest)%width, &
+                    self%updates(u)%row_map, self%updates(u)%column_map)
             end do
         end do
         if (code == 0) code = spd_cuda_factor_info(self%cuda, info)

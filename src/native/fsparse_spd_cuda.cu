@@ -4,9 +4,19 @@
 #include <cuda_runtime.h>
 #include <limits>
 #include <new>
+#include <vector>
+#include <utility>
+#include <climits>
 
 namespace {
 constexpr size_t workspace_bytes = 1024 * 1024;
+struct DeviceTask {
+    fsparse_spd_cuda_schur_task task;
+    size_t block_end;
+};
+struct Batch {
+    size_t first, count, block_first, blocks;
+};
 struct Context {
     int device;
     size_t capacity;
@@ -18,6 +28,9 @@ struct Context {
     int *maps = nullptr;
     size_t map_count = 0;
     bool factor_batch = false;
+    DeviceTask *tasks = nullptr;
+    size_t task_count = 0;
+    std::vector<Batch> batches;
 };
 
 int activate(Context *ctx)
@@ -95,6 +108,37 @@ __global__ void schur_scatter(const double *left, int ldl,
     spd_schur_scatter_entry(left, ldl, right, ldr, m, n, k,
                             destination, ldd, columns, rows, cols, index);
 }
+// Each block finds its retained task in a prefix schedule. A large task
+// keeps the same 256-entry tiling as the single-task kernel. Arithmetic and
+// mapped lower-triangle semantics come from the retained generated schedule.
+__global__ void schur_batch(double *arena, const int *maps,
+                            const DeviceTask *tasks, Batch batch, const int *info)
+{
+    if (*info != 0) return;
+    const size_t block = batch.block_first+blockIdx.x;
+    size_t lo = batch.first, hi = batch.first+batch.count;
+    while (lo < hi) {
+        const size_t middle = lo+(hi-lo)/2;
+        if (tasks[middle].block_end <= block) lo = middle+1;
+        else hi = middle;
+    }
+    const DeviceTask &item = tasks[lo];
+    const auto &t = item.task;
+    const size_t begin = lo == 0 ? 0 : tasks[lo-1].block_end;
+    const size_t index = (block-begin)*blockDim.x+threadIdx.x;
+    spd_schur_scatter_entry(arena+t.left_offset, t.ldl,
+        arena+t.right_offset, t.ldr, t.m, t.n, t.k,
+        arena+t.destination_offset, t.destination_rows, t.destination_columns,
+        maps+t.row_map_offset, maps+t.column_map_offset, index);
+}
+
+void clear_plan(Context *ctx)
+{
+    if (ctx->tasks) cudaFree(ctx->tasks);
+    ctx->tasks = nullptr;
+    ctx->task_count = 0;
+    std::vector<Batch>().swap(ctx->batches);
+}
 } // namespace
 
 extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capacity)
@@ -140,6 +184,7 @@ extern "C" int fsparse_spd_cuda_destroy(void *context)
     if (result) return result;
     if (ctx->stream) result = cudaStreamSynchronize(ctx->stream);
     if (ctx->blas) cublasDestroy(ctx->blas);
+    clear_plan(ctx);
     if (ctx->maps) cudaFree(ctx->maps);
     if (ctx->workspace) cudaFree(ctx->workspace);
     if (ctx->info) cudaFree(ctx->info);
@@ -212,6 +257,7 @@ extern "C" int fsparse_spd_cuda_set_maps(void *context, const int *maps, size_t 
     if (result) return result;
     result = cudaStreamSynchronize(ctx->stream);
     if (result) return result;
+    clear_plan(ctx);
     if (ctx->maps) cudaFree(ctx->maps);
     ctx->maps = nullptr;
     ctx->map_count = 0;
@@ -286,6 +332,99 @@ extern "C" int fsparse_spd_cuda_schur_scatter(void *context,
     return cudaGetLastError();
 }
 
+extern "C" int fsparse_spd_cuda_set_schur_batches(void *context,
+    const fsparse_spd_cuda_schur_task *tasks, size_t task_count,
+    const size_t *batch_ptr, size_t batch_count)
+{
+    auto *ctx = static_cast<Context*>(context);
+    const size_t limit = std::numeric_limits<size_t>::max();
+    if (!ctx || !batch_ptr || (task_count && !tasks) ||
+        task_count > limit/sizeof(DeviceTask) || batch_count > limit/sizeof(Batch) ||
+        batch_ptr[0] != 0 || batch_ptr[batch_count] != task_count) return -1;
+    try {
+        std::vector<DeviceTask> device_tasks(task_count);
+        std::vector<Batch> batches(batch_count);
+        size_t blocks = 0;
+        for (size_t b = 0; b < batch_count; ++b) {
+            const size_t first = batch_ptr[b], end = batch_ptr[b+1];
+            if (first > end || end > task_count) return -1;
+            Batch &batch = batches[b];
+            batch = {first, end-first, blocks, 0};
+            size_t destination_end = 0, first_destination = ctx->capacity;
+            size_t source_end = 0;
+            for (size_t i = first; i < end; ++i) {
+                const auto &t = tasks[i];
+                if (t.k < 0 || t.k > 8 ||
+                    !matrix_fits(ctx, t.left_offset, t.ldl, t.m, t.k) ||
+                    !matrix_fits(ctx, t.right_offset, t.ldr, t.n, t.k) ||
+                    !matrix_fits(ctx, t.destination_offset, t.destination_rows,
+                                 t.destination_rows, t.destination_columns) ||
+                    t.row_map_offset > ctx->map_count ||
+                    t.column_map_offset > ctx->map_count ||
+                    size_t(t.m) > ctx->map_count-t.row_map_offset ||
+                    size_t(t.n) > ctx->map_count-t.column_map_offset) return -1;
+                if (t.m && t.n && t.k) {
+                    // Matrix bounds above also prove these products cannot overflow.
+                    if (size_t(t.m) > limit/size_t(t.n)) return -1;
+                    const size_t entries = size_t(t.m)*t.n;
+                    const size_t added = entries/256+(entries%256 != 0);
+                    if (added > limit-blocks) return -1;
+                    blocks += added;
+                    if (blocks-batch.block_first > INT_MAX) return -1;
+                    if (t.destination_offset < destination_end) return -1;
+                    if (first_destination == ctx->capacity)
+                        first_destination = t.destination_offset;
+                    destination_end = t.destination_offset+
+                        size_t(t.destination_rows)*t.destination_columns;
+                    const size_t left_end = t.left_offset+size_t(t.k-1)*t.ldl+t.m;
+                    const size_t right_end = t.right_offset+size_t(t.k-1)*t.ldr+t.n;
+                    if (left_end > source_end) source_end = left_end;
+                    if (right_end > source_end) source_end = right_end;
+                }
+                device_tasks[i] = {t, blocks};
+            }
+            if (source_end > first_destination) return -1;
+            batch.blocks = blocks-batch.block_first;
+        }
+        int result = activate(ctx);
+        if (result) return result;
+        DeviceTask *uploaded = nullptr;
+        if (task_count) {
+            result = cudaMalloc(&uploaded, task_count*sizeof(DeviceTask));
+            if (!result) result = cudaMemcpyAsync(uploaded, device_tasks.data(),
+                task_count*sizeof(DeviceTask), cudaMemcpyHostToDevice, ctx->stream);
+        }
+        if (!result) result = cudaStreamSynchronize(ctx->stream);
+        if (result) { if (uploaded) cudaFree(uploaded); return result; }
+        clear_plan(ctx);
+        ctx->tasks = uploaded;
+        ctx->task_count = task_count;
+        ctx->batches = std::move(batches);
+        return 0;
+    } catch (const std::bad_alloc &) {
+        return static_cast<int>(cudaErrorMemoryAllocation);
+    }
+}
+
+extern "C" int fsparse_spd_cuda_schur_batch(void *context, size_t batch)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (!ctx || batch >= ctx->batches.size()) return -1;
+    const Batch &item = ctx->batches[batch];
+    if (!item.blocks) return 0;
+    int result = activate(ctx);
+    if (result) return result;
+    schur_batch<<<static_cast<unsigned>(item.blocks),256,0,ctx->stream>>>(
+        ctx->arena, ctx->maps, ctx->tasks, item, ctx->info);
+    return cudaGetLastError();
+}
+
+extern "C" size_t fsparse_spd_cuda_host_plan_bytes(void *context)
+{
+    auto *ctx = static_cast<Context*>(context);
+    return ctx ? sizeof(Context)+ctx->batches.capacity()*sizeof(Batch) : 0;
+}
+
 extern "C" int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset,
                                             int n, int ldl, size_t b_offset,
                                             int m, int ldb)
@@ -341,5 +480,5 @@ extern "C" size_t fsparse_spd_cuda_allocated_bytes(void *context)
 {
     auto *ctx = static_cast<Context*>(context);
     return ctx ? ctx->capacity*sizeof(double)+sizeof(int)+workspace_bytes
-                 +ctx->map_count*sizeof(int) : 0;
+                 +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask) : 0;
 }
