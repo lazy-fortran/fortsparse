@@ -1,5 +1,6 @@
 # Fixtures/records link neither a sparse solver nor BLAS: also used by MKL-only.
 add_library(fortsparse_family_fixtures STATIC fixtures.f90 records.f90
+    real_fixture_io.f90
     ../process_metrics.c)
 set_target_properties(fortsparse_family_fixtures PROPERTIES
     Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
@@ -53,6 +54,40 @@ if(FORTSPARSE_BUILD_TESTING)
         "${_family_mini5}")
     set_tests_properties(native_family_fixtures PROPERTIES
         LABELS "benchmark;fast" TIMEOUT 1)
+    add_executable(test_native_family_real_io test_real_fixture_io.f90)
+    target_link_libraries(test_native_family_real_io PRIVATE fortsparse_family_fixtures)
+    add_test(NAME native_family_real_io COMMAND test_native_family_real_io)
+    set_tests_properties(native_family_real_io PROPERTIES
+        LABELS "benchmark;fast" TIMEOUT 1)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME native_family_real_audit COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_real_fixture.py")
+        set_tests_properties(native_family_real_audit PROPERTIES
+            LABELS "benchmark;fast" TIMEOUT 1)
+        foreach(_peer superlu umfpack mumps umfpack-direct intel-pardiso)
+            set(_real_driver bench_native_families)
+            if(_peer STREQUAL "superlu" AND NOT FORTSPARSE_ENABLE_SUPERLU)
+                continue()
+            elseif(_peer STREQUAL "umfpack" AND NOT FORTSPARSE_BUILD_HELPER)
+                continue()
+            elseif(_peer STREQUAL "mumps" AND NOT FORTSPARSE_ENABLE_MUMPS)
+                continue()
+            elseif(_peer STREQUAL "umfpack-direct")
+                set(_real_driver bench_native_families_umfpack)
+            elseif(_peer STREQUAL "intel-pardiso")
+                set(_real_driver bench_native_families_pardiso)
+            endif()
+            if(TARGET ${_real_driver})
+                add_test(NAME "native_family_real_${_peer}"
+                    COMMAND ${Python3_EXECUTABLE}
+                    "${CMAKE_CURRENT_SOURCE_DIR}/test_real_fixture.py"
+                    $<TARGET_FILE:${_real_driver}> "${_peer}")
+                set_tests_properties("native_family_real_${_peer}" PROPERTIES
+                    LABELS "benchmark;fast" TIMEOUT 1
+                    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
+            endif()
+        endforeach()
+    endif()
     foreach(_case neo2-mini5 drift-real drift-complex hpd-chain ldlt-chain)
         set(_level 3)
         if(_case STREQUAL "neo2-mini5")

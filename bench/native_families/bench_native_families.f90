@@ -4,8 +4,10 @@ program bench_native_families
                    sparse_factor_stats, sparse_factor_stats_t, FORTSPARSE_SYM_GENERAL, &
                    FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
                    FORTSPARSE_ORDER_AMD
-    use native_family_fixtures, only: dp, family_fixture_t, make_family_fixture, &
-                                      known_rhs, fixture_backward_error, wall_time
+    use native_family_fixtures, only: dp, family_fixture_t, &
+                                      fixture_backward_error, wall_time
+    use native_family_real_io, only: load_benchmark_fixture, load_benchmark_rhs, &
+                                    export_real_solution
     use native_family_records, only: family_record_t, process_metrics, &
         parent_cpu_seconds
     implicit none
@@ -66,17 +68,20 @@ program bench_native_families
     r%nrhs = 1
     select case (trim(r%workload))
     case ('rhs1', 'refactor', 'warm')
+    case ('rhs4')
+        r%nrhs = 4
     case ('rhs8')
         r%nrhs = 8
     case default
-        error stop 'workload must be rhs1/rhs8/refactor/warm'
+        error stop 'workload must be rhs1/rhs4/rhs8/refactor/warm'
     end select
-    call make_family_fixture(trim(r%family), r%level, heldout, fixture, &
+    call load_benchmark_fixture(trim(r%family), r%level, heldout, fixture, &
                              trim(mini5_path))
     r%n = fixture%n
     r%nnz = size(fixture%val)
     allocate (bz(r%n, r%nrhs), xz(r%n, r%nrhs), truth(r%n, r%nrhs))
-    call known_rhs(fixture, trim(r%family), r%nrhs, heldout, operation, bz, truth)
+    call load_benchmark_rhs(fixture, trim(r%family), r%nrhs, heldout, operation, &
+                            bz, truth, trim(mini5_path))
     solver%options%nthreads = r%threads
     solver%options%symmetry = FORTSPARSE_SYM_GENERAL
     if (fixture%mtype == 4) solver%options%symmetry = FORTSPARSE_SYM_SPD
@@ -150,6 +155,7 @@ program bench_native_families
     r%forward_error = maxval(abs(xz - truth))/max(1.0_dp, maxval(abs(truth)))
     if (.not. (r%backward_error < 1.e-12_dp)) r%status_code = 5
     if (.not. (r%forward_error < 1.e-10_dp)) r%status_code = 5
+    call export_real_solution(trim(r%family), xz)
 900 continue
     call sparse_factor_stats(solver, stats, stats_status)
     r%factor_nnz = stats%factor_nnz

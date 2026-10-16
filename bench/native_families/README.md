@@ -1,5 +1,9 @@
 # Single-node native-family comparison foundation
 
+Hashed private real consumer matrices use the bounded `real-mm`/`rhs4`
+[adapter and independent audit](PRIVATE_REAL_FIXTURES.md). Numeric inputs and
+candidate solutions stay outside Git; the original frozen corpus below is unchanged.
+
 These benchmark-only fixtures cover real LU, complex LU, complex Hermitian
 positive-definite Cholesky and real symmetric-indefinite LDLT. They complement
 the existing SPD corpus; no existing SPD fixture, driver or scientific source
