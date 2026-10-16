@@ -50,6 +50,12 @@ returns backend unavailable. Device statistics cover attributed allocations,
 excluding unreported driver/vendor internal pools. GPU correctness is tested
 on real hardware; performance admission remains case dependent.
 
+Native CPU also provides real/complex general sparse LU, complex HPD Cholesky,
+and pivoted real symmetric indefinite LDLT as bounded-memory reference families.
+See [matrix classes and transpose/adjoint solves](docs/native-cpu.md). Their
+production performance admission, refinement and parallel factorization remain
+open; the published CPU frontier claim applies only to the frozen real-SPD corpus.
+
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
 built with a sequential MUMPS (see [Backend selection](#backend-selection));

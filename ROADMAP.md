@@ -46,6 +46,9 @@ defaults. Update checked milestones only when their executable evidence exists.
 
 - [x] Native real SPD simplicial reference and blocked factorization, optional
   AMD/METIS ordering, retained analysis, block RHS and implicit derivatives.
+- [x] Native CPU sparse real/complex pivoted LU references, complex HPD
+  simplicial Cholesky and real symmetric pivoted LDLT references, with retained
+  transpose/adjoint solves and allocation caps. Production admission remains open.
 - [x] Retained FortSym primal/JVP/VJP leaves with generated CPU/CUDA schedules;
   actual-device correctness checks and context reuse.
 - [x] OpenMP destination tasks grouped by complete elimination subtrees,
