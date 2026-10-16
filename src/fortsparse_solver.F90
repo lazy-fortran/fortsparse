@@ -872,6 +872,8 @@ contains
         logical, intent(in) :: is_complex
 
         id = FORTSPARSE_BACKEND_SUPERLU
+        if (.not. AUTO_HAS_SUPERLU .and. .not. AUTO_HAS_MUMPS) &
+            id = FORTSPARSE_BACKEND_NATIVE
         if (AUTO_HAS_MUMPS .and. nnz >= AUTO_MUMPS_MIN_NNZ .and. &
             (AUTO_HAS_ZMUMPS .or. .not. is_complex)) id = FORTSPARSE_BACKEND_MUMPS
         if (AUTO_HAS_MUMPS .and. .not. AUTO_HAS_SUPERLU) &

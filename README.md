@@ -59,8 +59,11 @@ open; the published CPU frontier claim applies only to the frozen real-SPD corpu
 
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
-built with a sequential MUMPS (see [Backend selection](#backend-selection));
-without MUMPS it is SuperLU, linked in-process through a small MIT C shim. UMFPACK (GPL) is reached through a second backend that never links into
+built with a sequential MUMPS (see [Backend selection](#backend-selection)).
+With SuperLU enabled and MUMPS disabled, AUTO uses SuperLU through a small MIT
+C shim. When neither eligible in-process external backend is built, AUTO selects the
+native backend. This capability fallback does not extend the performance
+admission beyond the declared corpus. UMFPACK (GPL) is reached through a second backend that never links into
 the library: it runs in a standalone GPL helper process driven over shared
 memory and named semaphores. The MIT library stays free of any GPL link. See
 [License](#license) for why the process boundary holds.
@@ -93,15 +96,33 @@ Options, all set with `-D`:
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU entirely; the library then needs only the UMFPACK helper. |
+| `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU entirely; native execution remains available. |
+| `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and builds/installs no helper. The IPC protocol binding remains available for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | `ON` finds SuperLU and UMFPACK with `find_package` instead of fetching them. BLAS/LAPACK always come from the system. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs an OpenMP-enabled MUMPS, found by `find_package(MUMPS CONFIG)` or else `cmake/FindMUMPS.cmake` (distribution packages); see [MUMPS backend](#mumps-backend). |
 | `FORTSPARSE_INSTALL_HELPER` | `ON` | Install the UMFPACK helper to `bin/`. See [Use in your project](#use-in-your-project). |
 | `FORTSPARSE_TEST_OOM` | `OFF` | Also register `test_fortsparse_superlu_status_oom` (label `oom`), which forces a real SuperLU allocation failure under `ulimit -v 250000`. Manual: the working limit is toolchain dependent. Run with `ctest -L oom`. |
 
-The UMFPACK helper builds whenever the SuiteSparse chain is available (fetched,
-or found under `FORTSPARSE_USE_SYSTEM_DEPS`). It is the one GPL artifact and the
+With `FORTSPARSE_ENABLE_UMFPACK_IPC=ON`, the UMFPACK helper builds whenever
+the SuiteSparse chain is available (fetched, or found under
+`FORTSPARSE_USE_SYSTEM_DEPS`). It is the one GPL artifact and the
 one place `umfpack.h` appears.
+
+A native-only CMake build needs BLAS/LAPACK and no sparse solver, helper or CAS:
+
+```sh
+cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+  -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
+  -DFORTSPARSE_ENABLE_MUMPS=OFF -DFORTSPARSE_ENABLE_AMD=OFF \
+  -DFORTSPARSE_ENABLE_METIS=OFF
+cmake --build build-native --target test_fortsparse_native_only -j 2
+ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-failure
+```
+
+AMD/METIS ordering and native CUDA can be enabled separately when available.
+The `test_fortsparse_native_only_build` check (label `build`) separately checks
+configuration, compilation, real/complex native AUTO solves, caps and linked
+runtime dependencies. Its build time is not an ordinary numerical-test timing.
 
 An `fpm.toml` lets `fo` and `fpm` build the library too. That build sees only
 `src/`, so it links SuperLU alone and never compiles the helper. Selecting the

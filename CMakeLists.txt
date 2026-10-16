@@ -18,13 +18,15 @@ option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
     ${FORTSPARSE_IS_STANDALONE})
 
 # SuperLU (BSD) is the default in-process backend. A consumer that only uses
-# the out-of-process UMFPACK-IPC backend can switch it off and then needs no
+# native or out-of-process UMFPACK-IPC backend can switch it off and needs no
 # SuperLU at all: the shim sources are not compiled, SuperLU is not searched
 # for or linked, and the FORTSPARSE_HAVE_SUPERLU macro stays undefined so the
 # solver factory reports the backend unavailable instead of failing to link.
 option(FORTSPARSE_TEST_OOM
     "Also run the address-limit SuperLU allocation-failure test (manual)" OFF)
 option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
+option(FORTSPARSE_ENABLE_UMFPACK_IPC
+    "Build the optional out-of-process GPL UMFPACK helper" ON)
 
 # Zero-dependency build for the niche libraries only. OFF (default) fetches and
 # builds SuperLU and the SuiteSparse/UMFPACK chain from source; ON locates them
@@ -139,17 +141,20 @@ endif()
 # reaches it out-of-process over shared memory and named semaphores.
 #
 # System path: built only when find_package locates UMFPACK, so a host without
-# it still gets the SuperLU-only library. Fetched path: fetch and build the
+# it still gets the library. Fetched path: fetch and build the
 # SuiteSparse/UMFPACK chain from source, linked against the system BLAS/LAPACK,
 # and always build the helper.
-if(FORTSPARSE_USE_SYSTEM_DEPS)
-    find_package(UMFPACK)
-    set(FORTSPARSE_BUILD_HELPER ${UMFPACK_FOUND})
-    set(FORTSPARSE_UMFPACK_TARGET UMFPACK::UMFPACK)
-else()
-    include(deps/suitesparse)
-    set(FORTSPARSE_BUILD_HELPER ON)
-    set(FORTSPARSE_UMFPACK_TARGET SuiteSparse::umfpack)
+set(FORTSPARSE_BUILD_HELPER OFF)
+if(FORTSPARSE_ENABLE_UMFPACK_IPC)
+    if(FORTSPARSE_USE_SYSTEM_DEPS)
+        find_package(UMFPACK)
+        set(FORTSPARSE_BUILD_HELPER ${UMFPACK_FOUND})
+        set(FORTSPARSE_UMFPACK_TARGET UMFPACK::UMFPACK)
+    else()
+        include(deps/suitesparse)
+        set(FORTSPARSE_BUILD_HELPER ON)
+        set(FORTSPARSE_UMFPACK_TARGET SuiteSparse::umfpack)
+    endif()
 endif()
 
 if(FORTSPARSE_BUILD_HELPER)

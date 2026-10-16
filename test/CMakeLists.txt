@@ -317,3 +317,24 @@ fortsparse_add_test(test_fortsparse_native_ldlt_z
     solver/test_fortsparse_native_ldlt_z.f90)
 set_tests_properties(test_fortsparse_native_ldlt_z PROPERTIES
     LABELS "native;fast" TIMEOUT 1)
+# This configure/build check is distinct from ordinary sub-second numerics.
+# It disables sparse dependency discovery/fetching and inspects actual linkage.
+add_test(NAME test_fortsparse_native_only_build
+    COMMAND ${CMAKE_CTEST_COMMAND} --build-and-test
+        ${PROJECT_SOURCE_DIR}/test-cmake/native_only
+        ${PROJECT_BINARY_DIR}/test-native-only
+        --build-generator "${CMAKE_GENERATOR}"
+        --build-options
+            -DCMAKE_Fortran_COMPILER=${CMAKE_Fortran_COMPILER}
+            -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+            -DCMAKE_BUILD_TYPE=Release
+        --test-command ${CMAKE_CTEST_COMMAND} -R ^native_only_ --output-on-failure)
+set_tests_properties(test_fortsparse_native_only_build PROPERTIES
+    LABELS "build;configuration" TIMEOUT 120 PROCESSORS 2
+    ENVIRONMENT "CMAKE_BUILD_PARALLEL_LEVEL=2;OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
+if(NOT FORTSPARSE_ENABLE_SUPERLU AND NOT FORTSPARSE_ENABLE_MUMPS)
+    fortsparse_add_test(test_fortsparse_native_only ../test-cmake/native_only/smoke.f90)
+    set_tests_properties(test_fortsparse_native_only PROPERTIES
+        LABELS "native;fast" TIMEOUT 1
+        ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=${CMAKE_CURRENT_BINARY_DIR}/no-helper")
+endif()
