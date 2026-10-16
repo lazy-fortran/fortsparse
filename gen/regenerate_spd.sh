@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-fortsym_source=${1:?Usage: gen/regenerate_spd.sh /path/to/fortsym}
+fortsym_source=${1:?Usage: regenerate_spd.sh FORTSYM_SOURCE [GEN_BUILD [FORTSYM_BUILD]]}
 generator_build=${2:-build/codegen}
-expected_revision=283fbb8e3b6b14e269fa404284d8a0c47a9e6227
+fortsym_build=${3:-"$fortsym_source/build"}
+expected_revision=9b0af4c89658610c4d3e8cfc2fe4b1beec0aec08
 test "$(git -C "$fortsym_source" rev-parse HEAD)" = "$expected_revision"
 mkdir -p "$generator_build" src/generated
-"${FC:-gfortran}" -I "$fortsym_source/build/include" \
-    gen/gen_spd_leaves.f90 -L "$fortsym_source/build/lib" \
-    -Wl,-rpath,"$fortsym_source/build/lib" -lfortsym \
+"${FC:-gfortran}" -I "$fortsym_build/include" \
+    gen/gen_spd_leaves.f90 -L "$fortsym_build/lib" \
+    -Wl,-rpath,"$fortsym_build/lib" -lfortsym \
     -o "$generator_build/gen_spd_leaves"
 "$generator_build/gen_spd_leaves"
