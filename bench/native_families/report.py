@@ -12,7 +12,7 @@ import statistics
 KEYS = ('family', 'backend', 'level', 'threads', 'workload', 'variant', 'operation')
 METRICS = ('n', 'nnz', 'nrhs', 'process_wall_s', 'total_s', 'factor_s', 'solve_s', 'refactor_s',
            'parent_cpu_s', 'parent_main_cpu_s', 'helper_cpu_s', 'process_tree_cpu_s',
-           'parent_rss_kib', 'helper_rss_kib', 'analysis_s', 'numeric_s',
+           'parent_rss_kib', 'helper_rss_kib', 'helper_postexec_hwm_kib', 'analysis_s', 'numeric_s',
            'prime_factor_s', 'active_threads',
            'native_factor_serial', 'factor_nnz', 'host_peak_bytes',
            'backward_error', 'forward_error')
