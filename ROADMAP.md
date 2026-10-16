@@ -39,6 +39,8 @@ defaults. Update checked milestones only when their executable evidence exists.
 - [x] In-process SuperLU and a separate GPL UMFPACK helper.
 - [x] Optional MUMPS backend, retained factors, block solves, refinement,
   pattern reuse and solver diagnostics.
+- [x] Retained normal/transpose/adjoint solves across SuperLU, UMFPACK IPC
+  and MUMPS, with operation-aware refinement and helper capability negotiation.
 - [x] Real/complex equation-level solve JVP/VJP products with independent
   numerical and adjoint checks.
 - [x] Backend selection and BLAS discovery, including the fetched-SuperLU
@@ -47,7 +49,8 @@ defaults. Update checked milestones only when their executable evidence exists.
 - [x] Native real SPD simplicial reference and blocked factorization, optional
   AMD/METIS ordering, retained analysis, block RHS and implicit derivatives.
 - [x] Native CPU sparse real/complex pivoted LU references, complex HPD
-  simplicial Cholesky and real symmetric pivoted LDLT references, with retained
+  simplicial Cholesky and real/complex symmetric or Hermitian pivoted LDL
+  references, with original-matrix refinement, retained
   transpose/adjoint solves and allocation caps. Production admission remains open.
 - [x] Retained FortSym primal/JVP/VJP leaves with generated CPU/CUDA schedules;
   actual-device correctness checks and context reuse.

@@ -36,7 +36,7 @@ ordering library. The solver returns
 nonpositive or nonfinite pivot. It retains analysis for same-pattern
 refactorization and supports block solves and the existing implicit JVP/VJP.
 It currently reports factor/storage statistics, not a rigorous forward-error
-certificate. AUTO selection remains based on the existing external backends.
+certificate. AUTO prefers eligible external backends when they are built.
 `FORTSPARSE_BACKEND_NATIVE_REFERENCE` explicitly selects the serial simplicial
 reference for independent comparisons. Statistics distinguish requested and
 actual active factorization threads.
@@ -52,10 +52,11 @@ excluding unreported driver/vendor internal pools. GPU correctness is tested
 on real hardware; performance admission remains case dependent.
 
 Native CPU also provides real/complex general sparse LU, complex HPD Cholesky,
-and pivoted real symmetric indefinite LDLT as bounded-memory reference families.
+and pivoted real symmetric, complex Hermitian and complex symmetric indefinite
+factors as bounded-memory reference families.
 See [matrix classes and transpose/adjoint solves](docs/native-cpu.md). Their
-production performance admission, refinement and parallel factorization remain
-open; the published CPU frontier claim applies only to the frozen real-SPD corpus.
+production performance admission and parallel factorization remain open.
+The CPU references support retained original-matrix refinement; the published CPU frontier claim applies only to the frozen real-SPD corpus.
 
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
