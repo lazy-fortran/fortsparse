@@ -100,15 +100,27 @@ program test_fortsparse_native_ldlt
     call factor%factor(a, status, host_limit_bytes=peak)
     call ok('exact peak cap factor')
     if (factor%peak_bytes() /= peak) error stop 'nonreproducible payload peak'
+    retained = factor%retained_bytes()
+    x = b
+    call factor%solve_inplace(x, status)
+    call ok('inplace under exact memory cap')
+    if (maxval(abs(x - expected)) > 1.0e-12_dp) error stop 'capped inplace accuracy'
+    if (factor%retained_bytes() /= retained) error stop 'capped inplace grew storage'
+    if (factor%required_bytes() /= peak) error stop 'successful required diagnostic'
     call factor%refactor(a, status, host_limit_bytes=peak)
     call ok('cap destructive refactor')
     call factor%factor(a, status, host_limit_bytes=peak - 1_i8)
     if (status%code /= FORTSPARSE_RESOURCE_LIMIT) error stop 'growth cap ignored'
     if (factor%retained_bytes() > peak - 1_i8) error stop 'cap overshot in growth'
+    if (factor%available_bytes() /= peak - 1_i8) error stop 'available cap diagnostic'
+    if (factor%required_bytes() <= factor%available_bytes()) &
+        error stop 'failed growth requirement not reported'
     call factor%solve(b, x, status)
     if (status%code /= FORTSPARSE_NOT_FACTORED) error stop 'failed factors usable'
     call factor%factor(a, status, host_limit_bytes=1_i8)
     if (status%code /= FORTSPARSE_RESOURCE_LIMIT) error stop 'analysis cap ignored'
+    if (factor%available_bytes() /= 1_i8) error stop 'analysis cap diagnostic'
+    if (factor%required_bytes() <= 1_i8) error stop 'analysis requirement diagnostic'
     call factor%factor(a, status, host_limit_bytes=2_i8**40)
     call ok('int64 cap')
     deallocate (dense, expected, b, x)
@@ -201,6 +213,7 @@ contains
     subroutine check_dense(matrix)
         real(dp), intent(in) :: matrix(:, :)
         integer :: i, n
+        integer(i8) :: before_bytes
         real(dp), allocatable :: truth(:), rhs(:, :), solution(:, :)
         n = size(matrix, 1)
         allocate (truth(n), rhs(n, 2), solution(n, 2))
@@ -218,6 +231,20 @@ contains
             > 1.0e-12_dp*max(1.0_dp, maxval(abs(rhs)))) error stop 'residual oracle'
         call factor%solve_block(rhs, solution, status, transpose=.true.)
         call ok('transpose block solve')
+        before_bytes = factor%retained_bytes()
+        ! Public solve JVP forms A*dx = -A_dot*x for an unchanged RHS.
+        ! A_dot=A therefore has the independent answer dx=-x.
+        solution(:, 1) = -rhs(:, 1)
+        call factor%solve_inplace(solution(:, 1), status)
+        call ok('inplace JVP-style solve')
+        if (maxval(abs(solution(:, 1) + truth)) > 2.0e-10_dp) &
+            error stop 'inplace equation-level tangent'
+        solution(:, 1) = rhs(:, 1)
+        call factor%solve_inplace(solution(:, 1), status, transpose=.true.)
+        call ok('inplace transpose solve')
+        if (maxval(abs(solution(:, 1) - truth)) > 2.0e-10_dp) &
+            error stop 'inplace known-solution oracle'
+        if (factor%retained_bytes() /= before_bytes) error stop 'inplace retained bytes'
         if (maxval(abs(solution(:, 2) + 2.0_dp*truth)) > 4.0e-10_dp) &
             error stop 'transpose known-solution oracle'
     end subroutine check_dense
