@@ -4,7 +4,8 @@ module fortsparse_native_general
     use fortsparse_memory, only: refinement_payload_bytes, memory_checked_add, memory_checked_mul
     use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
-        backend_factor_real_raw, backend_refactor_real_raw, &
+        backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
+        backend_factor_complex_raw_budgeted, backend_refactor_complex_raw_budgeted, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
         FORTSPARSE_ORDER_ND, &
@@ -63,7 +64,7 @@ module fortsparse_native_general
         logical :: reused_special = .false.
         type(lu_factor_t) :: real_factor
         type(lu_factor_z_t) :: complex_factor
-        logical :: ready = .false., is_complex = .false., converted_raw = .false.
+        logical :: ready = .false., is_complex = .false.
         real(dp), pointer :: user_vector(:) => null()
         type(sparse_factor_stats_t) :: stats
         logical :: refining = .false.
@@ -345,7 +346,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         self%ready = .false.
         call release_matching(self)
-        self%converted_raw = .false.
+        call self%reset_raw_tracking()
         self%same_ordering_strategy = self%selected_order == self%options%ordering
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
         self%stats = sparse_factor_stats_t()
@@ -542,21 +543,6 @@ contains
             .and. self%same_ordering_strategy
     end subroutine general_refactor_real
 
-    subroutine structured_raw_options(self, status)
-        class(native_general_backend_t), intent(in) :: self
-        type(fortsparse_status_t), intent(out) :: status
-        call status_set(status,FORTSPARSE_INVALID_MATRIX,'invalid structured raw memory options')
-        if (self%options%host_memory_limit_bytes < 0_i8 .or. &
-            self%options%device_memory_limit_bytes < 0_i8) return
-        call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-            'strict memory: structured raw CSC conversion is not budgeted')
-        if (self%options%host_memory_limit_bytes > 0_i8 .or. &
-            self%options%device_memory_limit_bytes > 0_i8 .or. &
-            self%options%memory_policy == FORTSPARSE_MEMORY_LOW .or. &
-            self%options%device /= -1) return
-        call status_set(status,FORTSPARSE_OK,'')
-    end subroutine structured_raw_options
-
     subroutine general_factor_real_raw(self,nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: nrow,ncol,nz,col_ptr(:),row_idx(:)
@@ -569,10 +555,8 @@ contains
         self%ready = .false.
         if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
             self%options%symmetry == FORTSPARSE_SYM_HERMITIAN) then
-            call structured_raw_options(self, status)
-            if (.not.status_ok(status)) return
-            call backend_factor_real_raw(self,nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
-            self%converted_raw = .true.
+            call backend_factor_real_raw_budgeted(self,nrow,ncol,nz, &
+                col_ptr,row_idx,val,refine,status)
             call update_stats(self)
             return
         end if
@@ -629,11 +613,8 @@ contains
         self%ready = .false.
         if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
             self%options%symmetry == FORTSPARSE_SYM_HERMITIAN) then
-            call structured_raw_options(self, status)
-            if (.not.status_ok(status)) return
-            call backend_refactor_real_raw(self,nrow,ncol,nz,col_ptr,row_idx,val, &
-                refine,status,reused)
-            self%converted_raw = .true.
+            call backend_refactor_real_raw_budgeted(self,nrow,ncol,nz, &
+                col_ptr,row_idx,val,refine,status,reused)
             call update_stats(self)
             return
         end if
@@ -829,6 +810,12 @@ contains
         integer, allocatable :: order(:)
         real(dp) :: threshold, started
         self%ready = .false.
+        if (self%options%symmetry >= FORTSPARSE_SYM_SPD .and. &
+            self%options%symmetry <= FORTSPARSE_SYM_HERMITIAN) then
+            call backend_factor_complex_raw_budgeted(self,nrow,ncol,nz, &
+                col_ptr,row_idx,val,refine,status)
+            return
+        end if
         if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
             call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'native structured raw CSC factorization not yet supported')
@@ -878,6 +865,14 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
+        reused = .false.
+        if (self%options%symmetry >= FORTSPARSE_SYM_SPD .and. &
+            self%options%symmetry <= FORTSPARSE_SYM_HERMITIAN) then
+            self%ready = .false.
+            call backend_refactor_complex_raw_budgeted(self,nrow,ncol,nz, &
+                col_ptr,row_idx,val,refine,status,reused)
+            return
+        end if
         call self%factor_complex_raw(nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
         reused = .false.
         if (status_ok(status)) reused = self%complex_factor%last_reused_pattern &
@@ -986,7 +981,7 @@ contains
 
     subroutine update_stats(self)
         class(native_general_backend_t), intent(inout) :: self
-        integer(i8) :: vector_bytes
+        integer(i8) :: vector_bytes, active_peak
         vector_bytes = 0_i8
         if (associated(self%user_vector)) vector_bytes = 8_i8*size(self%user_vector,kind=i8)
         self%stats%host_current_bytes = self%real_factor%memory_bytes() &
@@ -994,11 +989,23 @@ contains
             +self%ldlt_factor%retained_bytes() &
             +self%complex_ldlt_factor%retained_bytes()+vector_bytes &
             +original_bytes(self)+matching_bytes(self)
+        ! Free may preserve failure diagnostics in an inactive family. Such
+        ! historical peaks never overlap the active factorization.
+        select case(self%mode)
+        case(0)
+            active_peak=self%real_factor%peak_memory_bytes
+        case(1)
+            active_peak=self%complex_factor%peak_memory_bytes
+        case(2)
+            active_peak=self%hpd_factor%memory_peak_bytes()
+        case(3)
+            active_peak=self%ldlt_factor%peak_bytes()
+        case default
+            active_peak=self%complex_ldlt_factor%peak_bytes()
+        end select
         if (.not.self%bounded_amd .or. self%factor_invoked) then
             self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
-                self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
-                +self%hpd_factor%memory_peak_bytes()+self%ldlt_factor%peak_bytes() &
-                +self%complex_ldlt_factor%peak_bytes()+self%factor_external_live, &
+                active_peak+self%factor_external_live, &
                 self%stats%host_current_bytes)
         else
             self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,self%stats%host_current_bytes)
@@ -1045,9 +1052,8 @@ contains
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
         if (self%selected_order == FORTSPARSE_ORDER_ND .or. &
-            (self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd) .or. &
-            self%converted_raw) then
-            ! Opaque graph ordering or uncapped raw conversion prevents a complete peak or
+            (self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd)) then
+            ! Opaque graph ordering prevents a complete peak or
             ! strict-cap claim. Retained owned payload remains exactly counted.
             self%stats%host_peak_bytes = -1_i8
             self%stats%factor_mem_mb = -1.0_dp
@@ -1297,6 +1303,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         call update_stats(self)
         stats = self%stats
+        call self%apply_raw_tracking(stats)
         call status_set(status,FORTSPARSE_OK,'')
     end subroutine general_stats
 
@@ -1341,7 +1348,7 @@ contains
         self%same_ordering_strategy = .false.
         call release_original(self)
         self%factor_external_live = 0_i8
-        self%converted_raw=.false.
+        call self%reset_raw_tracking()
         self%retained_order=-1
         self%bounded_amd=.false.
         self%factor_invoked=.false.

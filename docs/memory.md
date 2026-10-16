@@ -25,8 +25,23 @@ refinement reservations and retained-factor overlap. General LU raw input is
 borrowed and capped. Real SPD also uses that shared AMD workspace, accounting
 permutations, reordered CSC, symbolic scratch, panels and refinement together.
 Natural DEFAULT selection is unchanged. SPD nested dissection, CUDA, external
-backends and structured raw CSC conversion remain unsupported under strict caps.
+backends remain unsupported under strict caps.
 Normal uncapped paths retain their existing execution choices.
+
+Structured RAW CSC factor/refactor supports real SPD/indefinite and complex
+HPD/Hermitian-indefinite/transpose-symmetric inputs with host caps and LOW_MEMORY.
+The caller arrays stay borrowed. A temporary owned canonical CSC copy contributes
+`4*(ncol+1+nnz) + value_bytes*nnz` bytes, with `value_bytes=8` for real and 16
+for complex. Its allocation is admitted alongside all old retained factors,
+checker arrays and user vectors before copying. The remaining cap bounds the CSC
+backend's factor growth, ordering and refinement; the copy stays charged until
+that call returns, then is released. Reported current payload excludes the released
+copy; the peak includes its simultaneous lifetime. Factor options are restored
+on success and failure, so subsequent user vectors can use that released space.
+Malformed input, a refused cap or allocation failure leaves the attempted RAW
+factorization unusable, with later factorization recovery supported. Existing
+ordering/device restrictions still apply; uncapped SPD AUTO and opaque ordering
+may report an unknown peak. This is array-payload accounting, not a process-RSS bound.
 
 The standalone [real CSR ILUTP preconditioner](ilutp.md#payload-cap-and-recovery)
 also bounds every owned array, including fixed factor capacities, setup scratch

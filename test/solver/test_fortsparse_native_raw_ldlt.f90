@@ -24,8 +24,8 @@ program test_fortsparse_native_raw_ldlt
         call sparse_factor_stats(solver, stats, status)
         call checked()
         call expect(stats%native_factor_family == 'LDLT_REAL', 'wrong structured factor family')
-        call expect(.not. stats%strict_memory_supported .and. stats%host_peak_bytes < 0, &
-                    'raw conversion claimed a complete strict peak')
+        call expect(stats%strict_memory_supported .and. stats%host_peak_bytes > 0, &
+                    'raw conversion missing complete strict peak')
         values = 17.0_dp ! Neither the factors nor retained checker may borrow these values.
         do operation = 0, 2
             call sparse_solve_op(solver, rhs, result, operation, status)
@@ -53,12 +53,12 @@ program test_fortsparse_native_raw_ldlt
         call checked()
         solver%options%host_memory_limit_bytes = 1_i8
         call sparse_refactor(solver, 2, 2, 2, ptr, rows, values, status, reused)
-        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE .and. .not. reused, &
+        call expect(status%code == FORTSPARSE_RESOURCE_LIMIT .and. .not. reused, &
                     'capped conversion accepted')
         solver%options%host_memory_limit_bytes = 0_i8
         solver%options%memory_policy = FORTSPARSE_MEMORY_LOW
         call sparse_factor(solver, 2, 2, 2, ptr, rows, values, status)
-        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, 'LOW conversion accepted')
+        call checked()
         solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
         call sparse_factor(solver, 2, 2, 2, ptr, rows, values, status)
         call checked()
@@ -71,7 +71,8 @@ program test_fortsparse_native_raw_ldlt
     direct%options%symmetry = FORTSPARSE_SYM_INDEFINITE
     direct%options%host_memory_limit_bytes = 1_i8
     call direct%factor_real_raw(2, 2, 2, ptr, rows, values, .false., status)
-    call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, 'direct capped raw conversion')
+    call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+        'direct capped raw conversion')
     direct%options%host_memory_limit_bytes = 0_i8
     call direct%factor_real_raw(2, 2, 2, ptr(:2), rows, values, .false., status)
     call expect(status%code == FORTSPARSE_INVALID_MATRIX, 'direct raw extent guard')
