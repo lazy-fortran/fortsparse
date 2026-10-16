@@ -42,7 +42,8 @@ enum { RUNTIME, CONVERSION, ANALYSIS, NUMERIC, REFACTOR, SOLVE, H2D, D2H,
 enum { REQUESTED_PEAK, USED_PEAK, RESERVED_PEAK, WRAPPER_BYTES, PROCESS_SAMPLE,
        TOTAL_PEAK, PINNED_BYTES, FACTOR_NNZ, ACTUAL_DEVICE, ACTIVE_THREADS,
        ORDER_HASH, VERSION, RELEASE_THRESHOLD, DEVICE_ESTIMATE, HOST_ESTIMATE,
-       POOL_LIMIT, SAMPLE_COUNT, NCOUNTS };
+       POOL_LIMIT, SAMPLE_COUNT, HANDLE_CREATES, DATA_CREATES, ANALYSIS_CALLS,
+       NUMERIC_CALLS, NCOUNTS };
 typedef struct {
     cudaStream_t stream;
     cudaMemPool_t pool;
@@ -106,11 +107,17 @@ static int copy(context *c, void *to, const void *from, size_t bytes, enum cudaM
     c->times[kind == cudaMemcpyHostToDevice ? H2D : D2H] += seconds() - start;
     return code;
 }
+static void count_call(context *c, int field) {
+    if (c->counts[field] < 0) c->counts[field] = 0;
+    ++c->counts[field];
+}
 static int execute(context *c, int phase, int timer) {
     double start = seconds();
     int code = (int)cudssExecute(c->handle, phase, c->config, c->data, c->a, c->x, c->b);
     if (!code) code = synchronize(c);
     c->times[timer] += seconds() - start;
+    if (!code && phase == CUDSS_PHASE_ANALYSIS) count_call(c, ANALYSIS_CALLS);
+    if (!code && phase == CUDSS_PHASE_FACTORIZATION) count_call(c, NUMERIC_CALLS);
     if (!code) {
         int info = 0;
         size_t written;
@@ -147,16 +154,10 @@ static void destroy(context *c) {
 #define CUDSS(call) do { int result = (int)(call); if (result) { \
     fprintf(stderr, "%s: cuDSS %d\n", #call, result); return result; } } while (0)
 
-static int initialize(context *c, int n, const int *ptr, const int *row,
-                      const double *values, int nrhs, int threads, int device,
-                      int ordering, const int *permutation) {
+static void convert(context *c, const int *ptr, const int *row, const double *values) {
     double start = seconds();
-    c->n = n; c->nrhs = nrhs;
-    c->ptr = malloc(((size_t)n + 1) * sizeof(int));
-    c->source = malloc((size_t)(ptr[n] - 1) * sizeof(int));
-    c->row = malloc((size_t)(ptr[n] - 1) * sizeof(int));
-    c->values = malloc((size_t)(ptr[n] - 1) * sizeof(double));
-    if (!c->ptr || !c->source || !c->row || !c->values) return 6;
+    int n = c->n;
+    c->nnz = 0;
     /* Symmetric lower CSC is upper CSR; preserve exact original values. */
     for (int j = 0; j < n; ++j) {
         c->ptr[j] = c->nnz;
@@ -168,68 +169,16 @@ static int initialize(context *c, int n, const int *ptr, const int *row,
         }
     }
     c->ptr[n] = c->nnz;
-    c->times[CONVERSION] = seconds() - start;
-    start = seconds();
-    CUDA(cudaSetDevice(device));
-    CUDA(cudaFree(NULL));
-    int actual;
-    CUDA(cudaGetDevice(&actual));
-    c->counts[ACTUAL_DEVICE] = actual;
-    CUDA(cudaStreamCreateWithFlags(&c->stream, cudaStreamNonBlocking));
-    struct cudaMemPoolProps properties = {0};
-    properties.allocType = cudaMemAllocationTypePinned;
-    properties.location.type = cudaMemLocationTypeDevice;
-    properties.location.id = device;
-    properties.maxSize = 256u * 1024u * 1024u;
-    const char *limit = getenv("FSBENCH_CUDSS_POOL_LIMIT_BYTES");
-    if (limit) {
-        char *end;
-        unsigned long long parsed = strtoull(limit, &end, 10);
-        if (!parsed || *end || parsed > SIZE_MAX) return 2;
-        properties.maxSize = (size_t)parsed;
-    }
-    c->counts[POOL_LIMIT] = (int64_t)properties.maxSize;
-    CUDA(cudaMemPoolCreate(&c->pool, &properties));
-    uint64_t threshold = UINT64_MAX;
-    CUDA(cudaMemPoolSetAttribute(c->pool, cudaMemPoolAttrReleaseThreshold, &threshold));
-    c->counts[RELEASE_THRESHOLD] = -1; /* UINT64_MAX, documented as retain-all. */
-    CUDSS(cudssCreate(&c->handle));
-    CUDSS(cudssSetStream(c->handle, c->stream));
-    cudssDeviceMemHandler_t handler = {0};
-    handler.ctx = c; handler.device_alloc = allocate; handler.device_free = release;
-    strcpy(handler.name, "fortsparse-benchmark-private-pool");
-    CUDSS(cudssSetDeviceMemHandler(c->handle, &handler));
-    CUDSS(cudssSetThreadingLayer(c->handle, FSBENCH_CUDSS_THREADING_LAYER));
-    CUDSS(cudssConfigCreate(&c->config));
+    c->times[CONVERSION] += seconds() - start;
+}
+
+static int fresh_factor(context *c, int ordering, const int *permutation) {
+    int n = c->n;
     CUDSS(cudssDataCreate(c->handle, &c->data));
-    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HOST_NTHREADS, &threads, sizeof(threads)));
-    int disabled = 0;
-    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HYBRID_EXECUTE_MODE, &disabled, sizeof(disabled)));
-    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HYBRID_MEMORY_MODE, &disabled, sizeof(disabled)));
-    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_IR_N_STEPS, &disabled, sizeof(disabled)));
-    cudssReorderingAlg_t algorithm = ordering == 1 ? CUDSS_REORDERING_ALG_AMD :
-        ordering == 2 ? CUDSS_REORDERING_ALG_NESTED_DISSECTION :
-        ordering == 3 ? CUDSS_REORDERING_ALG_NONE : CUDSS_REORDERING_ALG_DEFAULT;
-    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_REORDERING_ALG, &algorithm, sizeof(algorithm)));
+    count_call(c, DATA_CREATES);
     if (ordering == 3)
         CUDSS(cudssDataSet(c->handle, c->data, CUDSS_DATA_USER_PERM,
-                          permutation, (size_t)n * sizeof(int)));
-    CUDA(allocate(c, (void **)&c->dptr, ((size_t)n + 1) * sizeof(int), c->stream));
-    CUDA(allocate(c, (void **)&c->drow, (size_t)c->nnz * sizeof(int), c->stream));
-    CUDA(allocate(c, (void **)&c->dvalues, (size_t)c->nnz * sizeof(double), c->stream));
-    CUDA(allocate(c, (void **)&c->db, (size_t)n * nrhs * sizeof(double), c->stream));
-    CUDA(allocate(c, (void **)&c->dx, (size_t)n * nrhs * sizeof(double), c->stream));
-    c->counts[WRAPPER_BYTES] = ((int64_t)n + 1 + c->nnz) * sizeof(int) +
-        ((int64_t)c->nnz + 2 * (int64_t)n * nrhs) * sizeof(double);
-    c->times[RUNTIME] = seconds() - start;
-    CUDA(copy(c, c->dptr, c->ptr, ((size_t)n + 1) * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA(copy(c, c->drow, c->row, (size_t)c->nnz * sizeof(int), cudaMemcpyHostToDevice));
-    CUDA(copy(c, c->dvalues, c->values, (size_t)c->nnz * sizeof(double), cudaMemcpyHostToDevice));
-    CUDSS(cudssMatrixCreateCsr(&c->a, n, n, c->nnz, c->dptr, NULL, c->drow,
-        c->dvalues, CUDSS_R_32I, CUDSS_R_32I, CUDSS_R_64F, CUDSS_MTYPE_SPD,
-        CUDSS_MVIEW_UPPER, CUDSS_BASE_ZERO));
-    CUDSS(cudssMatrixCreateDn(&c->b, n, nrhs, n, c->db, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR));
-    CUDSS(cudssMatrixCreateDn(&c->x, n, nrhs, n, c->dx, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR));
+                          permutation, (size_t)c->n * sizeof(int)));
     int result = execute(c, CUDSS_PHASE_ANALYSIS, ANALYSIS);
     if (result) return result;
     int *actual_permutation = malloc((size_t)n * sizeof(int));
@@ -258,6 +207,79 @@ static int initialize(context *c, int n, const int *ptr, const int *row,
     return execute(c, CUDSS_PHASE_FACTORIZATION, NUMERIC);
 }
 
+static int initialize(context *c, int n, const int *ptr, const int *row,
+                      const double *values, int nrhs, int threads, int device,
+                      int ordering, const int *permutation) {
+    double start = seconds();
+    c->n = n; c->nrhs = nrhs;
+    c->ptr = malloc(((size_t)n + 1) * sizeof(int));
+    c->source = malloc((size_t)(ptr[n] - 1) * sizeof(int));
+    c->row = malloc((size_t)(ptr[n] - 1) * sizeof(int));
+    c->values = malloc((size_t)(ptr[n] - 1) * sizeof(double));
+    if (!c->ptr || !c->source || !c->row || !c->values) return 6;
+    convert(c, ptr, row, values);
+    c->times[CONVERSION] = seconds() - start;
+    start = seconds();
+    CUDA(cudaSetDevice(device));
+    CUDA(cudaFree(NULL));
+    int actual;
+    CUDA(cudaGetDevice(&actual));
+    c->counts[ACTUAL_DEVICE] = actual;
+    CUDA(cudaStreamCreateWithFlags(&c->stream, cudaStreamNonBlocking));
+    struct cudaMemPoolProps properties = {0};
+    properties.allocType = cudaMemAllocationTypePinned;
+    properties.location.type = cudaMemLocationTypeDevice;
+    properties.location.id = device;
+    properties.maxSize = 256u * 1024u * 1024u;
+    const char *limit = getenv("FSBENCH_CUDSS_POOL_LIMIT_BYTES");
+    if (limit) {
+        char *end;
+        unsigned long long parsed = strtoull(limit, &end, 10);
+        if (!parsed || *end || parsed > SIZE_MAX) return 2;
+        properties.maxSize = (size_t)parsed;
+    }
+    c->counts[POOL_LIMIT] = (int64_t)properties.maxSize;
+    CUDA(cudaMemPoolCreate(&c->pool, &properties));
+    uint64_t threshold = UINT64_MAX;
+    CUDA(cudaMemPoolSetAttribute(c->pool, cudaMemPoolAttrReleaseThreshold, &threshold));
+    c->counts[RELEASE_THRESHOLD] = -1; /* UINT64_MAX, documented as retain-all. */
+    CUDSS(cudssCreate(&c->handle));
+    count_call(c, HANDLE_CREATES);
+    CUDSS(cudssSetStream(c->handle, c->stream));
+    cudssDeviceMemHandler_t handler = {0};
+    handler.ctx = c; handler.device_alloc = allocate; handler.device_free = release;
+    strcpy(handler.name, "fortsparse-benchmark-private-pool");
+    CUDSS(cudssSetDeviceMemHandler(c->handle, &handler));
+    CUDSS(cudssSetThreadingLayer(c->handle, FSBENCH_CUDSS_THREADING_LAYER));
+    CUDSS(cudssConfigCreate(&c->config));
+    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HOST_NTHREADS, &threads, sizeof(threads)));
+    int disabled = 0;
+    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HYBRID_EXECUTE_MODE, &disabled, sizeof(disabled)));
+    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_HYBRID_MEMORY_MODE, &disabled, sizeof(disabled)));
+    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_IR_N_STEPS, &disabled, sizeof(disabled)));
+    cudssReorderingAlg_t algorithm = ordering == 1 ? CUDSS_REORDERING_ALG_AMD :
+        ordering == 2 ? CUDSS_REORDERING_ALG_NESTED_DISSECTION :
+        ordering == 3 ? CUDSS_REORDERING_ALG_NONE : CUDSS_REORDERING_ALG_DEFAULT;
+    CUDSS(cudssConfigSet(c->config, CUDSS_CONFIG_REORDERING_ALG, &algorithm, sizeof(algorithm)));
+    CUDA(allocate(c, (void **)&c->dptr, ((size_t)n + 1) * sizeof(int), c->stream));
+    CUDA(allocate(c, (void **)&c->drow, (size_t)c->nnz * sizeof(int), c->stream));
+    CUDA(allocate(c, (void **)&c->dvalues, (size_t)c->nnz * sizeof(double), c->stream));
+    CUDA(allocate(c, (void **)&c->db, (size_t)n * nrhs * sizeof(double), c->stream));
+    CUDA(allocate(c, (void **)&c->dx, (size_t)n * nrhs * sizeof(double), c->stream));
+    c->counts[WRAPPER_BYTES] = ((int64_t)n + 1 + c->nnz) * sizeof(int) +
+        ((int64_t)c->nnz + 2 * (int64_t)n * nrhs) * sizeof(double);
+    c->times[RUNTIME] = seconds() - start;
+    CUDA(copy(c, c->dptr, c->ptr, ((size_t)n + 1) * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA(copy(c, c->drow, c->row, (size_t)c->nnz * sizeof(int), cudaMemcpyHostToDevice));
+    CUDA(copy(c, c->dvalues, c->values, (size_t)c->nnz * sizeof(double), cudaMemcpyHostToDevice));
+    CUDSS(cudssMatrixCreateCsr(&c->a, n, n, c->nnz, c->dptr, NULL, c->drow,
+        c->dvalues, CUDSS_R_32I, CUDSS_R_32I, CUDSS_R_64F, CUDSS_MTYPE_SPD,
+        CUDSS_MVIEW_UPPER, CUDSS_BASE_ZERO));
+    CUDSS(cudssMatrixCreateDn(&c->b, n, nrhs, n, c->db, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR));
+    CUDSS(cudssMatrixCreateDn(&c->x, n, nrhs, n, c->dx, CUDSS_R_64F, CUDSS_LAYOUT_COL_MAJOR));
+    return fresh_factor(c, ordering, permutation);
+}
+
 int fsbench_cudss_run(int n, const int *ptr, const int *row, const double *values,
                      const double *updated, const double *rhs, double *solution,
                      int nrhs, int threads, int device, int workload, int resident,
@@ -268,25 +290,32 @@ int fsbench_cudss_run(int n, const int *ptr, const int *row, const double *value
     c.counts[PINNED_BYTES] = -1; /* Internal vendor host registrations unknown. */
     c.counts[VERSION] = CUDSS_VERSION;
     c.times[REFACTOR] = -1.;
-    double warm_sampling = 0.;
-    int64_t warm_counts[NCOUNTS];
-    for (int i = 0; i < NCOUNTS; ++i) warm_counts[i] = -1;
     double start = seconds();
     int result = initialize(&c, n, ptr, row, values, nrhs, threads, device, ordering, permutation);
     c.times[FACTOR] = resident ? c.times[ANALYSIS] + c.times[NUMERIC] : seconds() - start;
     c.times[COLD_FACTOR] = c.times[FACTOR];
     snapshot(&c);
     if (!result && workload == 2) { /* Warm runtime, fresh factors/analysis. */
-        double cold = c.times[COLD_FACTOR];
-        destroy(&c);
-        warm_sampling = c.times[SAMPLING];
-        memcpy(warm_counts, c.counts, sizeof(warm_counts));
-        memset(&c, 0, sizeof(c));
-        for (int i = 0; i < NCOUNTS; ++i) c.counts[i] = -1;
-        c.counts[VERSION] = CUDSS_VERSION;
+        /* The SDK separates handle/runtime and factor-data lifetimes. Keep
+         * stream, pool, handle, config and input-buffer capacity; only the
+         * data object is replaced, so symbolic analysis is genuinely fresh. */
+        int released = (int)cudssDataDestroy(c.handle, c.data);
+        c.data = NULL;
+        if (!released) released = synchronize(&c);
+        if (released) result = released;
+        double cold = c.times[COLD_FACTOR], sampling = c.times[SAMPLING];
+        memset(c.times, 0, sizeof(c.times));
+        c.times[SAMPLING] = sampling;
         c.times[REFACTOR] = -1.;
         start = seconds();
-        result = initialize(&c, n, ptr, row, values, nrhs, threads, device, ordering, permutation);
+        convert(&c, ptr, row, values);
+        if (!result) result = copy(&c, c.dptr, c.ptr,
+            ((size_t)n + 1) * sizeof(int), cudaMemcpyHostToDevice);
+        if (!result) result = copy(&c, c.drow, c.row,
+            (size_t)c.nnz * sizeof(int), cudaMemcpyHostToDevice);
+        if (!result) result = copy(&c, c.dvalues, c.values,
+            (size_t)c.nnz * sizeof(double), cudaMemcpyHostToDevice);
+        if (!result) result = fresh_factor(&c, ordering, permutation);
         c.times[FACTOR] = resident ? c.times[ANALYSIS] + c.times[NUMERIC] : seconds() - start;
         c.times[COLD_FACTOR] = cold;
         snapshot(&c);
@@ -312,10 +341,6 @@ int fsbench_cudss_run(int n, const int *ptr, const int *row, const double *value
         snapshot(&c);
     }
     destroy(&c);
-    c.times[SAMPLING] += warm_sampling;
-    for (int i = REQUESTED_PEAK; i <= PROCESS_SAMPLE; ++i)
-        if (warm_counts[i] > c.counts[i]) c.counts[i] = warm_counts[i];
-    if (warm_counts[SAMPLE_COUNT] > 0) c.counts[SAMPLE_COUNT] += warm_counts[SAMPLE_COUNT];
     memcpy(times, c.times, sizeof(c.times));
     memcpy(counts, c.counts, sizeof(c.counts));
     return result;

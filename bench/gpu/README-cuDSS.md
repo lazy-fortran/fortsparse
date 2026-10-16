@@ -32,8 +32,14 @@ error <=1e-8). Failure/status output is retained.
 transfers, analysis and numeric factorization; host solve includes RHS upload
 and solution download. `resident` reports device-input/device-output phase
 boundaries, with explicit staging/retrieval measured separately. Warm mode
-initializes once, frees factors, then repeats fresh analysis/factorization;
-whole-process time/CPU includes warmup. Refactor retains symbolic state.
+retains the initialized stream, private pool, library handle, configuration and
+input-buffer capacity. It destroys/recreates only the factor-data object, redoes
+CSR conversion and host uploads, and runs fresh analysis/factorization.
+Whole-process time/CPU includes warmup and factor-data release. API-call counters
+identify one runtime handle, two data objects and two analysis/factorization
+calls. This replaces the earlier recreate-handle warm boundary; historical
+measurements retain their original source identity and must not be pooled.
+Refactor retains symbolic state.
 Repeated solve time is the total over the declared reuse count, not an average.
 The wrapper disables hybrid execution, hybrid memory and iterative refinement;
 this is an explicitly GPU-only cuDSS configuration, not a claim that its tuning
@@ -43,8 +49,12 @@ Ordering supports `tuned` (vendor default), `amd`, `nd`, and `common`. Common
 files contain `n` followed by `n` zero-based new-to-old entries; the driver
 checks the permutation, disables reordering and verifies the returned vendor
 permutation matches exactly. `ordering_hash` is an opaque integer-sequence
-checksum; the runner separately retains the permutation file SHA256. Common
-ordering is implemented but not yet GPU-tested in this increment.
+checksum; the runner separately retains the permutation file SHA256. A tiny
+registered MatrixMarket test verifies a non-self-inverse supplied permutation
+and the independent solve residual. A separate diagonal test requires the exact
+vendor `CUDSS_DATA_INFO=2` nonpositive minor; unrelated allocation/device failures
+cannot pass it. Both fixtures and permutations are generated into the build
+tree by the retained CMake recipe.
 
 The custom allocator uses a private stream-ordered CUDA pool. Its default hard
 limit is 256 MiB, configurable via `FSBENCH_CUDSS_POOL_LIMIT_BYTES`; freed memory
@@ -73,6 +83,17 @@ Initial shared-device diagnostic correctness used physical GPU1 with
 startup hit the unchanged one-second limit for host/refactor; the refactor
 already emitted a correct residual before exit. Resident eight-RHS passed in
 0.36s. Retrying only the failed registered tests after loading passed both in
-0.36s each. These are correctness receipts, not admission timing. Negative
-pivots and common ordering still require focused GPU checks. No GPU performance
-claim follows from these tests.
+0.36s each. These are correctness receipts, not admission timing. The follow-up
+retained-runtime implementation passes all six registered GPU checks, including
+common ordering, the exact negative-pivot status and the warm lifecycle oracle,
+in 0.33–0.38s per invocation under a 128MiB private-pool limit. Five warm trials
+each of externally selected grid2 level9 and grid3 level8 also pass the original
+one-second bound with residuals below 6e-16. These shared-device diagnostic
+results do not establish performance admission.
+
+The retained primary API descriptions distinguish runtime handles and factor
+data: [types](https://docs.nvidia.com/cuda/cudss/types.html) and
+[data creation/destruction](https://docs.nvidia.com/cuda/cudss/functions.html).
+The exact pages and hashes are archived with the SDK provenance. The warm
+implementation uses their supported object lifetimes; it retains no symbolic
+analysis or numeric factors from the warmup.
