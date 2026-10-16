@@ -19,6 +19,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(row['ordering_hash'], 'FFFFFFFFFFFFFFFF')
         self.assertEqual(row['solver_version'], '0.8.0.10')
         self.assertEqual(row['device_total_peak_bytes'], -1)
+        self.assertEqual(parse_metrics('backend,device_total_peak_source\ncudss,nvml_accounting\n')
+                         ['device_total_peak_source'], 'nvml_accounting')
         with self.assertRaises(ValueError):
             parse_metrics('backend,factor_s\ncudss,nan\n')
         for value, expected in [('T', True), ('F', False), ('.TRUE.', True), ('0', False)]:

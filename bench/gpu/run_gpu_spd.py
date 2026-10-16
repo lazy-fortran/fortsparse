@@ -19,12 +19,13 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from run_spd import build_provenance, physical_cpus
+from accounting_peak import AccountingPeak
 
 EXECUTABLES = {"cudss": "bench_spd_cudss", "cholmod": "bench_spd_cholmod",
                "native": "bench_spd_native_gpu", "native-cuda": "bench_spd_native_gpu",
                "native-nd": "bench_spd_native_gpu", "native-cuda-nd": "bench_spd_native_gpu"}
 STRINGS = {"backend", "family", "workload", "variant", "io_mode", "ordering",
-           "ordering_hash", "solver_version", "execution_mode"}
+           "ordering_hash", "solver_version", "execution_mode", "device_total_peak_source"}
 
 
 def parse_metrics(stdout):
@@ -64,6 +65,15 @@ def unavailable(backend, io_mode, ordering):
     if ordering == "common" and backend.startswith("native"):
         return "native public API does not accept a supplied permutation"
     return None
+
+
+def observe_accounting(args, record, pid):
+    observer = getattr(args, "accounting_observer", None)
+    if observer is not None:
+        record["process_pid"] = pid
+        record["vendor_device_total_peak_bytes"] = record.get("device_total_peak_bytes", -1)
+        record.update(observer.query(pid))
+    return record
 
 
 def sample(args, cpus, backend, family, level, thread, workload, io_mode, ordering, trial):
@@ -106,12 +116,13 @@ def sample(args, cpus, backend, family, level, thread, workload, io_mode, orderi
             record.update(parse_metrics(stdout))
         except (TypeError, ValueError, StopIteration):
             pass
-        return record
+        return observe_accounting(args, record, process.pid)
     record.update(process_wall_s=time.monotonic() - start, returncode=process.returncode)
     try:
         record.update(parse_metrics(stdout))
     except (TypeError, ValueError, StopIteration) as error:
-        return dict(record, status="invalid_output", reason=str(error), stdout=stdout, stderr=stderr)
+        return observe_accounting(args, dict(record, status="invalid_output", reason=str(error),
+                                  stdout=stdout, stderr=stderr), process.pid)
     if process.returncode or record.get("vendor_status", -1) != 0:
         record.update(status="failed", stdout=stdout, stderr=stderr)
     elif record.get("backward_error", -1) < 0 or record["backward_error"] > 1.e-12:
@@ -120,7 +131,7 @@ def sample(args, cpus, backend, family, level, thread, workload, io_mode, orderi
         record["status"] = "ok"
         record["primary_phase_s"] = phase_objective(record)
         record["workflow_cpu_s"] = record["parent_cpu_s"] + record.get("helper_cpu_s", 0.)
-    return record
+    return observe_accounting(args, record, process.pid)
 
 
 def sample_block(args, cpus, backends, family, level, thread, workload,
@@ -190,6 +201,8 @@ def main():
     parser.add_argument("--matrix-family", default="matrix-market")
     parser.add_argument("--permutation", type=Path)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--accounting-peak", action="store_true",
+                        help="Read own terminated child PID's already-enabled NVML accounting peak")
     parser.add_argument("--calibration-only", action="store_true")
     parser.add_argument("--measurement-class", choices=("diagnostic-shared", "controlled"),
                         default="diagnostic-shared")
@@ -222,17 +235,22 @@ def main():
             parser.error("matrix file required; archived matrices have no held-out coefficients")
         args.matrix = args.matrix.resolve()
         cases = [(args.matrix_family, 1)]
+    args.accounting_observer = AccountingPeak() if args.accounting_peak else None
     before = snapshot()
     records = []
     randomizer = random.Random(args.seed)
-    for family, level in cases:
-        for thread in threads:
-            for workload in args.workloads.split(","):
-                for io_mode in args.io_modes.split(","):
-                    for ordering in orderings:
-                        for trial in range(args.trials):
-                            records.extend(sample_block(args, cpus, backends, family, level,
-                                thread, workload, io_mode, ordering, trial, randomizer))
+    try:
+        for family, level in cases:
+            for thread in threads:
+                for workload in args.workloads.split(","):
+                    for io_mode in args.io_modes.split(","):
+                        for ordering in orderings:
+                            for trial in range(args.trials):
+                                records.extend(sample_block(args, cpus, backends, family, level,
+                                    thread, workload, io_mode, ordering, trial, randomizer))
+    finally:
+        if args.accounting_observer is not None:
+            args.accounting_observer.close()
     binaries = {}
     for binary in sorted({Path(r["command"][3]) for r in records}):
         if binary.is_file():
@@ -252,11 +270,12 @@ def main():
         physical_cpu_ids=cpus, gpu_observation=dict(before=before, after=snapshot()),
         measurement_class=args.measurement_class, resource_note=args.resource_note,
         calibration_only=args.calibration_only, corpus=cases, seed=args.seed,
+        accounting_observer=args.accounting_observer.metadata if args.accounting_observer else None,
         matrix_provenance=file_identity(args.matrix) if args.matrix else None,
         permutation_provenance=file_identity(args.permutation) if args.permutation else None,
         status_counts=dict(Counter(r["status"] for r in records)),
         timing_contract="primary_phase_s: cold/warm=factor+solve; refactor=refactor+solve; repeated-rhs=TOTAL retained-factor solves. total_s and workflow_cpu_s include setup/check/free and warmups.",
-        memory_contract="Requested/used/reserved private pool, wrapper bytes, phase-boundary sampled process memory and unknown total peak are separate; no implicit memory aggregation.",
+        memory_contract="Requested/used/reserved pools, wrapper bytes and phase-sampled process memory are separate. Optional device_total_peak_source=nvml_accounting is the driver's lifetime process maxMemoryUsage for one uniquely matched GPU; original vendor peak and parent observer cost remain separate. Unknown values never use sampled substitution.",
         environment={key: os.environ.get(key) for key in
             ("CUDA_VISIBLE_DEVICES", "CUDA_MODULE_LOADING", "OMP_WAIT_POLICY",
              "FSBENCH_CUDSS_POOL_LIMIT_BYTES", "CHOLMOD_GPU_POOL_BYTES")})
