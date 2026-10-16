@@ -149,6 +149,12 @@ Report current/peak attributed storage separately from process RSS and runtime
 cost; provide cluster-sizing guidance with explicit headroom and uncertainty.
 Reuse keys cover every structural and scheduling assumption.
 
+The first implemented hard-cap slice is natural-order CPU real-SPD simplicial
+execution, with exact payload planning, capped graph scratch and retained
+workspace for solves/JVP. See [memory contracts](docs/memory.md). Production
+supernode/ordering and CUDA caps remain unimplemented; their strict requests
+fail explicitly. This does not complete M6.1 or confer performance admission.
+
 ## Benchmark and admission rules
 
 Freeze a small correctness corpus, a representative performance corpus and

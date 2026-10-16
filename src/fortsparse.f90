@@ -9,11 +9,14 @@ module fortsparse
         FORTSPARSE_INTERNAL_ERROR, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         FORTSPARSE_RESOURCE_LIMIT
+    use fortsparse_backend, only: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
+    use fortsparse_memory, only: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, &
+        MEMORY_PLAN_ESTIMATE
     use fortsparse_version, only: fortsparse_version_string
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
         csc_conjugate_transpose, csc_matmul, csc_matvec, csc_transpose
     use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_refactor, &
-        sparse_solve, &
+        sparse_solve, sparse_analyze, sparse_memory_plan_t, &
         sparse_free, sparse_destroy, sparse_solve_once, sparse_vector, &
         sparse_solve_jvp, sparse_solve_vjp, sparse_solve_block, &
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
@@ -58,6 +61,9 @@ module fortsparse
     public :: FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE
     public :: sparse_auto_backend
     public :: sparse_solve_block, sparse_factor_stats
+    public :: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
+    public :: sparse_analyze, sparse_memory_plan_t
+    public :: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, MEMORY_PLAN_ESTIMATE
     public :: sparse_options_t, sparse_factor_stats_t
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD
     public :: FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
