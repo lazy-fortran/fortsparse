@@ -7,10 +7,12 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 from real_fixture_audit import audit, real_array, real_rows, sha256
 from run import EXTERNAL, binary_name
 from run_private_real import verify_qualification
+import run_private_real
 
 MATRIX = """%%MatrixMarket matrix coordinate real general
 3 3 6
@@ -128,6 +130,49 @@ class AuditTests(unittest.TestCase):
         (build/"bin"/binary_name("superlu")).write_text("changed")
         with self.assertRaisesRegex(ValueError, "binary changed"):
             verify_qualification(paths, Fixture(), build)
+
+
+class CampaignTests(unittest.TestCase):
+    def test_failed_trial_is_retained_and_later_trials_still_run(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            class Fixture:
+                manifest = {"id": "public-test"}
+                manifest_sha256, policy_sha256 = "matrix", "policy"
+            launched = []
+            def child(backend, build, stage, folder, fixture, threads, cores, timeout):
+                launched.append((backend, threads, tuple(cores), folder))
+                return dict(backend=backend,
+                            status="timeout" if len(launched) == 1 else "pass")
+            argv = ["run_private_real.py", "--fixture", str(path/"fixture.json"),
+                    "--policy-sha256", "policy", "--build", str(path/"build"),
+                    "--output", str(path/"output"), "--mode", "measure",
+                    "--backend", "native-amd", "--qualification", str(path/"qual.json"),
+                    "--thread-sweep", "1,2", "--trials", "2", "--window-note", "unit test"]
+            def stage(fixture, output):
+                output.mkdir()
+                return output
+            with mock.patch.object(sys, "argv", argv), \
+                 mock.patch.object(run_private_real, "PrivateFixture", return_value=Fixture()), \
+                 mock.patch.object(run_private_real, "physical_cores", return_value=[2, 4]), \
+                 mock.patch.object(run_private_real, "verify_qualification", return_value={"qual": "hash"}), \
+                 mock.patch.object(run_private_real, "prepare", side_effect=stage), \
+                 mock.patch.object(run_private_real, "attempt", side_effect=child):
+                self.assertEqual(run_private_real.main(), 2)
+            receipt = json.loads((path/"output/receipt.json").read_text())
+            raw = [json.loads(s) for s in (path/"output/attempts.jsonl").read_text().splitlines()]
+            self.assertEqual(receipt["status"], "failed")
+            self.assertEqual(len(raw), 24)
+            self.assertEqual(sum(a["status"] == "timeout" for a in raw), 1)
+            self.assertEqual(receipt["attempts"], raw)
+            self.assertEqual(len({entry[3] for entry in launched}), 24)
+            for nt in (1, 2):
+                for trial in (0, 1):
+                    self.assertEqual({a["backend"] for a in raw
+                                      if a["threads"] == nt and a["trial"] == trial},
+                                     set(EXTERNAL)|{"native-amd"})
+            self.assertTrue(all(c == (2,) if nt == 1 else c == (2, 4)
+                                for _, nt, c, _ in launched))
 
 
 def driver_check(binary, backend):
