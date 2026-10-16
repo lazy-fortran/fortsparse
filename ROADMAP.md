@@ -102,8 +102,8 @@ FortSparse correctness or coverage work.
    generated blocked execution and OpenMP scaling. General real LU is the most
    urgent practical performance gap: the controlled full KIN6D case times out
    at 900 seconds against a roughly 6-second baseline and reaches about 7 GiB
-   RSS. Retain this failure and the original physical inputs. Use the bounded
-   next LU experiment below before repeating the full consumer run.
+   RSS. Retain this failure and the original physical inputs. Implement the
+   static-structure supernodal LU below before repeating the full consumer run.
 5. **Repair blocking tooling in its owner; qualify pending generated work.**
    Fo's newer CMake File API route omits the scanner fallback used by its older
    route. The tiny BVLS reproducer retains a readable source on two failed
@@ -174,40 +174,28 @@ consumer PR. Repeat an expensive run only after a concrete fix or new check
 can resolve the recorded question. A new independently reproduced solver defect
 reopens solver work; unexplained historical-bit disagreement alone does not.
 
-## Next bounded general-LU experiment
+## General LU: static-structure supernodal design
 
-All 60 retained scalar/target-panel observations pass their numerical gates,
-but the generated width-eight variants do not establish a reproducible gain on
-the captured KIN6D case. Keep the public default scalar; do not extend masking
-microoptimizations without new evidence. See the
-[complete panel evidence](bench/results/2026-10-16-lu-panels/README.md).
+Decided 2026-10-16: close the large-front LU gap with a PARDISO-style
+static-structure supernodal LU, specified in [the LU design](docs/lu-supernodal.md).
+Maximum-product matching with dual scaling, ND/AMD on the matched A+Aᵀ, a static
+symmetric symbolic structure with exact payload planning, left-looking BLAS-3
+updates reusing the SPD schedule, pivoting restricted to supernode diagonal
+blocks with counted perturbation, and an independent original-matrix gate that
+falls back, reported, to the existing threshold-pivoting scalar LU.
 
-The next proposal, still unimplemented, is exact prefix source blocking in the
-experimental real width-eight path. Detect adjacent completed columns using
-full L-row sets before final row relabeling, with
-`S(k-1) = {p(k)} union S(k)`, and a maximum group width of eight. Pruning may
-reorder entries but must not change the exact test. Process reached groups in
-quotient dependency order, never by collapsing consecutive scalar DFS visits.
-Support each lane's reached suffix without evaluating inactive numerical data.
-Generate the small triangular coefficient solve and rank-K common-tail update
-from retained mathematics; preserve global pivot policy and current-column work.
+The [static-structure diagnostic](bench/results/2026-10-16-lu-static-structure/README.md)
+on both frozen KIN6D Jacobians gives static L+U of 0.97 M and 4.94 M entries
+against 2.0--57.5 M for pivoted scalar LU and 2.2/15.3 M for SuperLU, with zero
+perturbations and componentwise backward error near 5e-16 after one refinement
+step in dense emulation. Structural (unweighted) matching fails this scheme. These
+are structure/accuracy findings on one consumer, not performance admission.
 
-Use one setup-allocated 8-by-n pack with counted descriptors and scratch. The
-proposal adds `76*n+1088` owned bytes at four-byte integers/eight-byte reals,
-on top of current panel storage; verify the actual layout and every growth
-overlap. No allocation in numerical kernels, fixture-sized tail cutoff or cached
-positions invalidated by pruning/refactorization. Start from current main so
-the integrated real LOW memory changes survive regeneration. Keep complex,
-LOW+width-eight and public defaults unchanged in this first experiment.
-
-Before timing, require independent exact detector/quotient tests, a scalar DFS
-interleaving counterexample, original-matrix known solutions with pivoting and
-refactorization, generated primal/JVP/VJP checks, inactive-lane IEEE checks,
-tails longer than 512 rows, exact cap/fault recovery and allocation-free reuse.
-Then run a predeclared quiet sub-second A/B cohort; preserve a negative result.
-Only a correctness-qualified, reproducible bounded gain justifies a new large
-KIN6D run or subsequent production selection. This is an experiment, not a
-promised speedup or a novel-algorithm claim.
+The width-eight prefix source-block experiment is superseded and will not be
+implemented; its 60 negative observations remain in the
+[panel evidence](bench/results/2026-10-16-lu-panels/README.md). The public
+default stays scalar until the staged implementation passes its correctness
+tests and the frozen-corpus frontier comparison, which adds ParU as a peer.
 
 ## Local handoff evidence
 
@@ -466,7 +454,7 @@ mathematical implementations.
   payload/fault-recovery tests pass; all three bounded A/B cohorts pass their
   residual gates but do not establish a reproducible workflow gain over scalar
   execution. Full-active and contiguous-range generated SIMD are implemented;
-  profiles motivate the unimplemented source-block proposal above.
+  the static-structure supernodal design above supersedes further panel work.
   No public default or family admission follows from this prototype.
   Generated compensated triangular solves improve the NEO-2 final
   transport comparison while retaining allocation-free solves and capped
