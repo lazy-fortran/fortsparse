@@ -48,6 +48,7 @@ program test_fortsparse_inertia
     end do
     call exact_singular()
     call near_singular()
+    call scaled_blocks()
     call extreme_pairs()
     call hermitian_shifts(30)
     call unsupported_families()
@@ -399,6 +400,51 @@ contains
                     'near-singular counts')
         call sparse_destroy(solver)
     end subroutine near_singular
+
+    ! Two decoupled blocks at scales 1e12 and 1e-8 (as for a pencil whose K
+    ! has zero rows): the thresholds are local, so the small block's pivots
+    ! stay RELIABLE. Oracle: separate dsyev counts of each block.
+    subroutine scaled_blocks()
+        integer, parameter :: nb = 30, ns = 10, n = nb + ns
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        type(csc_t) :: a
+        real(dp) :: dense(n, n), big(nb, nb), small(ns, ns), wb(nb), ws(ns), r
+        logical :: mask(n, n)
+        integer :: i, j
+        big = 0.0_dp
+        small = 0.0_dp
+        do j = 1, nb
+            do i = j, min(nb, j + 2)
+                call random_number(r)
+                big(i, j) = 1.0e12_dp*(2.0_dp*r - 1.0_dp)
+                big(j, i) = big(i, j)
+            end do
+        end do
+        do j = 1, ns
+            small(j, j) = merge(1.0e-8_dp, -2.0e-8_dp, mod(j, 3) == 0)
+            if (j < ns) then
+                small(j + 1, j) = 3.0e-9_dp
+                small(j, j + 1) = 3.0e-9_dp
+            end if
+        end do
+        call symmetric_eigenvalues(big, wb)
+        call symmetric_eigenvalues(small, ws)
+        call expect(minval(abs(wb)) > 1.0e-6_dp*maxval(abs(wb)) .and. &
+                    minval(abs(ws)) > 1.0e-3_dp*maxval(abs(ws)), 'scaled oracle gaps')
+        dense = 0.0_dp
+        dense(1:nb, 1:nb) = big
+        dense(nb + 1:, nb + 1:) = small
+        mask = dense /= 0.0_dp
+        call dense_to_csc(dense, mask, a)
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
+        call sparse_factor(solver, a, status)
+        call expect(status%code == FORTSPARSE_OK, 'scaled blocks factor')
+        call check_counts(solver, count(wb < 0.0_dp) + count(ws < 0.0_dp), n, &
+                          'decoupled 1e12/1e-8 blocks')
+        call sparse_destroy(solver)
+    end subroutine scaled_blocks
 
     ! Extreme-scale 2x2 pivots: inertia must not overflow or underflow.
     subroutine extreme_pairs()

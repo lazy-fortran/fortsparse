@@ -150,11 +150,13 @@ counts generalized eigenvalues below `sigma`. Same-pattern `sparse_refactor`
 over many shifts reuses the pattern and initial order and repivots afresh.
 
 `reliability` (`FORTSPARSE_INERTIA_*`) is `RELIABLE` when every nonzero pivot
-eigenvalue exceeds `inertia_tolerance = n*eps*g`, where `g` is the largest
-magnitude of an input entry or of any formed Schur-complement entry (a
-growth-scaled norm). Otherwise it is `UNCERTAIN` (counts still returned;
-`inertia_uncertain` eigenvalues lie at or below the threshold and
-`inertia_min_pivot` is the smallest magnitude). Exactly zero pivot columns
+eigenvalue exceeds its local threshold `n*eps*g_k`, where `g_k` is the largest
+magnitude of an input entry or of any Schur-complement entry formed in the
+pivot's row(s) (a growth-scaled row norm; exactly decoupled small-scale rows,
+such as zero stiffness rows of a shifted pencil, keep small thresholds).
+Otherwise it is `UNCERTAIN` (counts still returned; `inertia_uncertain`
+eigenvalues lie at or below their thresholds). `inertia_min_pivot` is the
+smallest pivot eigenvalue magnitude and `inertia_tolerance` its threshold. Exactly zero pivot columns
 are eliminated as zero 1x1 pivots: the factorization returns `SINGULAR`,
 solves are refused, and inertia is still returned with `n_zero > 0` and
 `reliability = SINGULAR`. The threshold is a backward-error heuristic, not a

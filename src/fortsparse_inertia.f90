@@ -2,7 +2,8 @@ module fortsparse_inertia
     ! Sylvester inertia of a symmetric/Hermitian block-diagonal pivot matrix D
     ! from P^T A P = L D L^T (or L D L^H) with 1x1 and 2x2 pivots. The counts
     ! are the signs of the actual computed pivots; reliability compares every
-    ! pivot eigenvalue magnitude with a rounding threshold (docs/native-cpu.md).
+    ! pivot eigenvalue magnitude with a local rounding threshold
+    ! (docs/native-cpu.md).
     use fortsparse_kinds, only: dp, i8
     implicit none
     private
@@ -11,22 +12,24 @@ module fortsparse_inertia
     ! UNAVAILABLE: the factor family does not provide inertia (LU, perturbed
     ! pivots, complex symmetric, external backends) or no factorization ran.
     integer, parameter, public :: FORTSPARSE_INERTIA_UNAVAILABLE = -1
-    ! Every pivot eigenvalue magnitude exceeds the rounding threshold.
+    ! Every pivot eigenvalue magnitude exceeds its rounding threshold.
     integer, parameter, public :: FORTSPARSE_INERTIA_RELIABLE = 0
-    ! Some nonzero pivot eigenvalue lies at or below the threshold; its sign,
+    ! Some nonzero pivot eigenvalue lies at or below its threshold; its sign,
     ! and so the counts, may differ from the exact inertia of A.
     integer, parameter, public :: FORTSPARSE_INERTIA_UNCERTAIN = 1
     ! An exactly zero pivot column occurred: n_zero > 0, solves unavailable.
     integer, parameter, public :: FORTSPARSE_INERTIA_SINGULAR = 2
 
-    ! Threshold multiplier: tolerance = INERTIA_SAFETY * n * eps * growth,
-    ! growth = max |entry| of A and of every formed Schur complement entry.
+    ! Threshold multiplier: tolerance = INERTIA_SAFETY * n * eps * row_scale,
+    ! row_scale = max |entry| of A and of every Schur entry formed in the
+    ! pivot rows.
     real(dp), parameter, public :: INERTIA_SAFETY = 1.0_dp
 
     type, public :: inertia_count_t
         integer(i8) :: negative = 0_i8, zero = 0_i8, positive = 0_i8
-        integer(i8) :: uncertain = 0_i8 ! nonzero pivot eigenvalues <= tolerance
+        integer(i8) :: uncertain = 0_i8 ! nonzero pivot eigenvalues <= threshold
         real(dp) :: min_magnitude = huge(1.0_dp) ! smallest pivot eigenvalue
+        real(dp) :: tolerance = -1.0_dp ! threshold of that smallest pivot
     end type inertia_count_t
 
     public :: inertia_add_pivot, inertia_status_of, inertia_tolerance
@@ -64,7 +67,10 @@ contains
     pure subroutine add_eigenvalue(count, lambda, tolerance)
         type(inertia_count_t), intent(inout) :: count
         real(dp), intent(in) :: lambda, tolerance
-        count%min_magnitude = min(count%min_magnitude, abs(lambda))
+        if (abs(lambda) < count%min_magnitude) then
+            count%min_magnitude = abs(lambda)
+            count%tolerance = tolerance
+        end if
         if (lambda > 0.0_dp) then
             count%positive = count%positive + 1_i8
         else if (lambda < 0.0_dp) then
@@ -76,10 +82,10 @@ contains
         if (abs(lambda) <= tolerance) count%uncertain = count%uncertain + 1_i8
     end subroutine add_eigenvalue
 
-    pure real(dp) function inertia_tolerance(n, growth) result(tolerance)
+    pure real(dp) function inertia_tolerance(n, row_scale) result(tolerance)
         integer, intent(in) :: n
-        real(dp), intent(in) :: growth
-        tolerance = INERTIA_SAFETY*real(n, dp)*epsilon(1.0_dp)*growth
+        real(dp), intent(in) :: row_scale
+        tolerance = INERTIA_SAFETY*real(n, dp)*epsilon(1.0_dp)*row_scale
     end function inertia_tolerance
 
     pure integer function inertia_status_of(count) result(state)
