@@ -5,8 +5,8 @@ existing Cholesky engine and other classes to the following new CPU references:
 
 | Value/class | Native factors | Current execution |
 |---|---|---|
-| Real general | Row-scaled threshold-pivoted sparse LU | Natural or explicit AMD order, retained CSC L/U, serial factorization |
-| Complex general | Row-scaled threshold-pivoted sparse LU | Natural or explicit AMD order, retained CSC L/U, serial factorization |
+| Real general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
+| Complex general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
 | Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Natural-order simplicial reference |
 | Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
 | Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
@@ -86,8 +86,7 @@ retained original-matrix residuals, a 32-epsilon normwise backward-error target
 and at most three corrections. Statistics report correction steps and final
 backward error. See [native refinement](native-refinement.md) for failure,
 allocation and refactor-cap semantics. Production blocking/parallel
-factorization, conditioning diagnostics and ordering beyond the optional LU AMD
-path remain planned.
+factorization and conditioning diagnostics remain planned.
 
 `pivot_tolerance` selects LU's finite threshold in [0,1]; a negative value uses
 the native default 1.0 (maximum-candidate row pivoting after scaling). A numerical
@@ -104,12 +103,17 @@ For real and complex general matrices, production native LU accepts
 `solver%options%ordering=FORTSPARSE_ORDER_AMD` when SuiteSparse AMD is built.
 AMD accepts the canonical unsymmetric CSC graph and orders its structural
 `A+A^T`; numerical factorization borrows the original CSC values and applies the
-column permutation through its retained sparse factors. DEFAULT remains natural
-ordering. NATIVE_REFERENCE remains natural and rejects explicit AMD.
+column permutation through its retained sparse factors.
+`FORTSPARSE_ORDER_ND` alternatively uses optional METIS nested dissection on the
+undirected graph union of `A` and its transpose. Self edges and repeated mirrors
+are removed before ordering. With structural matching, either ordering consumes
+the matched `P*A` graph while numerical values stay in the original CSC.
+DEFAULT remains natural ordering. NATIVE_REFERENCE remains natural and rejects
+explicit graph orderings. Missing graph libraries return BACKEND_UNAVAILABLE.
 
 Value-only refactors reuse the retained column order when the canonical pattern
 and requested ordering strategy match; numerical row pivots are selected anew.
-A changed pattern recomputes AMD, and a changed ordering strategy invalidates
+A changed pattern recomputes the order, and a changed ordering strategy invalidates
 pattern-reuse reporting. Normal, transpose and adjoint solves, refinement and
 implicit solve derivatives act on the original matrix.
 
@@ -122,6 +126,11 @@ in cap admission and phase peak statistics. An unavailable audited ABI fails
 explicitly. See [bounded AMD](native-amd-bounded.md) for exact workspace counts,
 release trust, reuse and verification limits. Use measured process RSS for process
 memory comparisons; these changes make no performance-admission claim.
+
+METIS owns opaque internal workspace: ND always reports unknown complete peak
+(`-1`) and `strict_memory_supported=.false.`. Positive host caps or LOW_MEMORY
+with ND fail before calling METIS; use natural or bounded AMD for those contracts.
+This does not extend ND to the complex structured reference families.
 
 ## Retained transpose and adjoint solves
 

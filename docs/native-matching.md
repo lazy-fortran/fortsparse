@@ -22,11 +22,11 @@ numerical equilibration is added by matching. Existing row scaling and pivot
 thresholds are preserved. No pivot is accepted merely because it was matched:
 the same numerical threshold still applies, and singleton pivots retain priority.
 
-With AMD, analysis sorts matched row labels for the graph of `P*A`, then orders
-its structural symmetrization. Numerical values and caller CSC arrays remain
+With AMD or METIS ND, analysis sorts matched row labels for the graph of `P*A`,
+then orders its structural symmetrization. Numerical values and caller CSC arrays remain
 unchanged. LU receives the column order and borrowed original-row preferences;
 normal, transpose, adjoint and implicit derivative solves still act on the
-original equation. Without AMD, the natural column order uses the same matched
+original equation. With DEFAULT, the natural column order uses the same matched
 row preference. Matching is a discrete solver choice, not a differentiable
 operator; solve JVP/VJP continue to differentiate `A*x=b`.
 
@@ -38,7 +38,7 @@ retained for subsequent RHS solves. Failure makes the public factor unusable
 until a successful factorization; transient matching arrays are released.
 
 For default four-byte indices, analysis owns two `n`-entry maps and five
-`n`-entry work vectors: `28*n` bytes. AMD also needs `4*nnz` bytes for sorted
+`n`-entry work vectors: `28*n` bytes. Graph orderings also need `4*nnz` bytes for sorted
 matched graph labels. These arrays coexist with old factors, retained originals,
 user vectors and AMD's separately charged workspace during analysis. Only the
 `4*n` preferred-row map remains during numerical factorization; it is charged
@@ -46,7 +46,8 @@ against the factor budget, then released. Actual index storage size determines
 the implementation's byte count. There is no persistent numerical CSC copy.
 LOW_MEMORY uses the same graph storage and existing compact LU growth policy.
 Positive caps and LOW with AMD require its existing audited caller-workspace ABI;
-uncapped opaque AMD retains its existing unknown complete-peak status. Existing
+uncapped opaque AMD retains its existing unknown complete-peak status. METIS ND
+also has unknown complete workspace and rejects strict caps or LOW. Existing
 refinement admission conservatively reserves the future checker quota even
 before those arrays are allocated. Owned array payload is distinct from RSS.
 
