@@ -263,10 +263,14 @@ mathematical implementations.
   The KIN6D coupled gauge/voltage Jacobian exposes a practical ordering/fill
   gap. Opt-in structural matching with matched-graph AMD and generated pivot-row
   preferences is implemented with original-matrix and cap-accounting checks.
-  The unchanged full consumer case still times out at 900 seconds on its largest
-  mesh. A bounded 19,989-row replay already processes 21.69 billion scatter
-  entries before its diagnostic deadline; practical elimination work and the
-  full consumer case must qualify before admission.
+  Optional METIS ND now supports general real/complex LU without strict caps.
+  The matched-AMD full consumer case times out at 900 seconds on its largest
+  mesh. A frozen 19,989-row replay completes with unmatched ND in 5.49 seconds
+  of factor time and 608 MB retained payload; this shared-host diagnostic is
+  not performance admission. The unchanged full consumer case must still
+  qualify. Generated compensated triangular solves improve the NEO-2 final
+  transport comparison while retaining allocation-free solves and capped
+  correction storage; intermediate application checks remain open.
 - [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
   explicit real-pairing derivatives; retain separate complex-class evidence.
 - [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex

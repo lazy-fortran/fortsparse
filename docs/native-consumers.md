@@ -8,12 +8,12 @@ AMD/METIS graph ordering are allowed; external sparse factorizations are not.
 | Consumer | State | Evidence or remaining gate |
 |---|---|---|
 | FortFEM | [Draft PR 82](https://github.com/lazy-fortran/fortfem/pull/82) | Native CMake/fpm checks pass. Preserves KIN6D's newer scientific modules; exact Hermitian Gram assembly fixed and independently checked upstream. Nine-repeat adapter CPU/RSS table included; that table predates the Gram fix. |
-| NEO-2 | [Draft PR 212](https://github.com/itpplasma/NEO-2/pull/212) | PAR/QL builds and all four focused checks pass, including the unchanged spline gate after upstream row-singleton preprocessing. Lorentz stages complete; strict application golden still fails. Fresh legacy repeats have identical scientific datasets but differing metadata. Draft reports native CPU +7.07%, largest-process RSS +3.71% for the matched Lorentz run. Not ready to merge. |
+| NEO-2 | [Draft PR 212](https://github.com/itpplasma/NEO-2/pull/212) | PAR/QL builds and all four focused checks pass, including the unchanged spline gate after upstream row-singleton preprocessing. Generated compensated LU solves now pass the original strict final Lorentz transport comparison; intermediate and metadata golden differences remain under investigation. Historical native CPU +7.07%, largest-process RSS +3.71% predates compensation. Not ready to merge. |
 | MEPHIT | [Draft PR 71](https://github.com/itpplasma/MEPHIT/pull/71) | Native FDM, both optional MFEM sites and shared FreeFem module. Stock 10/10 and minimal-runtime/MFEM 11/11 focused checks pass; complete cylinder passes unchanged scientific gates. Corrected stock-native CPU +20.89%; component RSS and optional-runtime results included. Failed initial IPC run and its bounded protocol repair retained. |
 | KAMEL | [Draft PR 357](https://github.com/itpplasma/KAMEL/pull/357) | Actual KIM/QL builds and 11 affected checks pass. Matched five-case CPU/RSS table included; long periodic/global CPU -0.7%, RSS +2.4%. Coarse diagnostics remain explicitly qualified; full golden/cross-platform admission pending. |
 | KIN6D | [Draft PR 9](https://github.com/itpplasma/kin6d/pull/9) | Native-only adapters, updated FortFEM and explicit assembly-roundoff normalization. Six matched historical cases at dfa0b79: 44/44 measured processes pass; CPU/RSS tables included. Vertical Newton CPU +14.9%, RSS -6.2%; direct/Newton CPU +1.0%, RSS -12.2%. Current d7dbf24 opts into native matching for the coupled Jacobian; eleven other affected checks pass. Original 8/16/32-level nonnested test times out at 900.64 seconds on the largest level after successful first two levels. No successful full-case CPU/RSS delta claimed. |
-| NEO-EQ | [Draft PR 9](https://github.com/itpplasma/NEO-EQ/pull/9) | Native pressure/current and shared FreeFem Ampere paths build; three affected checks and fresh component CI pass. Three-repeat CPU/RSS tables included. Full physical run blocked by stale minimal input and missing current device field data; no tolerance/control relaxation. FreeFem runtime migration is not an isolated solver comparison. |
-| NEO-RT | [Draft PR 198](https://github.com/itpplasma/NEO-RT/pull/198) | Optional coupling pins native NEO-2; default standalone remains independent and three focused checks pass with CPU/RSS tables. Optional application compile is blocked by an existing incompatible field-adapter interface; optional-native runtime deltas unavailable. |
+| NEO-EQ | [Draft PR 9](https://github.com/itpplasma/NEO-EQ/pull/9) | Native pressure/current and shared FreeFem Ampere paths build; focused checks and component CPU/RSS tables included. A frozen current public KiLCA physical case now completes the legacy solver phase after shared mesh/diagnostic repairs; native requalification with explicit AMD is pending. The earlier natural-order native attempt times out; unchanged full postprocessing also times out on legacy. No tolerance relaxation or successful full-pipeline comparison claimed. FreeFem runtime migration is not an isolated solver comparison. |
+| NEO-RT | [Draft PR 198](https://github.com/itpplasma/NEO-RT/pull/198) | Optional native application builds after explicit NEO-2 field-provider lifetime and signed-curl repairs. Default 5/5 and optional 6/6 checks pass, including unchanged nonzero ripple-plateau transport gates. Fresh three-repeat CPU/RSS observations cover four cases on the current default and optional paths. The original optional application was unbuildable, so its baseline delta remains unavailable; new optional absolute costs are reported separately. |
 
 The audited default paths of libneo, SIMPLE, GORILLA/GORILLA_APPLETS, ARES,
 NEO, tiago, KiLCA/KiLCA-FLR2 and REALSPACE_WITH_COLLISIONS have no external
@@ -39,7 +39,11 @@ aggregate concurrent peak, and waited-descendant CPU is counted only once.
 These shared-host migration observations do not establish a Pareto-front claim.
 
 The FortSparse public C ABI and native-default fpm configuration support these
-migrations. C ABI input conversion and solve staging do not yet expose a strict
-user memory cap. Explicit-AMD real SPD and pivoted LDLT CPU factors support
-payload caps; ordered planning and strict ND/GPU caps remain unsupported. These
-limits and the later CPU/GPU Pareto requirement remain active roadmap work.
+migrations. C ABI input conversion and solve staging now expose strict owned
+host-payload caps. Structured RAW input conversion supports the CPU matrix
+classes, including old/new factor overlap. Explicit-AMD real SPD supports exact
+compact LOW planning and strict execution; real LDLT and general LU support
+bounded AMD execution. Optional general-LU ND is available without a strict
+budget; ND/GPU caps and broader production planning remain open. A solver
+payload cap does not bound consumer assembly or whole-process RSS. These limits
+and the later CPU/GPU Pareto requirement remain active roadmap work.
