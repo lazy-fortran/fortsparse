@@ -5,7 +5,7 @@ module fortsparse_ipc_proto
     ! helper agree on the layout. Also resolves the helper binary from the
     ! environment or PATH. No UMFPACK symbol appears here.
     use, intrinsic :: iso_c_binding, only: c_int32_t, c_int64_t, c_char, &
-        c_size_t, c_null_char
+        c_size_t, c_null_char, c_double
     implicit none
     private
 
@@ -23,8 +23,8 @@ module fortsparse_ipc_proto
 
     public :: shm_header_t
     public :: OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, &
-        OP_SOLVE_COMPLEX, OP_FREE, OP_SHUTDOWN
-    public :: ST_OK, ST_SINGULAR, ST_ERROR
+        OP_SOLVE_COMPLEX, OP_FREE, OP_SHUTDOWN, OP_CAPABILITIES
+    public :: ST_OK, ST_SINGULAR, ST_ERROR, ST_RESOURCE_LIMIT
     public :: find_helper
 
     ! Opcodes and normalized status codes, matching fsparse_proto.h.
@@ -34,9 +34,11 @@ module fortsparse_ipc_proto
     integer(c_int32_t), parameter :: OP_SOLVE_COMPLEX = 4
     integer(c_int32_t), parameter :: OP_FREE = 5
     integer(c_int32_t), parameter :: OP_SHUTDOWN = 6
+    integer(c_int32_t), parameter :: OP_CAPABILITIES = 7
     integer(c_int32_t), parameter :: ST_OK = 0
     integer(c_int32_t), parameter :: ST_SINGULAR = 1
     integer(c_int32_t), parameter :: ST_ERROR = 2
+    integer(c_int32_t), parameter :: ST_RESOURCE_LIMIT = 3
 
     character(*), parameter :: HELPER_NAME = "fortsparse_umfpack_helper"
 
@@ -58,6 +60,14 @@ module fortsparse_ipc_proto
         integer(c_int64_t) :: off_x
         integer(c_int64_t) :: off_xz
         integer(c_int64_t) :: data_bytes
+        integer(c_int64_t) :: factor_protocol
+        real(c_double) :: pivot_tolerance
+        integer(c_int64_t) :: memory_budget_bytes
+        integer(c_int64_t) :: symbolic_peak_bytes
+        integer(c_int64_t) :: estimated_peak_bytes
+        integer(c_int64_t) :: numeric_peak_bytes
+        real(c_double) :: effective_pivot_tolerance
+        integer(c_int64_t) :: numeric_started
     end type shm_header_t
 
 contains

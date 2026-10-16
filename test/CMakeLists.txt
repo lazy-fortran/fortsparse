@@ -170,6 +170,30 @@ if(TARGET fortsparse_umfpack_helper AND
         "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:fortsparse_umfpack_helper>")
 endif()
 
+# Explicit pivot control and a pre-numeric symbolic-memory estimate gate.
+if(TARGET fortsparse_umfpack_helper)
+    add_executable(test_fortsparse_umfpack_controls
+        ipc/test_fortsparse_umfpack_controls.f90)
+    target_link_libraries(test_fortsparse_umfpack_controls PRIVATE fortsparse)
+    add_executable(test_legacy_umfpack_helper
+        ../test-cmake/ipc/test_legacy_umfpack_helper.c)
+    target_include_directories(test_legacy_umfpack_helper PRIVATE
+        ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(test_legacy_umfpack_helper PRIVATE
+        ${FORTSPARSE_UMFPACK_TARGET} Threads::Threads)
+    if(NOT WIN32)
+        target_link_libraries(test_legacy_umfpack_helper PRIVATE m)
+    endif()
+    add_dependencies(test_fortsparse_umfpack_controls
+        fortsparse_umfpack_helper test_legacy_umfpack_helper)
+    add_test(NAME test_fortsparse_umfpack_controls COMMAND ${CMAKE_COMMAND}
+        -DTEST=$<TARGET_FILE:test_fortsparse_umfpack_controls>
+        -DHELPER=$<TARGET_FILE:fortsparse_umfpack_helper>
+        -DLEGACY=$<TARGET_FILE:test_legacy_umfpack_helper>
+        -DRECEIPT=${CMAKE_CURRENT_BINARY_DIR}/legacy-factor-requests.txt
+        -P ${PROJECT_SOURCE_DIR}/test-cmake/ipc/run_umfpack_controls.cmake)
+endif()
+
 # Exe-directory discovery of the helper, with no environment variable and no
 # PATH entry. The test executable is placed in the same directory as the helper
 # binary so find_helper resolves it next to the running program. No ENVIRONMENT
