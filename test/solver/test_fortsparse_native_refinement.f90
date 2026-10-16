@@ -385,7 +385,7 @@ contains
             solver%refine=.true.
             value_bytes=8_i8*kind
             entry=int(storage_size(0)/8,i8)+value_bytes
-            fixed=int(storage_size(0)/8,i8)*(11_i8*n+3_i8+n*n)+(value_bytes+8_i8)*n
+            fixed=int(storage_size(0)/8,i8)*(11_i8*n+3_i8+n*n)+(2_i8*value_bytes+8_i8)*n
             quota=int(storage_size(0)/8,i8)*(n+1_i8+n*n)+value_bytes*(n*n+2_i8*n)
             cap=fixed+(lower+2*upper-n)*entry+quota+24_i8
             ! The checker is reserved before LU; one byte below the old exact
