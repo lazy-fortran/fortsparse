@@ -153,3 +153,22 @@ without execution.
 own CSV backend label. It does not change the default native ordering. Non-LU
 uses may honestly report unsupported. Both native aliases are removed before
 external-only calibration and rejected as size-selection comparators.
+
+
+The initial-checkpoint report recipe preserves 500 matched groups, including
+all timeout counts and successful-trial minimum/median/maximum values:
+
+```sh
+python3 bench/native_families/report.py /path/to/initial/measurement \
+  --output /external/initial-analysis --plots \
+  --cpu-scope 'parent main-entry CPU_TIME interval; helper lifetime CPU separately'
+```
+
+This report's interpretation and CPU labels specifically describe the initial
+2026-10-16 checkpoint. Later measurements with corrected CPU instrumentation
+need corresponding report labels and interpretation. PNGs stay outside Git.
+The recipe records the raw attempts hash and filtering. Error bars span every
+successful trial; timeout crosses denote the configured censoring deadline.
+Per-panel axes adapt to the fixture's regime. The compact CSV retains solve,
+refactor, main-workflow and subprocess timings separately, actual factor-team
+reports (unknown externally) and memory diagnostics without aggregating RSS.

@@ -7,6 +7,26 @@ import os
 import sys
 import unittest
 from run import select_calibration_level, validate_selected_levels, invoke
+from report import summarize
+
+
+class ReceiptSummary(unittest.TestCase):
+    def test_failed_and_unknown_metrics_do_not_become_successful_timings(self):
+        point = dict(family="drift-real", backend="native", level=128, threads=1,
+                     workload="rhs8", variant="training", operation="N")
+        rows = [dict(point, status="ok", returncode=0,
+                     record=dict(process_wall_s=wall, parent_rss_kib=-1))
+                for wall in (0.1, 0.3)]
+        rows += [dict(point, status="timeout", process_wall_s=0.91),
+                 dict(point, status="failed", record=dict(process_wall_s=0.01))]
+        result = summarize(rows)[0]
+        self.assertEqual((result["attempts"], result["ok"], result["timeouts"],
+                          result["failures"]), (4, 2, 1, 1))
+        self.assertAlmostEqual(result["process_wall_s_median"], 0.2)
+        self.assertEqual(result["process_wall_s_min"], 0.1)
+        self.assertEqual(result["process_wall_s_max"], 0.3)
+        self.assertEqual(result["parent_rss_kib_count"], 0)
+        self.assertEqual(result["timeout_observed_wall_min_s"], 0.91)
 
 
 class ProcessCPU(unittest.TestCase):
