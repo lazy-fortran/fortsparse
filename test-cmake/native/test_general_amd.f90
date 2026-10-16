@@ -17,6 +17,9 @@ program test_general_amd
     integer :: i, j, p, op, before
     logical :: reused, available
     interface
+        integer(c_int) function bounded_available() bind(C,name='fsparse_native_amd_bounded_available')
+            import c_int
+        end function
         integer(c_int) function amd_calls() bind(C, &
                                                  name='fsparse_test_general_amd_calls')
             import c_int
@@ -49,15 +52,22 @@ program test_general_amd
     before = amd_calls()
     solver%options%host_memory_limit_bytes = 1024_i8*1024_i8
     call sparse_factor(solver, A, status)
-    call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-                 'opaque AMD cap rejected')
-    call require(amd_calls() == before, 'cap rejects before AMD')
+    if (bounded_available()==1) then
+        call checked(status)
+    else
+        call require(status%code==FORTSPARSE_BACKEND_UNAVAILABLE,'bounded AMD cap unavailable')
+    end if
+    call require(amd_calls() == before, 'strict path avoids opaque AMD ABI')
     solver%options%host_memory_limit_bytes = 0_i8
     solver%options%memory_policy = FORTSPARSE_MEMORY_LOW
     call sparse_factor(solver, A, status)
-    call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-                 'LOW_MEMORY AMD rejected')
-    call require(amd_calls() == before, 'LOW_MEMORY rejects before AMD')
+    if (bounded_available()==1) then
+        call checked(status)
+    else
+        call require(status%code==FORTSPARSE_BACKEND_UNAVAILABLE,'bounded AMD LOW unavailable')
+    end if
+    call require(amd_calls() == before, 'LOW path avoids opaque AMD ABI')
+    call sparse_destroy(solver)
     solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
     solver%refine = .true.
     call sparse_factor(solver, A, status)

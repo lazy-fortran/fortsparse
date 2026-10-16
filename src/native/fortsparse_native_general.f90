@@ -1,8 +1,8 @@
 module fortsparse_native_general
     ! Native general sparse factors; orchestration only, arithmetic is generated.
     use fortsparse_kinds, only: dp, i8
-    use fortsparse_memory, only: refinement_payload_bytes
-    use, intrinsic :: iso_c_binding, only: c_int
+    use fortsparse_memory, only: refinement_payload_bytes, memory_checked_add, memory_checked_mul
+    use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
@@ -18,7 +18,7 @@ module fortsparse_native_general
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_RESOURCE_LIMIT, &
-        FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR
+        FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR, FORTSPARSE_INDEX_OVERFLOW
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
@@ -31,12 +31,34 @@ module fortsparse_native_general
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_amd_general
+        integer(c_int) function bounded_amd_available() bind(C,name='fsparse_native_amd_bounded_available')
+            import :: c_int
+        end function
+        integer(c_int) function bounded_amd_size(n,nnz,ptr,row,low,arena_bytes,output_bytes) &
+                bind(C,name='fsparse_native_amd_bounded_size')
+            import :: c_int,c_int64_t
+            integer(c_int), value :: n,nnz,low
+            integer(c_int), intent(in) :: ptr(*),row(*)
+            integer(c_int64_t), intent(out) :: arena_bytes,output_bytes
+        end function
+        integer(c_int) function bounded_amd_order(n,nnz,ptr,row,low,arena,arena_bytes,perm,inverse) &
+                bind(C,name='fsparse_native_amd_bounded')
+            import :: c_int,c_int64_t
+            integer(c_int), value :: n,nnz,low
+            integer(c_int), intent(in) :: ptr(*),row(*)
+            integer(c_int), intent(inout) :: arena(*)
+            integer(c_int64_t), value :: arena_bytes
+            integer(c_int), intent(out) :: perm(*),inverse(*)
+        end function
     end interface
     type, extends(sparse_backend_t) :: native_general_backend_t
         private
         logical, public :: reference_only = .false.
         integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
+        integer :: retained_order = -1
         logical :: same_ordering_strategy = .false.
+        logical :: bounded_amd = .false., factor_invoked = .false.
+        integer(i8) :: refinement_quota = 0_i8
         type(native_hpd_t) :: hpd_factor
         type(native_ldlt_t) :: ldlt_factor
         type(native_ldlt_z_t) :: complex_ldlt_factor
@@ -80,35 +102,47 @@ module fortsparse_native_general
         final :: general_finalize
     end type native_general_backend_t
 contains
-    subroutine column_order(self,n,ptr,rows,is_complex,order,status)
+    subroutine column_order(self,n,ptr,rows,is_complex,order,cap,status)
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: n,ptr(:),rows(:)
         logical, intent(in) :: is_complex
         integer, allocatable, intent(out) :: order(:)
+        integer(i8), intent(inout) :: cap
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable :: inverse(:)
-        integer :: ierr,code
+        integer(c_int), allocatable :: arena(:)
+        integer :: ierr,code,low
+        integer(i8) :: order_bytes,arena_bytes,output_bytes,total
         logical :: matched
         real(dp) :: started
         call status_set(status,FORTSPARSE_OK,'')
         if (self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
         if (n <= 0 .or. n == huge(n)) then
-            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
-                'native LU: AMD needs positive dimension')
+            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: AMD needs positive dimension')
             return
         end if
         if (size(ptr) /= n+1 .or. size(rows) == huge(n)) then
-            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
-                'native LU: AMD CSC extent mismatch')
+            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: AMD CSC extent mismatch')
+            return
+        end if
+        if (self%bounded_amd .and. (n>=huge(0_c_int)/4 .or. size(rows)>=huge(0_c_int)/4)) then
+            call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'native LU: bounded AMD exceeds audited index range')
             return
         end if
         started = seconds()
+        order_bytes=0_i8
+        call memory_checked_mul(4_i8,int(n,i8),order_bytes,status)
+        if (.not.status_ok(status)) return
+        if (self%bounded_amd) then
+            call admit_order(self,order_bytes,status)
+            if (.not.status_ok(status)) goto 900
+        end if
         allocate(order(n),stat=ierr)
         if (ierr /= 0) then
-            call status_set(status,FORTSPARSE_OUT_OF_MEMORY, &
-                'native LU: AMD output allocation failed')
-            return
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: AMD output allocation failed')
+            goto 900
         end if
+        if (self%bounded_amd) call record_order_peak(self,order_bytes)
         matched = .false.
         if (self%same_ordering_strategy) then
             if (is_complex) then
@@ -118,23 +152,94 @@ contains
             end if
         end if
         if (.not.matched) then
+            if (self%bounded_amd) then
+                low=0
+                if (self%options%memory_policy==FORTSPARSE_MEMORY_LOW) low=1
+                code=bounded_amd_size(n,size(rows),ptr,rows,low,arena_bytes,output_bytes)
+                call status_set(status,code,'native LU: bounded AMD graph/ABI is unavailable or invalid')
+                if (.not.status_ok(status)) goto 900
+                total=0_i8
+                call memory_checked_add(arena_bytes,output_bytes,total,status)
+                if (.not.status_ok(status)) goto 900
+                ! Includes both outputs and the complete construction arena.
+                call admit_order(self,total,status)
+                if (.not.status_ok(status)) goto 900
+            end if
             allocate(inverse(n),stat=ierr)
             if (ierr /= 0) then
-                deallocate(order)
-                call status_set(status,FORTSPARSE_OUT_OF_MEMORY, &
-                'native LU: AMD inverse allocation failed')
-                return
+                call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: AMD inverse allocation failed')
+                goto 900
             end if
-            code = order_amd_general(n,size(rows),ptr,rows,order,inverse)
-            if (code /= FORTSPARSE_OK) then
-                deallocate(order)
-                call status_set(status,code,'native LU: AMD ordering failed or unavailable')
-                return
+            if (self%bounded_amd) then
+                call record_order_peak(self,output_bytes)
+                ! The same admitted total is checked before this allocation too.
+                call admit_order(self,total,status)
+                if (.not.status_ok(status)) goto 900
+                allocate(arena(arena_bytes/4_i8),stat=ierr)
+                if (ierr/=0) then
+                    call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: bounded AMD arena allocation failed')
+                    goto 900
+                end if
+                call record_order_peak(self,total)
+                code=bounded_amd_order(n,size(rows),ptr,rows,low,arena,arena_bytes,order,inverse)
+            else
+                code=order_amd_general(n,size(rows),ptr,rows,order,inverse)
+            end if
+            call status_set(status,code,'native LU: AMD ordering failed or unavailable')
+            if (.not.status_ok(status)) goto 900
+        end if
+        if (self%bounded_amd) then
+            ! Keep the permutation input charged during LU growth. Exhaustion
+            ! must never become the factor's zero-means-unlimited cap.
+            if (cap>0_i8) then
+                if (cap<=order_bytes) then
+                    self%failed_required=order_bytes+1_i8
+                    self%failed_available=cap
+                    call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'native LU: AMD output leaves no factor budget')
+                    goto 900
+                end if
+                cap=cap-order_bytes
+            end if
+            self%factor_external_live=self%factor_external_live+order_bytes
+        end if
+        self%selected_order=FORTSPARSE_ORDER_AMD
+        call status_set(status,FORTSPARSE_OK,'')
+900     continue
+        if (allocated(arena)) deallocate(arena)
+        if (allocated(inverse)) deallocate(inverse)
+        if (.not.status_ok(status)) then
+            if (allocated(order)) deallocate(order)
+            call update_stats(self)
+        end if
+        self%stats%analysis_s=seconds()-started
+    end subroutine column_order
+
+    subroutine admit_order(self,bytes,status)
+        class(native_general_backend_t), intent(inout) :: self
+        integer(i8), intent(in) :: bytes
+        type(fortsparse_status_t), intent(out) :: status
+        integer(i8) :: base,total,reserved
+        reserved=max(0_i8,self%refinement_quota-original_bytes(self))
+        base=0_i8
+        total=0_i8
+        call memory_checked_add(current_bytes(self),reserved,base,status)
+        if (.not.status_ok(status)) return
+        call memory_checked_add(base,bytes,total,status)
+        if (.not.status_ok(status)) return
+        if (self%options%host_memory_limit_bytes>0_i8) then
+            if (total>self%options%host_memory_limit_bytes) then
+                self%failed_required=bytes
+                self%failed_available=max(0_i8,self%options%host_memory_limit_bytes-base)
+                call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'native LU: bounded AMD ordering exceeds host cap')
             end if
         end if
-        self%selected_order = FORTSPARSE_ORDER_AMD
-        self%stats%analysis_s = seconds()-started
-    end subroutine column_order
+    end subroutine admit_order
+
+    subroutine record_order_peak(self,bytes)
+        class(native_general_backend_t), intent(inout) :: self
+        integer(i8), intent(in) :: bytes
+        self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self)+bytes)
+    end subroutine record_order_peak
 
     subroutine prepare(self, refine, cap, status)
         class(native_general_backend_t), intent(inout) :: self
@@ -145,6 +250,9 @@ contains
         self%same_ordering_strategy = self%selected_order == self%options%ordering
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
         self%stats = sparse_factor_stats_t()
+        self%bounded_amd=.false.
+        self%factor_invoked=.false.
+        self%refinement_quota=0_i8
         self%stats%host_peak_bytes = current_bytes(self)
         self%failed_required = 0_i8
         self%failed_available = 0_i8
@@ -164,9 +272,13 @@ contains
             if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) return
             if (self%reference_only) return
             if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
-                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                    'native LU: AMD private workspace has no strict memory contract')
-                return
+                if (bounded_amd_available()/=1) then
+                    call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                        'native LU: audited AMD caller-workspace ABI unavailable')
+                    return
+                end if
+                self%bounded_amd=.true.
+                self%same_ordering_strategy=self%retained_order==self%options%ordering
             end if
         end if
         if (cap > 0_i8 .and. associated(self%user_vector)) then
@@ -230,15 +342,18 @@ contains
         call reserve_original(self,A%ncol,A%nnz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
         call column_order(self,A%ncol,A%col_ptr,A%row_idx,.false., &
-            order,status)
+            order,cap,status)
         if (.not.status_ok(status)) return
         started = seconds()
+        self%factor_invoked=.true.
+        self%retained_order=-1
         call self%real_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
+        if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_real(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
         self%ready = status_ok(status)
         call update_stats(self)
@@ -318,15 +433,18 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,ncol,col_ptr,row_idx,.false.,order,status)
+        call column_order(self,ncol,col_ptr,row_idx,.false.,order,cap,status)
         if (.not.status_ok(status)) return
         started = seconds()
+        self%factor_invoked=.true.
+        self%retained_order=-1
         call self%real_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
+        if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_real(self,ncol,col_ptr,row_idx,val,refine,status)
         self%ready = status_ok(status)
         call update_stats(self)
@@ -489,15 +607,18 @@ contains
         call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
         call column_order(self,A%ncol,A%col_ptr,A%row_idx,.true., &
-            order,status)
+            order,cap,status)
         if (.not.status_ok(status)) return
         started = seconds()
+        self%factor_invoked=.true.
+        self%retained_order=-1
         call self%complex_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
+        if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
         self%ready = status_ok(status)
         call update_stats(self)
@@ -549,15 +670,18 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,ncol,col_ptr,row_idx,.true.,order,status)
+        call column_order(self,ncol,col_ptr,row_idx,.true.,order,cap,status)
         if (.not.status_ok(status)) return
         started = seconds()
+        self%factor_invoked=.true.
+        self%retained_order=-1
         call self%complex_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
+        if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_complex(self,ncol,col_ptr,row_idx,val,refine,status)
         self%ready = status_ok(status)
         call update_stats(self)
@@ -684,11 +808,15 @@ contains
         self%stats%host_current_bytes = self%real_factor%memory_bytes() &
             +self%complex_factor%memory_bytes()+self%hpd_factor%memory_current_bytes() &
             +self%ldlt_factor%retained_bytes()+self%complex_ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)
-        self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
-            self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
-            +self%hpd_factor%memory_peak_bytes()+self%ldlt_factor%peak_bytes() &
-            +self%complex_ldlt_factor%peak_bytes()+self%factor_external_live, &
-            self%stats%host_current_bytes)
+        if (.not.self%bounded_amd .or. self%factor_invoked) then
+            self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
+                self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
+                +self%hpd_factor%memory_peak_bytes()+self%ldlt_factor%peak_bytes() &
+                +self%complex_ldlt_factor%peak_bytes()+self%factor_external_live, &
+                self%stats%host_current_bytes)
+        else
+            self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,self%stats%host_current_bytes)
+        end if
         self%stats%factor_nnz = self%real_factor%factor_nnz+self%complex_factor%factor_nnz &
             +self%hpd_factor%factor_nnz()+self%ldlt_factor%factor_nnz()+self%complex_ldlt_factor%factor_nnz()
         self%stats%budget_required_bytes = self%real_factor%failed_required_bytes &
@@ -730,7 +858,7 @@ contains
         self%stats%active_threads = 1
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
-        if (self%selected_order == FORTSPARSE_ORDER_AMD) then
+        if (self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd) then
             ! AMD's opaque setup workspace prevents a complete host peak or
             ! strict-cap claim. Retained owned payload remains exactly counted.
             self%stats%host_peak_bytes = -1_i8
@@ -805,6 +933,7 @@ contains
             call refinement_payload_bytes(int(n,i8),int(nz,i8),value_bytes,planned,status)
             if (.not.status_ok(status)) return
         end if
+        self%refinement_quota=planned
         ! Reserving a positive quota must never turn an exhausted capped budget
         ! into the factors' zero-means-unlimited setting.
         if (cap>0_i8) then
@@ -1022,6 +1151,10 @@ contains
         self%same_ordering_strategy = .false.
         call release_original(self)
         self%factor_external_live = 0_i8
+        self%retained_order=-1
+        self%bounded_amd=.false.
+        self%factor_invoked=.false.
+        self%refinement_quota=0_i8
         self%failed_required = 0_i8
         self%failed_available = 0_i8
         if (associated(self%user_vector)) deallocate(self%user_vector)
