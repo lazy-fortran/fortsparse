@@ -32,6 +32,8 @@ module fortsparse_solver
     use fortsparse_memory, only: sparse_memory_plan_t, memory_budget_t, &
         plan_natural_spd_memory
     use fortsparse_spd_leaves, only: spd_update
+    use fortsparse_native_general, only: native_general_backend_t
+    use fortsparse_lu_leaves, only: lu_z_update
     use fortsparse_native, only: native_backend_t
     implicit none
     private
@@ -332,9 +334,10 @@ contains
         real(dp),                  intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
             solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
             solver%factored = .false.
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'strict memory: raw CSC conversion is not yet budgeted')
@@ -356,9 +359,10 @@ contains
         complex(dp),               intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
             solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
             solver%factored = .false.
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'strict memory: raw CSC conversion is not yet budgeted')
@@ -417,9 +421,10 @@ contains
         logical :: r
 
         r = .false.
-        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
             solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
             solver%factored = .false.
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'strict memory: raw CSC conversion is not yet budgeted')
@@ -447,9 +452,10 @@ contains
         logical :: r
 
         r = .false.
-        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
             solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
             solver%factored = .false.
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'strict memory: raw CSC conversion is not yet budgeted')
@@ -600,7 +606,7 @@ contains
         complex(dp), intent(out) :: x_dot(:)
         type(fortsparse_status_t), intent(out) :: status
 
-        complex(dp), allocatable :: A_dot_x(:), tangent_rhs(:)
+        integer :: column, entry, row
 
         if (.not. solver%factored) then
             call not_factored(status)
@@ -621,9 +627,14 @@ contains
                 "sparse_solve_jvp: incompatible complex output dimension")
             return
         end if
-        A_dot_x = csc_matvec(A_dot, x)
-        tangent_rhs = b_dot - A_dot_x
-        call sparse_solve_complex(solver, tangent_rhs, x_dot, status)
+        x_dot = b_dot
+        do column = 1, A_dot%ncol
+            do entry = A_dot%col_ptr(column), A_dot%col_ptr(column+1)-1
+                row = A_dot%row_idx(entry)
+                x_dot(row) = lu_z_update(x_dot(row), A_dot%val(entry), x(column))
+            end do
+        end do
+        call sparse_solve_complex_inplace(solver,x_dot,status)
     end subroutine sparse_solve_jvp_complex
 
     subroutine sparse_solve_vjp_complex( &
@@ -894,7 +905,7 @@ contains
             end if
         end if
         if (allocated(solver%backend)) then
-            if (backend_is(solver%backend, id)) then
+            if (backend_is(solver%backend, id, is_complex, solver%options%symmetry)) then
                 solver%backend%options = solver%options
                 call status_set(status, FORTSPARSE_OK, "")
                 return
@@ -903,7 +914,11 @@ contains
         end if
         select case (id)
         case (FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE)
-            allocate (native_backend_t :: solver%backend)
+            if (is_complex .or. solver%options%symmetry /= FORTSPARSE_SYM_SPD) then
+                allocate(native_general_backend_t :: solver%backend)
+            else
+                allocate(native_backend_t :: solver%backend)
+            end if
             select type (backend => solver%backend)
             type is (native_backend_t)
                 backend%reference_only = id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
@@ -927,13 +942,19 @@ contains
     end subroutine ensure_backend
 
     ! True when an allocated backend is the concrete kind for backend_id.
-    logical function backend_is(backend, backend_id)
+    logical function backend_is(backend, backend_id, is_complex, symmetry)
         class(sparse_backend_t), intent(in) :: backend
-        integer,                 intent(in) :: backend_id
+        integer,                 intent(in) :: backend_id, symmetry
+        logical, intent(in) :: is_complex
 
         backend_is = .false.
         select type (backend)
+            type is (native_general_backend_t)
+            backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE .or. &
+                backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE) .and. &
+                (is_complex .or. symmetry /= FORTSPARSE_SYM_SPD)
             type is (native_backend_t)
+            if (is_complex .or. symmetry /= FORTSPARSE_SYM_SPD) return
             if (backend%reference_only) then
                 backend_is = backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
             else

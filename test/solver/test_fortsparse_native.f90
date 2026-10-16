@@ -138,8 +138,8 @@ program test_fortsparse_native
     call require(status%code == FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         'nonpositive pivot rejected')
     call sparse_factor(other, Z, status)
-    call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-        'complex explicitly unsupported')
+    call require(status%code == FORTSPARSE_INVALID_MATRIX, &
+        'invalid complex HPD input rejected')
     ! Changed graph (diagonal-only) cannot reuse the old graph analysis.
     call csc_from_triplet(n, n, [(i, i=1, n)], [(i, i=1, n)], &
         [(2.0_dp, i=1, n)], changed, status)
