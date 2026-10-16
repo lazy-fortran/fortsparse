@@ -55,8 +55,13 @@ next factor/refactor attempt, and invalidate reuse when the schedule changes.
 Plan categories are disjoint: factor payload, other persistent array payload and
 transient workspace. `peak_host_bytes` covers their peak simultaneous lifetime.
 For the supported natural-order real reference, with n columns, m supplied CSC
-entries and L structural Cholesky entries, the exact array layout is
+entries and L structural Cholesky entries, the unrefined exact array layout is
 `12*L + 4*m + 36*n + 8` bytes on the supported 32-bit-index/FP64 build.
+With `solver%refine=.true.`, add `4*(n+1+m) + 8*(m+2*n)` for the retained
+original CSC and two checker vectors. The returned plan already includes this
+quota and checks its overlap with planning scratch; do not add it twice.
+See [refinement](native-refinement.md) for the numerical contract.
+
 The factor value array contributes `8*L`. Analysis needs only three integer
 n-vectors while planning, released before factorization. Scalar and block solves
 reuse retained scratch without per-call allocations; the real JVP uses its

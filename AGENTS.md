@@ -62,9 +62,10 @@ their work is integrated and their owned processes have stopped.
   transfers. State reuse counts. Do not confuse a fresh process with a cold
   filesystem cache or omit setup when reporting total cost.
 - Report wall time AND process CPU time (user plus system), including helper
-  CPU separately. Use cumulative process user/system counters when reporting
-  full process CPU; a timer started in `main` excludes loader/startup work and
-  must be labeled as that interval. Preserve that distinction in old receipts.
+  CPU separately. Full-lifetime CPU needs completed-process user/system counters.
+  An in-process cumulative sample ends at that sample; a timer started in `main`
+  also excludes loader/startup. Label those intervals and preserve old receipts.
+  On Linux, `wait4` includes reaped-child CPU: never add helper CPU twice.
   Sweep 1, 2, 4, 8 and 16 physical cores where available, with
   fixed affinity, explicit thread settings and controlled background load.
   Report speedup, efficiency, actual teams and serial/overhead-limited cases.
