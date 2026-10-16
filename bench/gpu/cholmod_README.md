@@ -12,7 +12,12 @@ cmake --build /var/tmp/fortsparse-gpu/cholmod-driver --target bench_spd_cholmod 
 ```
 
 The owning root may instead include `bench/gpu/cholmod.cmake` after creating
-`fortsparse_spd_fixtures`. Enable only the SuiteSparse config, AMD, CAMD,
+`fortsparse_spd_fixtures` when its SuiteSparse package discovery is compatible.
+Use the standalone build for this repository: existing native AMD discovery
+can leave imported targets visible without the package-found variables that
+CHOLMOD's dependency configurations require. The isolated build avoids that
+configuration failure and keeps its dependency resolution independent.
+Enable only the SuiteSparse config, AMD, CAMD,
 CCOLAMD, COLAMD and CHOLMOD projects in the dependency build; use
 `SUITESPARSE_USE_CUDA=ON`, `CHOLMOD_USE_CUDA=ON`,
 `SUITESPARSE_CUDA_ARCHITECTURES=120`, shared libraries and OpenBLAS.

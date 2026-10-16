@@ -18,5 +18,13 @@ if(FORTSPARSE_BUILD_TESTING)
         set_tests_properties(gpu_contract_native_${workload} PROPERTIES
             LABELS "native;benchmark;fast" TIMEOUT 1
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        if(FORTSPARSE_ENABLE_NATIVE_CUDA)
+            add_test(NAME gpu_contract_native_cuda_${workload}
+                COMMAND bench_spd_native_gpu grid2 1 1 ${workload}
+                    heldout 0 host tuned)
+            set_tests_properties(gpu_contract_native_cuda_${workload} PROPERTIES
+                LABELS "native;cuda;benchmark;fast" TIMEOUT 1
+                ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        endif()
     endforeach()
 endif()

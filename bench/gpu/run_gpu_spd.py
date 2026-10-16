@@ -211,7 +211,8 @@ def main():
         timing_contract="primary_phase_s: cold/warm=factor+solve; refactor=refactor+solve; repeated-rhs=TOTAL retained-factor solves. total_s and workflow_cpu_s include setup/check/free and warmups.",
         memory_contract="Requested/used/reserved private pool, wrapper bytes, phase-boundary sampled process memory and unknown total peak are separate; no implicit memory aggregation.",
         environment={key: os.environ.get(key) for key in
-            ("CUDA_VISIBLE_DEVICES", "OMP_WAIT_POLICY", "FSBENCH_CUDSS_POOL_LIMIT_BYTES")})
+            ("CUDA_VISIBLE_DEVICES", "CUDA_MODULE_LOADING", "OMP_WAIT_POLICY",
+             "FSBENCH_CUDSS_POOL_LIMIT_BYTES", "CHOLMOD_GPU_POOL_BYTES")})
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(f"{len(records)} trials: {result['status_counts']}; {args.output}")
