@@ -27,6 +27,13 @@ five independent trials are the default. Native failures never shrink the
 corpus. Keep held-out coefficients and randomized, block-interleaved solver
 order. Preserve every failure, timeout and unavailable comparison.
 
+The GPU calibration ladder extends the existing levels without changing them:
+2D sides 192/256/384/512 and 3D sides 28/32/40/48 are levels 8 through 11.
+This candidate list precedes native GPU tuning. An external-library timeout or
+absent numerical offload is retained, not converted into a GPU success. The
+generic `matrix-market` fixture reads separately hashed public SPD inputs;
+the existing `bcsstk09` fixture keeps its frozen dimension checks.
+
 ## Workflow boundaries
 
 | Workflow | Retained state and measured boundary |

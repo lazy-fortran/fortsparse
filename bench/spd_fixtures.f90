@@ -55,23 +55,27 @@ contains
         type(fixture_t), intent(out) :: a
         character(*), optional, intent(in) :: matrix_path
         integer, parameter :: bands(3) = [128, 512, 2048]
-        integer, parameter :: grids2(7) = [16, 24, 32, 48, 64, 96, 128]
-        integer, parameter :: grids3(7) = [5, 7, 9, 12, 16, 20, 24]
+        integer, parameter :: grids2(11) = &
+            [16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512]
+        integer, parameter :: grids3(11) = &
+            [5, 7, 9, 12, 16, 20, 24, 28, 32, 40, 48]
         integer :: nx, ny, nz, radius, col, r, k, d, axis, stride
         integer :: coordinate, extent, count, position, rows(9), temporary
         real(dp) :: weights(9), diagonal, weight, temp_weight, anisotropy(3)
 
-        if (family == "bcsstk09") then
+        if (family == "bcsstk09" .or. family == "matrix-market") then
             if (.not. present(matrix_path)) error stop "matrix path required"
             if (held_out) error stop "archived matrix has no held-out variation"
             call read_symmetric_matrix_market(matrix_path, a, k)
             if (k /= 0) error stop "invalid symmetric MatrixMarket fixture"
-            if (a%n /= 1083 .or. size(a%val) /= 18437) &
-                error stop "HB/bcsstk09 dimensions differ from frozen metadata"
+            if (family == "bcsstk09") then
+                if (a%n /= 1083 .or. size(a%val) /= 18437) &
+                    error stop "HB/bcsstk09 dimensions differ from frozen metadata"
+            end if
             return
         end if
 
-        if (level < 1 .or. level > 7) error stop "invalid fixture level"
+        if (level < 1 .or. level > size(grids2)) error stop "invalid fixture level"
         nx = 1
         ny = 1
         nz = 1

@@ -1,6 +1,7 @@
 program test_spd_matrix_market
     use, intrinsic :: iso_fortran_env, only: dp => real64
-    use spd_fixtures, only: fixture_t, read_symmetric_matrix_market, fixture_product
+    use spd_fixtures, only: fixture_t, read_symmetric_matrix_market, &
+        fixture_product, make_fixture
     implicit none
     type(fixture_t) :: a
     integer :: unit, status
@@ -21,6 +22,10 @@ program test_spd_matrix_market
     call fixture_product(a, [1.0_dp, 2.0_dp, 3.0_dp], result)
     if (maxval(abs(result - [6.0_dp, 4.0_dp, 4.0_dp])) > 1.0e-14_dp) &
         error stop "independent dense product mismatch"
+    call make_fixture('matrix-market', 1, .false., a, path)
+    call fixture_product(a, [1.0_dp, 2.0_dp, 3.0_dp], result)
+    if (maxval(abs(result - [6.0_dp, 4.0_dp, 4.0_dp])) > 1.0e-14_dp) &
+        error stop "generic MatrixMarket fixture product mismatch"
 
     open (newunit=unit, file=path, status="replace")
     write (unit, '(a)') "%%MatrixMarket matrix coordinate complex symmetric"
