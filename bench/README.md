@@ -287,3 +287,64 @@ entries, sorts columns and sums duplicate records. Both benchmark executables
 use it. Known-solution RHS construction, residual checks and the existing
 derivative oracle/tolerances are unchanged; collection SPD metadata does not
 replace those checks.
+
+## Low-memory CPU comparison
+
+`native-low-memory` selects the native backend with
+`FORTSPARSE_MEMORY_LOW`. The current supported schedule is natural-order CPU
+real-SPD simplicial Cholesky; requested factor threads can therefore exceed the
+reported active team. This is a memory-policy choice, not an external fallback.
+The optional ninth `bench_spd` argument sets `host_memory_limit_bytes` (zero
+means unlimited); argument seven remains ordering and eight remains matrix path.
+Explicit AMD/ND with this policy is currently unsupported. See
+[the memory contract](../docs/memory.md) for the exact cap scope.
+
+The existing CSV columns retain their names/order, with numeric memory columns
+appended. `plan_s` measures the separate public planning call;
+`memory_plan_status` must be zero before using `memory_prediction_quality`
+(1 exact layout, 2 bound, 3 estimate) or `predicted_host_peak_bytes`.
+Unavailable predictions are `-1`. `host_current_bytes` and `host_peak_bytes`
+are attributed solver payload measured after the workload, before freeing
+factors. `host_memory_limit_bytes`, `memory_policy`, `strict_memory_supported`
+(0/1), and required/available bytes on allocation rejection remain separate.
+None predicts or limits process RSS. Planning excludes caller A/B/X, runtime,
+allocator and object overhead; its time is included in total wall/CPU time,
+not factor/solve time. Uncapped production and external paths can report an
+unsupported planner and unknown attributed payload without failing the solve.
+A failed factor prints `memory_failure` diagnostic CSV and exits unsuccessfully;
+the runner retains its failure output rather than treating it as a timing sample.
+
+After builds and unrelated measurements have stopped, use a declared narrow
+case and five fresh processes per backend. Existing input/oracle/tolerance,
+one-second process limit, affinity, source/binary/library identities and
+parent/helper CPU/RSS accounting remain unchanged:
+
+```sh
+python3 bench/run_spd.py --bin-dir build/bin \
+  --output /var/tmp/spd-memory-small.json --threads 1 --trials 5 \
+  --families band,grid2 --levels 1 --workloads rhs8 \
+  --backends native,native-low-memory,native-reference,superlu,umfpack,mumps,mkl-pardiso
+```
+
+The raw JSON records retain all appended fields; existing generic performance
+summaries do not yet aggregate these memory columns. Read predicted/current/peak
+payload alongside parent peak RSS, not as its replacement. Native reference is
+an independent schedule label, and unavailable external executables remain
+missing-comparator records. Report medians and observed ranges for complete
+wall/CPU/RSS and factor/solve costs, with background load and reuse stated.
+Shared load, failures or missing comparators prevent a performance-admission
+claim. These diagnostics cannot establish a performance win from lower payload.
+
+The ninth-argument cap can also be checked directly, keeping positional slots:
+
+```sh
+OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 timeout 1s \
+  build/bin/bench_spd native-low-memory band 1 1 rhs8 training 0 '' 1048576
+ctest --test-dir build -j 2 -R '^spd_benchmark_memory$' --output-on-failure
+```
+
+The registered check exercises the existing CSV reader, independently checked
+eight-RHS solves, an exact predicted cap and rejection one byte below it. It is
+correctness evidence, not ordinary performance measurement. Keep raw comparison
+JSONs and generated plots outside source history; publish plots only through
+the controller's existing slopbox workflow.
