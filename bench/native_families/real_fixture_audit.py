@@ -11,6 +11,17 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
+def checked_file(base, entry, require_size=True):
+    path = (base / entry['path']).resolve()
+    if not path.is_relative_to(base):
+        raise ValueError("fixture file escapes private archive")
+    if require_size and 'bytes' not in entry:
+        raise ValueError('fixture entry requires a byte count')
+    if ('bytes' in entry and path.stat().st_size != entry['bytes']) or sha256(path) != entry['sha256']:
+        raise ValueError("fixture file differs from manifest hash/size")
+    return path
+
+
 def records(path, header):
     with Path(path).open() as stream:
         if stream.readline().strip() != header:
@@ -147,10 +158,15 @@ def audit(rows, rhs, known_x, reference_sets, candidates, policy):
 
 
 class PrivateFixture:
-    def __init__(self, manifest, expected_policy_sha256):
+    driver_case, workload = 'real-mm', 'rhs4'
+    audit_module = 'real_fixture_audit.py'
+
+    def __init__(self, manifest, expected_policy_sha256, fixture_id=None):
         self.path = Path(manifest).resolve()
         self.base = self.path.parent
         self.manifest = json.loads(self.path.read_text())
+        if fixture_id is not None and fixture_id != self.manifest['id']:
+            raise ValueError('real fixture ID differs from manifest')
         self.manifest_sha256 = sha256(self.path)
         self.policy_path = self.checked_file(self.manifest["accuracy_policy"])
         if sha256(self.policy_path) != expected_policy_sha256:
@@ -178,12 +194,14 @@ class PrivateFixture:
             for solver in ("umfpack", "superlu")}
 
     def checked_file(self, entry):
-        path = (self.base / entry["path"]).resolve()
-        if not path.is_relative_to(self.base):
-            raise ValueError("fixture file escapes private archive")
-        if path.stat().st_size != entry["bytes"] or sha256(path) != entry["sha256"]:
-            raise ValueError("fixture file differs from manifest hash/size")
-        return path
+        return checked_file(self.base,entry)
+
+    def input_paths(self):
+        return {"matrix.mtx":self.matrix, "physical-rhs.mtx":self.physical_rhs,
+                "known-rhs.mtx":self.checked_file(self.reader["manufactured_rhs"]),
+                "known-x.mtx":self.checked_file(self.reader["manufactured_known_x"]),
+                "physical-reference.mtx":self.checked_file(
+                    self.manifest["references"]["umfpack"]["physical"])}
 
     def check(self, candidate):
         return audit(self.rows, self.rhs, self.known, self.references,

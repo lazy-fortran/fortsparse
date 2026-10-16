@@ -99,15 +99,17 @@ class AuditTests(unittest.TestCase):
     def test_qualification_cannot_be_asserted_or_partial(self):
         class Fixture:
             manifest_sha256, policy_sha256 = "matrix", "policy"
+            manifest = {"id":"public-test"}
         path = self.path/"qualification.json"
         path.write_text(json.dumps(dict(mode="qualify", status="pass",
-            manifest_sha256="matrix", policy_sha256="policy", attempts=[])))
+            manifest_sha256="matrix", policy_sha256="policy", fixture_id="public-test", attempts=[])))
         with self.assertRaisesRegex(ValueError, "all declared"):
             verify_qualification(path, Fixture(), self.path)
 
     def test_split_qualification_and_changed_binary(self):
         class Fixture:
             manifest_sha256, policy_sha256 = "matrix", "policy"
+            manifest = {"id":"public-test"}
             base = self.path
 
             @staticmethod
@@ -125,7 +127,7 @@ class AuditTests(unittest.TestCase):
         paths = [self.path/"first.json", self.path/"second.json"]
         for path, group in zip(paths, [attempts[:4], attempts[4:]]):
             path.write_text(json.dumps(dict(mode="qualify", status="pass",
-                manifest_sha256="matrix", policy_sha256="policy", attempts=group)))
+                manifest_sha256="matrix", policy_sha256="policy", fixture_id="public-test", attempts=group)))
         self.assertEqual(len(verify_qualification(paths, Fixture(), build)), 2)
         (build/"bin"/binary_name("superlu")).write_text("changed")
         with self.assertRaisesRegex(ValueError, "binary changed"):
@@ -138,6 +140,7 @@ class CampaignTests(unittest.TestCase):
             path = Path(directory)
             class Fixture:
                 manifest = {"id": "public-test"}
+                driver_case, workload, audit_module = 'real-mm','rhs4','real_fixture_audit.py'
                 manifest_sha256, policy_sha256 = "matrix", "policy"
             launched = []
             def child(backend, build, stage, folder, fixture, threads, cores, timeout, host_limit_bytes=None):

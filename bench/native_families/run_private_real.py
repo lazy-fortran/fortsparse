@@ -35,13 +35,7 @@ def prepare(fixture, output):
     output.chmod(0o700)
     stage = output / "input"
     stage.mkdir(mode=0o700)
-    paths = {"matrix.mtx": fixture.matrix,
-             "physical-rhs.mtx": fixture.physical_rhs,
-             "known-rhs.mtx": fixture.checked_file(fixture.reader["manufactured_rhs"]),
-             "known-x.mtx": fixture.checked_file(fixture.reader["manufactured_known_x"]),
-             "physical-reference.mtx": fixture.checked_file(
-                 fixture.manifest["references"]["umfpack"]["physical"])}
-    for name, path in paths.items():
+    for name, path in fixture.input_paths().items():
         (stage / name).symlink_to(path)
     return stage
 
@@ -55,7 +49,8 @@ def verify_qualification(paths, fixture, build):
         document = json.loads(path.read_text())
         if (document.get("mode") != "qualify" or document.get("status") != "pass"
                 or document.get("manifest_sha256") != fixture.manifest_sha256
-                or document.get("policy_sha256") != fixture.policy_sha256):
+                or document.get("policy_sha256") != fixture.policy_sha256
+                or document.get("fixture_id") != fixture.manifest['id']):
             raise ValueError("passing qualification of this exact fixture/policy required")
         attempts.extend(document.get("attempts", []))
         hashes[str(path.resolve())] = sha256(path)
@@ -86,7 +81,7 @@ def attempt(backend, build, stage, output, fixture, threads, cores, timeout, hos
     result["dependency_resolution"] = dict(stdout=deps.stdout, stderr=deps.stderr,
                                             returncode=deps.returncode)
     candidate = output / (backend + "-candidate.mtx")
-    args = ["real-mm", "1", str(threads), "rhs4", "N", "training", str(stage)]
+    args = [fixture.driver_case, "1", str(threads), fixture.workload, "N", "training", str(stage)]
     args = driver_arguments(backend, args)
     receipt = invoke(binary, args, threads, cores, timeout,
                      extra_env={"FORTSPARSE_BENCH_SOLUTION": str(candidate),
@@ -102,7 +97,11 @@ def attempt(backend, build, stage, output, fixture, threads, cores, timeout, hos
         result.update(candidate_path=str(candidate), candidate_sha256=sha256(candidate))
         start = time.perf_counter()
         try:
-            result["independent_audit"] = fixture.check(candidate)
+            if hasattr(fixture, 'ordinary_workflow_budget_s'):
+                remaining = max(0,fixture.ordinary_workflow_budget_s-receipt['process_wall_s'])
+                result["independent_audit"] = fixture.check(candidate,budget_s=remaining)
+            else:
+                result["independent_audit"] = fixture.check(candidate)
         except (ValueError, OSError, StopIteration) as error:
             result["independent_audit"] = dict(status="audit_failure", reason=str(error))
         duration = time.perf_counter() - start
@@ -110,15 +109,21 @@ def attempt(backend, build, stage, output, fixture, threads, cores, timeout, hos
         result["solver_child_plus_audit_wall_s"] = receipt["process_wall_s"] + duration
         if receipt["status"] == "ok" and receipt["returncode"] == 0:
             result["status"] = result["independent_audit"]["status"]
+            budget = getattr(fixture, 'ordinary_workflow_budget_s', None)
+            if budget is not None and result["solver_child_plus_audit_wall_s"] >= budget:
+                result["status"] = 'ordinary_budget_exceeded'
     elif receipt["status"] == "ok":
         result["status"] = "missing_candidate_export"
     return result
 
 
-def main():
+def main(fixture_factory=None):
+    if fixture_factory is None:
+        fixture_factory = PrivateFixture
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--fixture", required=True, type=Path)
     parser.add_argument("--policy-sha256", required=True)
+    parser.add_argument("--fixture-id", help="explicit member ID for a complex fixture collection")
     parser.add_argument("--build", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--mode", choices=("prepare", "qualify", "native", "measure"),
@@ -156,7 +161,8 @@ def main():
         parser.error("matched measurements require all declared external peers")
     args.output = args.output.resolve()
     start = time.perf_counter()
-    fixture = PrivateFixture(args.fixture, args.policy_sha256)
+    fixture = (fixture_factory(args.fixture, args.policy_sha256, args.fixture_id)
+               if args.fixture_id else fixture_factory(args.fixture, args.policy_sha256))
     build = args.build.resolve()
     available_cores = physical_cores()
     try:
@@ -177,7 +183,8 @@ def main():
             ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
         source_status=subprocess.check_output(
             ["git", "-C", str(ROOT), "status", "--porcelain"], text=True),
-        fixture_id=fixture.manifest["id"], manifest_sha256=fixture.manifest_sha256,
+        fixture_id=fixture.manifest["id"], driver_case=fixture.driver_case,
+        workload=fixture.workload, manifest_sha256=fixture.manifest_sha256,
         policy_sha256=fixture.policy_sha256, window_note=args.window_note,
         qualification_sha256=qualification_hash,
         required_external_peers=list(EXTERNAL),
@@ -189,7 +196,7 @@ def main():
         comparison_policy="Numerical gates unchanged; expanded six-comparator family "
         "comparison scope includes direct and IPC UMFPACK separately.",
         script_sha256={p.name: sha256(p) for p in [Path(__file__),
-                     HERE/"real_fixture_audit.py", HERE/"run.py"]},
+                     HERE/"real_fixture_audit.py", HERE/fixture.audit_module, HERE/"run.py"]},
         preparation_and_prerequisite_audit_wall_s=time.perf_counter()-start,
         attempts=[], timing_scope="child includes input/reference I/O, original-matrix "
         "checks, candidate export and teardown; exact rational audit is separate, "
@@ -202,7 +209,7 @@ def main():
         with raw_path.open("x") as raw:
             for backend, nt, _, _, _, trial in matched_points(
                     list(EXTERNAL)+[args.backend], budgets, args.trials,
-                    ["rhs4"], ["training"], ["N"]):
+                    [fixture.workload], ["training"], ["N"]):
                 folder = args.output / f"threads-{nt}-trial-{trial}-{backend}"
                 folder.mkdir(mode=0o700)
                 result = attempt(backend, build, stage, folder, fixture,
