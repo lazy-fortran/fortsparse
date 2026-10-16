@@ -38,6 +38,34 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_ilutp_allocations PROPERTIES
         LABELS "native;preconditioner;memory;fast" TIMEOUT 1)
 endif()
+fortsparse_add_test(test_fortsparse_native_lu_lifetime
+    ../test-cmake/native/test_native_lu_lifetime.f90)
+target_sources(test_fortsparse_native_lu_lifetime PRIVATE ../test-cmake/native/lu_discard_counter.c)
+set_tests_properties(test_fortsparse_native_lu_lifetime PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_definitions(test_fortsparse_native_lu_lifetime PRIVATE FS_TEST_WRAP_ADVICE)
+    target_link_options(test_fortsparse_native_lu_lifetime PRIVATE "LINKER:--wrap=madvise" "LINKER:--wrap=malloc"
+        "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
+    add_test(NAME test_fortsparse_native_lu_advice_failure COMMAND test_fortsparse_native_lu_lifetime 1)
+    set_tests_properties(test_fortsparse_native_lu_advice_failure PROPERTIES
+        LABELS "native;lu;fast" TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()
+# Always compile the no-advice fallback. Kernel-call wrapping is Linux-only.
+add_executable(test_native_lu_discard_portable
+    ../test-cmake/native/test_native_lu_discard.c ../src/native/fsparse_native_lu_memory.c)
+target_compile_definitions(test_native_lu_discard_portable PRIVATE
+    FORTSPARSE_LU_DISCARD_DISABLED FS_TEST_DISCARD_DISABLED)
+add_test(NAME test_native_lu_discard_portable COMMAND test_native_lu_discard_portable)
+set_tests_properties(test_native_lu_discard_portable PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_native_lu_discard
+        ../test-cmake/native/test_native_lu_discard.c ../src/native/fsparse_native_lu_memory.c)
+    target_compile_definitions(test_native_lu_discard PRIVATE FS_TEST_WRAP_ADVICE)
+    target_link_options(test_native_lu_discard PRIVATE "LINKER:--wrap=madvise")
+    add_test(NAME test_native_lu_discard COMMAND test_native_lu_discard)
+    set_tests_properties(test_native_lu_discard PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+endif()
 fortsparse_add_test(test_fortsparse_lu_leaves
     solver/test_fortsparse_lu_leaves.f90)
 fortsparse_add_test(test_fortsparse_lu_pruning

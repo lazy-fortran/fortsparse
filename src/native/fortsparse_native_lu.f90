@@ -9,6 +9,7 @@ module fortsparse_native_lu
     use fortsparse_spd_leaves, only: divide_value => spd_divide, &
         scatter_update => spd_scatter_update, gather_update => spd_gather_update
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    use, intrinsic :: iso_c_binding, only: c_size_t
     use fortsparse_lu_leaves, only: solve_scatter => lu_r_compensated_scatter, &
         solve_gather => lu_r_compensated_gather, corrected_value => lu_r_corrected_value
     use fortsparse_memory, only: memory_checked_add, memory_checked_mul
@@ -19,6 +20,14 @@ module fortsparse_native_lu
     public :: lu_panel_prefix
     integer, parameter, public :: LU_NORMAL=0, LU_TRANSPOSE=1, LU_ADJOINT=2
     integer(i8), parameter :: ib=int(storage_size(0)/8,i8), vb=8_i8
+    interface
+        subroutine discard_payload(payload,bytes) &
+            bind(C,name='fsparse_native_lu_discard_payload')
+            import :: c_size_t
+            type(*), intent(inout) :: payload(*)
+            integer(c_size_t), value :: bytes
+        end subroutine discard_payload
+    end interface
     type, public :: lu_factor_t
         integer :: n=0, panel_width=1
         integer(i8) :: factor_nnz=0_i8, peak_memory_bytes=0_i8
@@ -533,6 +542,7 @@ contains
         if(status%code/=FORTSPARSE_RESOURCE_LIMIT.or..not.self%low.or.exact_growth.or..not.attempt_slack) return
         ! No simultaneous old/new retry factors: preserve the measured first
         ! attempt peak, then free all invalid numerical payload before retry.
+        call discard_factors(self)
         if(allocated(self%lr)) deallocate(self%lr,self%lv)
         if(allocated(self%ur)) deallocate(self%ur,self%uv)
         self%pinv=0
@@ -837,12 +847,21 @@ contains
                 new_indices(:used)=self%lr(:used)
                 new_values(:used)=self%lv(:used)
             end if
+            if(self%low.and.old>0) then
+                ! BOTH prefix copies are finished; the old payload is dead.
+                call discard_payload(self%lr,int(int(old,i8)*ib,c_size_t))
+                call discard_payload(self%lv,int(int(old,i8)*vb,c_size_t))
+            end if
             call move_alloc(new_indices,self%lr)
             call move_alloc(new_values,self%lv)
         else
             if (used>0) then
                 new_indices(:used)=self%ur(:used)
                 new_values(:used)=self%uv(:used)
+            end if
+            if(self%low.and.old>0) then
+                call discard_payload(self%ur,int(int(old,i8)*ib,c_size_t))
+                call discard_payload(self%uv,int(int(old,i8)*vb,c_size_t))
             end if
             call move_alloc(new_indices,self%ur)
             call move_alloc(new_values,self%uv)
@@ -1010,8 +1029,23 @@ contains
         if (allocated(self%panel_mask)) bytes=bytes+ib*size(self%panel_mask,kind=i8)
     end function memory_bytes
 
+    subroutine discard_factors(self)
+        class(lu_factor_t), intent(inout) :: self
+        ! Keep allocatable ownership. Only dead real LOW factors are advised.
+        if(.not.self%low) return
+        if(allocated(self%lr)) &
+            call discard_payload(self%lr,int(size(self%lr,kind=i8)*ib,c_size_t))
+        if(allocated(self%lv)) &
+            call discard_payload(self%lv,int(size(self%lv,kind=i8)*vb,c_size_t))
+        if(allocated(self%ur)) &
+            call discard_payload(self%ur,int(size(self%ur,kind=i8)*ib,c_size_t))
+        if(allocated(self%uv)) &
+            call discard_payload(self%uv,int(size(self%uv,kind=i8)*vb,c_size_t))
+    end subroutine discard_factors
+
     subroutine free(self)
         class(lu_factor_t), intent(inout) :: self
+        call discard_factors(self)
         if(allocated(self%lp)) deallocate(self%lp)
         if(allocated(self%up)) deallocate(self%up)
         if(allocated(self%lr)) deallocate(self%lr)
