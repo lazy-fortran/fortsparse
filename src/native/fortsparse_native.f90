@@ -715,6 +715,25 @@ contains
                 'native SPD: incompatible RHS count')
             return
         end if
+        if (self%blocked .and. self%options%device >= 0) then
+            if (allocated(self%perm)) then
+                do j = 1, size(X,2)
+                    self%work = B(self%perm,j)
+                    X(:,j) = self%work
+                end do
+            else
+                X = B
+            end if
+            call self%panels%solve_block(X,status)
+            if (.not. status_ok(status)) return
+            if (allocated(self%perm)) then
+                do j = 1, size(X,2)
+                    self%work = X(:,j)
+                    X(self%perm,j) = self%work
+                end do
+            end if
+            return
+        end if
         X = B
         do j = 1, size(X, 2)
             call self%solve_real_inplace(X(:, j), status)
