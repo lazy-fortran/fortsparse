@@ -9,7 +9,9 @@ entry; changing it requires a factor/refactor call. This is numerical backward
 error control, not a forward-error bound or a rigorous certificate.
 
 The backend retains the original canonical full CSC indices and values and two
-length-n vectors of the corresponding value type. Normal, transpose and adjoint
+length-n vectors of the corresponding value type. The general-family adapter
+(real/complex LU, supernodal LU, HPD, LDLT/LDLH) also retains one real length-n
+vector for the componentwise denominator; real SPD does not. Normal, transpose and adjoint
 residuals use that original matrix, with conjugation only for the adjoint.
 Caller mutation or deallocation of the original matrix after factorization does
 not change the checker. Each solve saves its RHS before modifying the output,
@@ -19,7 +21,25 @@ time using the same bounded workspace.
 The acceptance criterion is
 `||b-op(A)x||_inf / (||op(A)||_inf ||x||_inf + ||b||_inf) <= 32 epsilon`.
 A zero residual is accepted, including the zero RHS. The backend takes at most
-three correction solves with the retained factors. Nonfinite iterates/residuals,
+three correction solves with the retained factors.
+
+The general-family adapter also evaluates the componentwise (Oettli-Prager)
+backward error `berr_c = max_i |r_i| / (|op(A)||x| + |b|)_i` of every iterate
+from the same original-matrix pass, with moduli for complex values. Rows with a
+denominator at or below `safe2 = safe1/eps`, `safe1 = (n+1)*tiny`, use
+`(|r_i|+safe1)/(d_i+safe1)` as in LAPACK xGERFS; a row with an exactly zero
+residual contributes zero (LAPACK reports one for the 0/0 row of a zero RHS).
+In the style of xGERFS, a correction is taken while the normwise gate fails
+(unchanged) or while `berr_c > eps` and `berr_c` at least halved since the
+previous iterate (always for the first correction). The three-correction cap
+and the normwise acceptance criterion on the final iterate are unchanged: a
+solve whose componentwise error is still above eps at the cap or after
+stagnation is accepted when it meets the normwise gate. Hence a refined solve
+that met the normwise gate immediately may now take extra corrections. A
+nonfinite componentwise denominator reports `-1` and disables only the
+componentwise criterion. Real SPD Cholesky keeps the normwise-only loop and
+does not report a componentwise error. The supernodal factor-time validation
+solve (docs/lu-supernodal.md section 6) keeps its normwise-only gate. Nonfinite iterates/residuals,
 nonrepresentable matrix norms, or failure to meet the target return an explicit
 failure (`SINGULAR` with a refinement diagnostic); that status does not prove
 that the original matrix is mathematically singular. Failed output is not an
@@ -29,8 +49,9 @@ generated update/divide leaves. Factors remain untrusted candidates checked
 against the original matrix.
 
 `refinement_steps` reports completed corrections for a vector, or the maximum
-across a successful block. `backward_error` is the final estimate, or the maximum
-across a successful block. `-1` means unavailable, for example an unrefined solve
+across a successful block. `backward_error` is the final normwise estimate, or
+the maximum across a successful block; `componentwise_backward_error` is the
+final componentwise estimate in the same sense (general-family adapter only). `-1` means unavailable, for example an unrefined solve
 or a nonfinite residual. A finite three-step failure retains its failed error.
 Requested/active teams, factor family and factor statistics retain their meanings;
 in the general-family adapter, original CSC population and norm preparation follow
@@ -38,7 +59,8 @@ the existing `factor_s` measurement; quota reservation remains part of its dispa
 overhead.
 
 For default-width integers, additional payload is
-`4*(n+1+nnz) + value_bytes*(nnz+2*n)`, with value_bytes 8 real or 16 complex.
+`4*(n+1+nnz) + value_bytes*(nnz+2*n)`, with value_bytes 8 real or 16 complex,
+plus `8*n` for the componentwise denominator in the general-family adapter.
 The implementation uses `storage_size` for the actual integer width. It reserves
 this quota and any live `sparse_vector` payload before invoking the factors, so
 factor growth/reuse copies cannot consume that quota. This reservation is an
@@ -54,7 +76,7 @@ reservation, allocator overhead and process RSS. Consequently, a fresh observed
 `host_peak_bytes` alone does **not** guarantee that a same-pattern refactor fits.
 The conservative reservation gate can also require more than a fresh run's
 observed live peak. In the three-by-three complex fixture, the refinement quota
-is 292 bytes: refactoring with only the fresh observed peak as the cap returned
+was 292 bytes before the componentwise denominator (316 bytes now): refactoring with only the fresh observed peak as the cap returned
 `RESOURCE_LIMIT`; adding that exact quota allowed the tested retained workflow.
 The tight-cap failure is retained as evidence, not removed from the test history.
 Changed numerical values can alter pivots, fill and growth even with the same

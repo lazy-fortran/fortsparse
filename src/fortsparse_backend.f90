@@ -118,7 +118,9 @@ module fortsparse_backend
         logical :: compact_memory_used = .false., budget_reduced_threads = .false.
         character(16) :: native_factor_family = ''
         integer :: refinement_steps = 0
-        real(dp) :: backward_error = -1.0_dp
+        real(dp) :: backward_error = -1.0_dp ! normwise, see native-refinement.md
+        ! max_i |r_i|/(|op(A)||x|+|b|)_i of the final iterate (general adapter).
+        real(dp) :: componentwise_backward_error = -1.0_dp
         ! Native LU pivoting report (-1 when not reported). The supernodal
         ! counters describe the supernodal attempt, also after a fallback.
         integer :: perturbed_pivots = -1, block_pivot_swaps = -1

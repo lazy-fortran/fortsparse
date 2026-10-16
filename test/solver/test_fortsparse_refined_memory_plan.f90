@@ -28,6 +28,15 @@ program test_fortsparse_refined_memory_plan
     call refinement_payload_bytes(3_i8,9_i8,16_i8,value,status)
     call checked()
     call expect(value==292_i8,'independent complex quota')
+    ! The general adapter adds one real n-vector (componentwise denominator).
+    call refinement_payload_bytes(3_i8,9_i8,16_i8,value,status,componentwise=.true.)
+    call checked()
+    call expect(value==292_i8+8_i8*3_i8,'independent componentwise complex quota')
+    value=37
+    call refinement_payload_bytes(huge(0_i8)/16,0_i8,8_i8,value,status, &
+        componentwise=.true.)
+    call expect(status%code==FORTSPARSE_INDEX_OVERFLOW.and.value==37, &
+        'componentwise quota overflow')
     do kind=1,4
         select case(kind)
         case(1)

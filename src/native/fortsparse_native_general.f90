@@ -79,6 +79,9 @@ module fortsparse_native_general
         logical :: refining = .false.
         integer, allocatable :: original_ptr(:), original_rows(:)
         real(dp), allocatable :: original_values(:), saved_rhs(:), residual(:)
+        ! Componentwise backward-error denominator (|op(A)||x|+|b|), real and
+        ! complex families; part of the refinement payload.
+        real(dp), allocatable :: denominator(:)
         complex(dp), allocatable :: original_zvalues(:), saved_zrhs(:), zresidual(:)
         real(dp) :: matrix_norm = 0.0_dp, transpose_norm = 0.0_dp
         integer(i8) :: factor_external_live = 0_i8
@@ -696,6 +699,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b),size(x),.false.,status,operation)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_rhs = b
@@ -721,6 +725,7 @@ contains
         real(dp), allocatable :: rhs(:)
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b),size(b),.false.,status)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_rhs = b
@@ -755,9 +760,10 @@ contains
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
         integer :: j,steps
-        real(dp) :: error
+        real(dp) :: error,componentwise
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b,1),size(x,1),.false.,status,operation)
         if (.not.status_ok(status)) return
         if (size(b,2) /= size(x,2)) then
@@ -766,14 +772,17 @@ contains
         end if
         steps = 0
         error = -1.0_dp
+        componentwise = -1.0_dp
         do j = 1,size(b,2)
             call self%solve_real_op(b(:,j),x(:,j),operation,status)
             steps = max(steps,self%stats%refinement_steps)
             error = max(error,self%stats%backward_error)
+            componentwise = max(componentwise,self%stats%componentwise_backward_error)
             if (.not.status_ok(status)) return
         end do
         self%stats%refinement_steps = steps
         self%stats%backward_error = error
+        self%stats%componentwise_backward_error = componentwise
     end subroutine general_solve_real_block_op
 
     subroutine general_factor_complex(self,A,refine,status)
@@ -985,6 +994,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b),size(x),.true.,status,operation)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
@@ -1000,6 +1010,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b),size(b),.true.,status)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
@@ -1023,9 +1034,10 @@ contains
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
         integer :: j,steps
-        real(dp) :: error
+        real(dp) :: error,componentwise
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
+        self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b,1),size(x,1),.true.,status,operation)
         if (.not.status_ok(status)) return
         if (size(b,2) /= size(x,2)) then
@@ -1034,14 +1046,17 @@ contains
         end if
         steps = 0
         error = -1.0_dp
+        componentwise = -1.0_dp
         do j = 1,size(b,2)
             call self%solve_complex_op(b(:,j),x(:,j),operation,status)
             steps = max(steps,self%stats%refinement_steps)
             error = max(error,self%stats%backward_error)
+            componentwise = max(componentwise,self%stats%componentwise_backward_error)
             if (.not.status_ok(status)) return
         end do
         self%stats%refinement_steps = steps
         self%stats%backward_error = error
+        self%stats%componentwise_backward_error = componentwise
     end subroutine general_solve_complex_block_op
 
     subroutine solve_shape(self,nb,nx,is_complex,status,operation)
@@ -1183,6 +1198,7 @@ contains
         if (allocated(self%original_values)) bytes=bytes+8_i8*size(self%original_values,kind=i8)
         if (allocated(self%saved_rhs)) bytes=bytes+8_i8*size(self%saved_rhs,kind=i8)
         if (allocated(self%residual)) bytes=bytes+8_i8*size(self%residual,kind=i8)
+        if (allocated(self%denominator)) bytes=bytes+8_i8*size(self%denominator,kind=i8)
         if (allocated(self%original_zvalues)) bytes=bytes+16_i8*size(self%original_zvalues,kind=i8)
         if (allocated(self%saved_zrhs)) bytes=bytes+16_i8*size(self%saved_zrhs,kind=i8)
         if (allocated(self%zresidual)) bytes=bytes+16_i8*size(self%zresidual,kind=i8)
@@ -1204,6 +1220,7 @@ contains
         if (allocated(self%original_values)) deallocate(self%original_values)
         if (allocated(self%saved_rhs)) deallocate(self%saved_rhs)
         if (allocated(self%residual)) deallocate(self%residual)
+        if (allocated(self%denominator)) deallocate(self%denominator)
         if (allocated(self%original_zvalues)) deallocate(self%original_zvalues)
         if (allocated(self%saved_zrhs)) deallocate(self%saved_zrhs)
         if (allocated(self%zresidual)) deallocate(self%zresidual)
@@ -1238,7 +1255,8 @@ contains
         if (refine) then
             value_bytes=8_i8
             if (is_complex) value_bytes=16_i8
-            call refinement_payload_bytes(int(n,i8),int(nz,i8),value_bytes,planned,status)
+            call refinement_payload_bytes(int(n,i8),int(nz,i8),value_bytes,planned, &
+                status,componentwise=.true.)
             if (.not.status_ok(status)) return
         end if
         self%refinement_quota=planned
@@ -1272,7 +1290,8 @@ contains
         if (.not.refine) return
         if (.not.allocated(self%original_ptr)) then
             allocate(self%original_ptr(n+1),self%original_rows(size(rows)), &
-                self%original_values(size(values)),self%saved_rhs(n),self%residual(n),stat=ierr)
+                self%original_values(size(values)),self%saved_rhs(n),self%residual(n), &
+                self%denominator(n),stat=ierr)
             if (ierr/=0) then
                 self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self))
                 call release_original(self)
@@ -1300,7 +1319,8 @@ contains
         if (.not.refine) return
         if (.not.allocated(self%original_ptr)) then
             allocate(self%original_ptr(n+1),self%original_rows(size(rows)), &
-                self%original_zvalues(size(values)),self%saved_zrhs(n),self%zresidual(n),stat=ierr)
+                self%original_zvalues(size(values)),self%saved_zrhs(n), &
+                self%zresidual(n),self%denominator(n),stat=ierr)
             if (ierr/=0) then
                 self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self))
                 call release_original(self)
@@ -1350,28 +1370,33 @@ contains
     end subroutine solve_complex_values
 
     subroutine refine_real(self,x,operation,status)
+        ! Correct while the normwise gate fails (at most three corrections, as
+        ! before) or, LAPACK xGERFS style, while the componentwise backward
+        ! error exceeds eps and halved in the last step. Acceptance stays the
+        ! normwise 32*eps gate on the final iterate.
         class(native_general_backend_t), intent(inout) :: self
         real(dp), intent(inout) :: x(:)
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
         integer :: step,i
-        real(dp) :: an,error
+        real(dp) :: an,error,componentwise,previous
         an=self%matrix_norm
         if (operation/=0) an=self%transpose_norm
+        previous=huge(1.0_dp)
         do step=0,3
             self%stats%refinement_steps=step
             call native_residual_error(self%original_ptr,self%original_rows,self%original_values, &
-                self%saved_rhs,x,operation,an,self%residual,error)
+                self%saved_rhs,x,operation,an,self%residual,error,self%denominator, &
+                componentwise)
             self%stats%backward_error=error
+            self%stats%componentwise_backward_error=componentwise
             if (error<0.0_dp) then
                 call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward error exceeds numerical range')
                 return
             end if
-            if (error<=32.0_dp*epsilon(1.0_dp)) then
-                call status_set(status,FORTSPARSE_OK,'')
-                return
-            end if
+            if (.not.refine_more(error,componentwise,previous)) exit
             if (step==3) exit
+            previous=componentwise
             call solve_real_values(self%real_factor,self%ldlt_factor,self%slu_factor, &
                 self%mode,self%residual,operation,status)
             if (.not.status_ok(status)) return
@@ -1379,32 +1404,41 @@ contains
                 x(i)=spd_update(x(i),-1.0_dp,self%residual(i))
             end do
         end do
+        if (error<=32.0_dp*epsilon(1.0_dp)) then
+            call status_set(status,FORTSPARSE_OK,'')
+            return
+        end if
         call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward-error target not met in three corrections')
     end subroutine refine_real
 
     subroutine refine_complex(self,x,operation,status)
+        ! Correct while the normwise gate fails (at most three corrections, as
+        ! before) or, LAPACK xGERFS style, while the componentwise backward
+        ! error exceeds eps and halved in the last step. Acceptance stays the
+        ! normwise 32*eps gate on the final iterate.
         class(native_general_backend_t), intent(inout) :: self
         complex(dp), intent(inout) :: x(:)
         integer, intent(in) :: operation
         type(fortsparse_status_t), intent(out) :: status
         integer :: step,i
-        real(dp) :: an,error
+        real(dp) :: an,error,componentwise,previous
         an=self%matrix_norm
         if (operation/=0) an=self%transpose_norm
+        previous=huge(1.0_dp)
         do step=0,3
             self%stats%refinement_steps=step
             call native_residual_error(self%original_ptr,self%original_rows,self%original_zvalues, &
-                self%saved_zrhs,x,operation,an,self%zresidual,error)
+                self%saved_zrhs,x,operation,an,self%zresidual,error,self%denominator, &
+                componentwise)
             self%stats%backward_error=error
+            self%stats%componentwise_backward_error=componentwise
             if (error<0.0_dp) then
                 call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward error exceeds numerical range')
                 return
             end if
-            if (error<=32.0_dp*epsilon(1.0_dp)) then
-                call status_set(status,FORTSPARSE_OK,'')
-                return
-            end if
+            if (.not.refine_more(error,componentwise,previous)) exit
             if (step==3) exit
+            previous=componentwise
             call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
                 self%mode,self%zresidual,operation,status)
             if (.not.status_ok(status)) return
@@ -1412,8 +1446,22 @@ contains
                 x(i)=lu_z_update(x(i),cmplx(-1.0_dp,0.0_dp,dp),self%zresidual(i))
             end do
         end do
+        if (error<=32.0_dp*epsilon(1.0_dp)) then
+            call status_set(status,FORTSPARSE_OK,'')
+            return
+        end if
         call status_set(status,FORTSPARSE_SINGULAR,'native refinement: backward-error target not met in three corrections')
     end subroutine refine_complex
+
+    logical pure function refine_more(error,componentwise,previous) result(more)
+        ! Another correction: the normwise 32*eps gate fails, or the
+        ! componentwise error (-1 unavailable) exceeds eps and at least halved
+        ! since the previous iterate (previous=huge before the first step).
+        real(dp), intent(in) :: error,componentwise,previous
+        more=error>32.0_dp*epsilon(1.0_dp)
+        if (componentwise>epsilon(1.0_dp)) &
+            more=more .or. 2.0_dp*componentwise<=previous
+    end function refine_more
 
     subroutine supernodal_factor(self,n,ptr,rows,values,refine,reuse,status,reused)
         ! Supernodal LU (mode 6) with the factor-time gates, the mandatory
@@ -1513,7 +1561,8 @@ contains
             ! Perturbed static pivots are accurate only with refinement:
             ! retain the original when it fits the cap, else fall back.
             planned=0_i8
-            call refinement_payload_bytes(int(n,i8),int(size(rows),i8),8_i8,planned,status)
+            call refinement_payload_bytes(int(n,i8),int(size(rows),i8),8_i8,planned, &
+                status,componentwise=.true.)
             if (.not.status_ok(status)) goto 800
             if (self%options%host_memory_limit_bytes>0_i8) then
                 if (current_bytes(self)+planned>self%options%host_memory_limit_bytes) then
