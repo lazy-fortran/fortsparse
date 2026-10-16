@@ -38,6 +38,31 @@ int32_t fs_native_ordering_available(int32_t ordering);
  * AMD requires the optional ordering library, never an external factor backend.
  */
 int32_t fs_native_set_ordering(void *handle, int32_t ordering);
+enum fs_native_memory_policy {
+    FS_NATIVE_MEMORY_AUTO = 0,
+    FS_NATIVE_MEMORY_LOW = 1
+};
+/* Per-handle solver-owned array payload, including C conversion/output staging.
+ * Zero limits mean unlimited. Negative limits/unknown policies preserve factors.
+ * A successful change frees/invalidates factors; same policy retains them.
+ * CPU general LU owns zero device bytes; the device cap is retained explicitly.
+ * Allocator/runtime/object-descriptor overhead and caller arrays are excluded.
+ */
+int32_t fs_native_set_memory(void *, int64_t host_limit_bytes,
+    int64_t device_limit_bytes, int32_t memory_policy);
+struct fs_native_memory_stats {
+    int64_t host_limit_bytes, device_limit_bytes;
+    int64_t host_current_bytes, host_peak_bytes;
+    int64_t device_current_bytes, device_peak_bytes;
+    int64_t budget_required_bytes, budget_available_bytes;
+    int32_t memory_policy, strict_memory_supported, peak_is_bound;
+};
+/* Pure diagnostic query: does not change last_error. Peak describes the last
+ * factor/solve, not RSS or a lifetime maximum. peak_is_bound marks conservative
+ * backend admission/history counters; -1 is unknown (opaque uncapped AMD).
+ * Required/available describe the failed allocation phase, not final fill.
+ */
+int32_t fs_native_get_memory_stats(void *, struct fs_native_memory_stats *);
 /* Canonical zero-based CSC: n>0, 0<=nnz<INT32_MAX, colptr[n+1] starts at 0,
  * ends at nnz, monotone; rowind[nnz] strictly increasing within each column.
  * Arrays must contain their declared number of accessible elements. Input is

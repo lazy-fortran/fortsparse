@@ -14,6 +14,11 @@ int main() {
     Z v[]={{3,2},{1,-1},{2,-3},{5,1}};
     Z known[]={{1,2},{-2,1}},b[2],x[2];
     CHECK(fs_native_create(1,&h)==0);
+    struct fs_native_memory_stats memory{};
+    CHECK(fs_native_set_memory(h,0,16,FS_NATIVE_MEMORY_AUTO)==0);
+    CHECK(fs_native_get_memory_stats(h,&memory)==0);
+    CHECK(memory.host_limit_bytes==0 && memory.device_limit_bytes==16);
+    CHECK(memory.host_current_bytes==0 && memory.device_current_bytes==0);
     CHECK(fs_native_set_refine(h,1)==0);
     CHECK(fs_native_factor_z(h,2,4,cp,ri,v)==0);
     char msg[160];
