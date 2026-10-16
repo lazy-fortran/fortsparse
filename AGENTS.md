@@ -173,6 +173,21 @@ deadline-censored attempts; a timed-out factor has no completed fill/solve
 result. Longer profiling diagnostics are explicitly excluded from the
 sub-second benchmark admission corpus.
 
+For accuracy regressions, capture the original matrix, true RHS and rounded
+factors before changing arithmetic. Isolate factorization, triangular solves,
+scaling, residual evaluation and reconstruction. Compare the requested
+observable as well as normwise errors: cancellation can amplify tiny solution
+differences. Separate solve error from the rounding of the final projection.
+A higher-precision residual-corrected reference is numerical evidence, not a
+rigorous enclosure. Preserve existing gates and report their failures; do not
+equate agreement with a historical floating result with mathematical truth.
+
+Check the surrounding algorithm before blaming the sparse solver. Record
+whether outer iterations actually converge. Verify projected eigensystems with
+independent known eigenvalues and true eigenvector residuals, including the
+final projected column and happy breakdown. Apply shared correctness repairs
+identically to baseline and candidate, retaining the original failed evidence.
+
 ## Verification
 
 Use the Fortran skill, the project's native CMake/CTest and fpm authorities,
