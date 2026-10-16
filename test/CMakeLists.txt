@@ -28,6 +28,15 @@ fortsparse_add_test(test_fortsparse_lu_leaves
     solver/test_fortsparse_lu_leaves.f90)
 set_tests_properties(test_fortsparse_native_lu test_fortsparse_lu_leaves PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_hpd_leaves
+    solver/test_fortsparse_hpd_leaves.f90)
+set_tests_properties(test_fortsparse_hpd_leaves PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_native_hpd
+    solver/test_fortsparse_native_hpd.f90)
+set_tests_properties(test_fortsparse_native_hpd PROPERTIES
+    LABELS "native;fast" TIMEOUT 1 PROCESSORS 2
+    ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_native
     solver/test_fortsparse_native.f90)
 fortsparse_add_test(test_fortsparse_native_supernodes
