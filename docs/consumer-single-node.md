@@ -120,3 +120,14 @@ was copied; the original MIT license and source revision/hash are retained.
 The fixture is a small general nonsymmetric wrapper case, not a kinetic
 performance/fill surrogate. Other existing test entry points remain in the
 manifest without fabricated application dumps or runtime claims.
+
+A later [private NEO-2 capture and benchmark](../bench/results/private-neo2-2026-10-16/report.md)
+adds a real general system with 4,856 unknowns and 28,898 nonzeros, taken before
+RHS overwrite from an unchanged NEO-2 binary at revision `7eeee3cd`. Three
+physical RHS columns, including their original duplicate, and a manufactured
+fourth RHS pass the frozen policy for native LU and all five external backends
+across the requested thread budgets. The report distinguishes child timings,
+independent exact residual audits and empirical forward comparisons. It establishes one local algebraic
+fixture, not whole-application or QL/multispecies admission. Its capture hashes,
+private-data boundary and adapter recipe are retained in
+[the fixture documentation](../bench/native_families/PRIVATE_REAL_FIXTURES.md).
