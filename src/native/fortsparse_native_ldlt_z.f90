@@ -242,7 +242,9 @@ contains
         self%diagonal = 0.0_dp
         self%offdiagonal = 0.0_dp
         self%growth = 0.0_dp
-        if (a%nnz > 0) self%growth = maxval(abs(a%val(1:a%nnz)))
+        ! Componentwise max avoids complex-modulus overflow near huge().
+        if (a%nnz > 0) self%growth = max(maxval(abs(real(a%val(1:a%nnz), dp))), &
+                                         maxval(abs(aimag(a%val(1:a%nnz)))))
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine initialize
 
@@ -356,7 +358,8 @@ contains
                         call arithmetic_error(status)
                         return
                     end if
-                    self%growth = max(self%growth, abs(value))
+                    self%growth = max(self%growth, abs(real(value, dp)), &
+                                      abs(aimag(value)))
                     call row_put(self%schur(i), j, value, self%low_memory, &
                                self%limit, self%bytes, self%peak, self%required, status)
                     if (.not. status_ok(status)) return
@@ -398,11 +401,13 @@ contains
         k = 1
         do while (k <= self%n)
             if (.not. self%is_hermitian) then
-                if (self%block(k) == 1 .and. abs(self%diagonal(k)) <= 0.0_dp) &
+                if (self%block(k) == 1 .and. &
+                    self%diagonal(k) == (0.0_dp, 0.0_dp)) &
                     self%pivots%zero = self%pivots%zero + 1_i8
             else if (self%block(k) == 2) then
                 call inertia_add_pivot(self%pivots, 2, real(self%diagonal(k), dp), &
-                    abs(self%offdiagonal(k)), real(self%diagonal(k + 1), dp), &
+                    hypot(real(self%offdiagonal(k), dp), aimag(self%offdiagonal(k))), &
+                    real(self%diagonal(k + 1), dp), &
                     tolerance)
             else
                 call inertia_add_pivot(self%pivots, 1, real(self%diagonal(k), dp), &
