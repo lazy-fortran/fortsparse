@@ -16,7 +16,7 @@ module fortsparse_native_supernode_schedule
     private
     public :: supernode_t, supernode_schedule_t
     public :: supernode_partition, supernode_gather_rows, supernode_sort_rows
-    public :: supernode_charge, supernode_scatter_mapped_update
+    public :: supernode_charge, supernode_scatter_mapped_update, supernode_find_row
 
     ! Exact (zero-padding) merges stop at COMPACT_WIDTH columns, or at
     ! EXACT_WIDTH when the fill can amortize wide panels. Relaxed merges add
@@ -155,6 +155,27 @@ contains
         if (lo < j) call supernode_sort_rows(rows, lo, j)
         if (i < hi) call supernode_sort_rows(rows, i, hi)
     end subroutine supernode_sort_rows
+
+    pure integer function supernode_find_row(node, row) result(position)
+        ! Position of row among the sorted node%rows(width+1:m), or 0.
+        type(supernode_t), intent(in) :: node
+        integer, intent(in) :: row
+        integer :: lo, hi, mid
+        position = 0
+        lo = node%width+1
+        hi = node%m
+        do while (lo <= hi)
+            mid = lo+(hi-lo)/2
+            if (node%rows(mid) == row) then
+                position = mid
+                return
+            else if (node%rows(mid) < row) then
+                lo = mid+1
+            else
+                hi = mid-1
+            end if
+        end do
+    end function supernode_find_row
 
     subroutine supernode_charge(ledger, count, element_bytes, status, phase)
         type(memory_budget_t), intent(inout) :: ledger
