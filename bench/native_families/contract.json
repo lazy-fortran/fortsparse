@@ -1,8 +1,8 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "frozen_date": "2026-10-16",
-  "baseline_source_revision": "a3bd4a2",
-  "fixture_source_sha256": "6c65d873c5c55eb95b51114364b46b68f70b09b1638cfb5d7b031ccda3ce70a4",
+  "baseline_source_revision": "82a95ae",
+  "fixture_source_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
   "performance_admission": "unknown",
   "performance_levels": null,
   "cases": {
@@ -11,47 +11,56 @@
       "smoke_level": 5,
       "calibration_candidates": [
         5
-      ]
+      ],
+      "performance_role": "latency/correctness only; not a throughput or scaling case"
     },
     "drift-real": {
       "matrix_class": "real general unsymmetric",
       "smoke_level": 3,
       "calibration_candidates": [
-        3,
-        5,
-        7,
-        9
-      ]
+        16,
+        32,
+        64,
+        128
+      ],
+      "maximum_level": 128,
+      "dimension_rule": "level**2"
     },
     "drift-complex": {
       "matrix_class": "complex general unsymmetric",
       "smoke_level": 3,
       "calibration_candidates": [
-        3,
-        5,
-        7,
-        9
-      ]
+        16,
+        32,
+        64,
+        128
+      ],
+      "maximum_level": 128,
+      "dimension_rule": "level**2"
     },
     "hpd-chain": {
       "matrix_class": "complex Hermitian positive definite",
       "smoke_level": 3,
       "calibration_candidates": [
-        3,
-        8,
-        16,
-        32
-      ]
+        128,
+        512,
+        2048,
+        8192
+      ],
+      "maximum_level": 8192,
+      "dimension_rule": "2*level"
     },
     "ldlt-chain": {
       "matrix_class": "real symmetric indefinite with paired zero-diagonal pivots",
       "smoke_level": 3,
       "calibration_candidates": [
-        3,
-        8,
-        16,
-        32
-      ]
+        128,
+        512,
+        2048,
+        8192
+      ],
+      "maximum_level": 8192,
+      "dimension_rule": "2*level"
     }
   },
   "workloads": [
@@ -74,7 +83,7 @@
   ],
   "fresh_process_trials": 5,
   "process_timeout_s": 0.9,
-  "scaling_size_rule": "Initial provisional levels admitted only after normal cold factor+RHS8 passes every external backend/thread configuration in five interleaved trials below 0.5 seconds process wall; native timings do not select size. Larger candidate levels retained for later external-only scaling calibration.",
+  "scaling_size_rule": "Scan frozen candidate levels ascending using external comparators only. A level passes only after every declared backend/thread/trial completes cold factor+normal RHS8 below 0.5 seconds process wall. Stop at first refused/failed/missing/timeout/slow attempt in a family; retain it and mark all higher levels unmeasured. Select the largest completely passing level in the scanned prefix; native timings never select size.",
   "mini5_provenance": "../fixtures/neo2-mini5/provenance.json",
   "oracle": {
     "backward_error_lt": 1e-12,
@@ -114,11 +123,19 @@
     "claims": "No tiny-case throughput, scaling or Pareto claim"
   },
   "mini5_matrix_sha256": "35ffecb5c9c11451c5bf20e8c606a9f941f5e3600d815abd3bc7170acfe29d64",
-  "initial_calibration_levels": {
-    "neo2-mini5": 5,
-    "drift-real": 3,
-    "drift-complex": 3,
-    "hpd-chain": 3,
-    "ldlt-chain": 3
-  }
+  "scan_limits": {
+    "candidate_count_per_scaling_family": 4,
+    "maximum_dimension": 16384,
+    "maximum_attempts_all_pass": 1700,
+    "maximum_failed_attempts_per_family": 1,
+    "process_timeout_s": 0.9,
+    "wall_gate_s": 0.5,
+    "selection_scope": "largest passing scanned prefix; no monotonic-performance assumption or extrapolation beyond failure"
+  },
+  "required_external_backends": [
+    "superlu",
+    "umfpack",
+    "mumps",
+    "intel-pardiso"
+  ]
 }

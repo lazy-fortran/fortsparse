@@ -25,7 +25,7 @@ contains
         complex(dp) :: z
         character(256) :: line
 
-        if (level < 1 .or. level > 128) error stop 'fixture size outside frozen domain'
+        if (level < 1) error stop 'positive fixture level required'
         delta = 0.21_dp
         imag = 0.13_dp
         if (heldout) then
@@ -53,6 +53,7 @@ contains
             close (unit)
             count = nz
         case ('drift-real', 'drift-complex')
+            if (level > 128) error stop 'drift level outside frozen domain'
             n = level*level
             allocate (rows(5*n), cols(5*n), values(5*n))
             count = 0
@@ -75,6 +76,7 @@ contains
                if (j + level <= n) call append(j + level, j, cmplx(-1.2_dp, 0.0_dp, dp))
             end do
         case ('hpd-chain', 'ldlt-chain')
+            if (level > 8192) error stop 'chain level outside frozen domain'
             n = 2*level
             allocate (rows(3*n - 2), cols(3*n - 2), values(3*n - 2))
             count = 0
