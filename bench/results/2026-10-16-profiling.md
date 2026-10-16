@@ -189,6 +189,32 @@ its peak remains about 33.0 MiB at one thread. Timings remain variable on the
 shared host: warm one/two/four-thread medians are 66.9/67.8/60.4 ms. This is a
 verified memory improvement, not yet a complete time/memory admission.
 
+## Rank-one update lowering
+
+A BLAS link wrapper counted 198,674 width-one versus 36,253 wider calls in
+the AMD refactor replay, and 301,497 versus 52,017 under ND. Width-one updates
+account for about 85% of calls but little arithmetic. Those updates now use
+the existing generated mapped-scatter leaf directly, avoiding dense-library
+entry, packing, scratch output and the contiguity scan. Wider calls are
+unchanged. No numerical definition or factor layout changes.
+
+Both 120-trial campaigns pass independent checks; every one of the 24
+case/configuration/workflow medians improves. Large 3D AMD one-thread warm
+time changes 65.23 to 62.37 ms, and refactor 41.86 to 38.59 ms. ND four-thread
+refactor changes 32.47 to 27.36 ms, with an observed candidate range of
+23.05–29.17 ms. These shared-host ranges still matter for strict admission.
+The subsequent 1387-sample ND refactor profile attributes 17.9% to DGEMM,
+about 35% to thread waiting, 12.9% to mapped scatter, 4.7% to triangular
+panel solves and only 0.6% to panel factorization. This motivates testing
+medium triangular-solve lowering; replacing panel factorization is not
+justified by this profile.
+
+The broader TRSM threshold was rejected. Its first 120 trials suggested an ND
+four-thread refactor gain, but an alternating 90-run baseline/candidate check
+reversed it: 23.35 [23.15, 27.03] versus 25.89 [25.36, 27.97] ms. It also added
+about 0.2 MiB of code-page RSS. All checks passed; correctness alone did not
+justify retaining an optimization without reproducible end-to-end benefit.
+
 ## GPU diagnostic timeline
 
 Nsight Systems traced one cold factorization plus changed-value refactor on

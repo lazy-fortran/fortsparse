@@ -37,6 +37,10 @@ if(FORTSPARSE_BUILD_TESTING)
             ${CMAKE_CURRENT_SOURCE_DIR}/test_benchmark_analysis.py)
         set_tests_properties(spd_benchmark_analysis PROPERTIES
             LABELS "benchmark;fast" TIMEOUT 1)
+        add_test(NAME spd_benchmark_report COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_report_spd.py)
+        set_tests_properties(spd_benchmark_report PROPERTIES
+            LABELS "benchmark;fast" TIMEOUT 1)
     endif()
 endif()
 
