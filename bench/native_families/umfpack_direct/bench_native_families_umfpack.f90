@@ -3,8 +3,10 @@
 program bench_native_families_umfpack
     use, intrinsic :: iso_c_binding, only: c_int, c_int32_t, c_int64_t, &
                       c_double, c_double_complex, c_ptr, c_null_ptr, c_associated, c_loc
-    use native_family_fixtures, only: dp, family_fixture_t, make_family_fixture, &
-                                      known_rhs, fixture_backward_error, wall_time
+    use native_family_fixtures, only: dp, family_fixture_t, &
+                                      fixture_backward_error, wall_time
+    use native_family_real_io, only: load_benchmark_fixture, load_benchmark_rhs, &
+                                    export_real_solution
     use native_family_records, only: family_record_t, process_metrics, &
                                      parent_cpu_seconds
     implicit none
@@ -88,12 +90,14 @@ program bench_native_families_umfpack
     r%nrhs = 1
     select case (trim(r%workload))
     case ('rhs1', 'refactor', 'warm')
+    case ('rhs4')
+        r%nrhs = 4
     case ('rhs8')
         r%nrhs = 8
     case default
-        error stop 'workload must be rhs1/rhs8/refactor/warm'
+        error stop 'workload must be rhs1/rhs4/rhs8/refactor/warm'
     end select
-    call make_family_fixture(trim(r%family), r%level, heldout, a, trim(mini5_path))
+    call load_benchmark_fixture(trim(r%family), r%level, heldout, a, trim(mini5_path))
     r%n = a%n
     r%nnz = size(a%val)
     allocate (ap(a%n + 1), ai(r%nnz), bz(a%n, r%nrhs), xz(a%n, r%nrhs), &
@@ -109,7 +113,8 @@ program bench_native_families_umfpack
         ar = real(a%val, dp)
         ax = c_loc(ar)
     end if
-    call known_rhs(a, trim(r%family), r%nrhs, heldout, operation, bz, truth)
+    call load_benchmark_rhs(a, trim(r%family), r%nrhs, heldout, operation, &
+                            bz, truth, trim(mini5_path))
     if (.not. a%is_complex) br = real(bz, dp)
     owner = umf_create(int(merge(1, 0, a%is_complex), c_int))
     code = 6_c_int
@@ -162,6 +167,7 @@ program bench_native_families_umfpack
     r%forward_error = maxval(abs(xz - truth))/max(1.0_dp, maxval(abs(truth)))
     if (.not. (r%backward_error < 1.e-12_dp)) code = 5
     if (.not. (r%forward_error < 1.e-10_dp)) code = 5
+    call export_real_solution(trim(r%family), xz)
 900 continue
     r%status_code = int(code)
     if (c_associated(owner)) then

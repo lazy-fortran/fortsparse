@@ -75,11 +75,13 @@ class MeasuredProcess(subprocess.Popen):
         return pid, status
 
 
-def invoke(binary, args, threads, cores, timeout):
+def invoke(binary, args, threads, cores, timeout, extra_env=None):
     env = os.environ.copy()
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
                OMP_PLACES="cores", OMP_PROC_BIND="close", MKL_NUM_THREADS=str(threads),
                MKL_DYNAMIC="FALSE", MKL_THREADING_LAYER="GNU")
+    if extra_env:
+        env.update(extra_env)
     background_before = os.getloadavg()
     start = time.perf_counter()
     process = MeasuredProcess([str(binary), *args], stdout=subprocess.PIPE,
