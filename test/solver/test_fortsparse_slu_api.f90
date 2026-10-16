@@ -2,7 +2,7 @@ program test_fortsparse_slu_api
     ! Public API with lu_method = SUPERNODAL: dense oracles, transpose and
     ! block solves, same-pattern refactor reuse, implicit derivatives
     ! against finite differences and the adjoint identity, context copy
-    ! lifetime, and explicit refusals.
+    ! lifetime, explicit refusals and the default ordering selection.
     use fortsparse
     use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
     implicit none
@@ -18,6 +18,7 @@ program test_fortsparse_slu_api
     call check_derivatives(dense)
     call check_copy(dense)
     call check_refusals(dense)
+    call check_ordering(dense)
     print '(a)', 'supernodal LU public API passed'
 contains
     real(dp) function uniform()
@@ -267,6 +268,69 @@ contains
         call check(status%code == FORTSPARSE_INVALID_MATRIX, 'non-finite input refused')
         call sparse_destroy(solver)
     end subroutine check_refusals
+
+    subroutine check_ordering(a)
+        ! DEFAULT: METIS ND without a host cap or LOW_MEMORY when METIS is
+        ! built, else bounded AMD; an explicit request wins. Each factor
+        ! must solve against the dense oracle and report the ordering used.
+        real(dp), intent(in) :: a(:,:)
+        integer(i8), parameter :: cap = 1000000000_i8
+        integer, parameter :: auto = FORTSPARSE_MEMORY_AUTO, low = FORTSPARSE_MEMORY_LOW
+        integer, parameter :: default = FORTSPARSE_ORDER_DEFAULT
+        integer, parameter :: amd = FORTSPARSE_ORDER_AMD, nd_order = FORTSPARSE_ORDER_ND
+        type(csc_t) :: matrix
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: status
+        integer :: nd
+        nd = amd
+        if (native_ordering_available(nd_order)) nd = nd_order
+        call to_csc(a, matrix)
+        call ordered(a, matrix, default, 0_i8, auto, nd, 'default without cap')
+        call ordered(a, matrix, default, cap, auto, amd, 'default under cap')
+        call ordered(a, matrix, default, 0_i8, low, amd, 'default with LOW_MEMORY')
+        call ordered(a, matrix, amd, 0_i8, auto, amd, 'explicit AMD without cap')
+        call ordered(a, matrix, amd, cap, low, amd, 'explicit AMD, cap and LOW')
+        if (nd /= nd_order) return
+        call ordered(a, matrix, nd_order, 0_i8, auto, nd_order, 'explicit ND')
+        ! An explicit ND request under a host cap is still refused.
+        call supernodal(solver)
+        solver%options%ordering = nd_order
+        solver%options%host_memory_limit_bytes = cap
+        call sparse_factor(solver, matrix, status)
+        call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'explicit ND under a cap is refused')
+        call sparse_destroy(solver)
+    end subroutine check_ordering
+
+    subroutine ordered(a, matrix, ordering, cap, policy, expected, label)
+        real(dp), intent(in) :: a(:,:)
+        type(csc_t), intent(in) :: matrix
+        integer, intent(in) :: ordering, policy, expected
+        integer(i8), intent(in) :: cap
+        character(*), intent(in) :: label
+        type(sparse_solver_t) :: solver
+        type(sparse_factor_stats_t) :: stats
+        type(fortsparse_status_t) :: status
+        real(dp) :: known(size(a,1)), b(size(a,1)), x(size(a,1))
+        integer :: i
+        call supernodal(solver)
+        solver%options%ordering = ordering
+        solver%options%host_memory_limit_bytes = cap
+        solver%options%memory_policy = policy
+        solver%refine = .true.
+        call sparse_factor(solver, matrix, status)
+        call check(status_ok(status), label//': factor')
+        call sparse_factor_stats(solver, stats, status)
+        call check(stats%native_factor_family == 'LU_SUPERNODAL', label//': family')
+        call check(stats%ordering_used == expected, label//': ordering used')
+        known = [(sin(real(i,dp)), i = 1, size(a,1))]
+        b = matmul(a, known)
+        call sparse_solve(solver, b, x, status)
+        call check(status_ok(status), label//': solve')
+        call check(maxval(abs(x-known)) <= 1.0e-10_dp*maxval(abs(known)), &
+            label//': solution')
+        call sparse_destroy(solver)
+    end subroutine ordered
 
     subroutine check(condition, message)
         logical, intent(in) :: condition

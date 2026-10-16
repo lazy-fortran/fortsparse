@@ -183,10 +183,12 @@ explicit `FORTSPARSE_BACKEND_NATIVE` CPU backend. The default stays
 `FORTSPARSE_LU_SCALAR`; `FORTSPARSE_LU_AUTO` behaves as SCALAR until its
 thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNODAL'`.
 
-- Analysis: maximum-product matching with dual scaling, then AMD (DEFAULT or AMD;
-  bounded caller-workspace AMD when available) or METIS ND on the matched
-  symmetrized pattern, an etree postorder, and the shared supernode partition
-  and schedule. `structural_matching` does not apply; the matching is always
+- Analysis: maximum-product matching with dual scaling, then AMD (bounded
+  caller-workspace AMD when available) or METIS ND on the matched symmetrized
+  pattern, an etree postorder, and the shared supernode partition and schedule.
+  DEFAULT ordering selects METIS ND when no host cap is set, LOW_MEMORY is not
+  requested and METIS is built; otherwise AMD. An explicit AMD or ND request
+  wins. `ordering_used` reports the ordering actually used. `structural_matching` does not apply; the matching is always
   weighted (`matching_used=FORTSPARSE_MATCHING_WEIGHTED`).
 - Factor: serial left-looking panels, partial pivoting restricted to each
   supernode diagonal block, and pivots below `pivot_perturbation*||A~||_inf`
