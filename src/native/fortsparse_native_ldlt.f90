@@ -22,6 +22,7 @@ module fortsparse_native_ldlt
     private
     public :: native_ldlt_t, ldlt_check_matrix
     integer(i8), parameter :: ib = storage_size(0)/8, rb = storage_size(0.0_dp)/8
+    integer(i8), parameter :: rsb = storage_size(0.0_dp)/8
     real(dp), parameter :: alpha = (1.0_dp + sqrt(17.0_dp))/8.0_dp
 
     type :: sparse_row_t
@@ -38,8 +39,9 @@ module fortsparse_native_ldlt
         integer(i8) :: required = 0_i8
         ! Inertia of the last completed elimination (also with zero pivots).
         logical :: inertia_ready = .false.
-        real(dp) :: growth = 0.0_dp
         type(inertia_count_t) :: pivots
+        ! Per-vertex max |entry| of A and every Schur entry stored in its row.
+        real(dp), allocatable :: row_scale(:)
         integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:), initial_order(:)
         real(dp), allocatable :: diagonal(:), offdiagonal(:), u(:), v(:), work(:)
         type(sparse_row_t), allocatable :: schur(:), lower(:)
@@ -203,12 +205,13 @@ contains
         end if
         ! Includes descriptor-array payload, all scratch, permutation and D.
         request = int(n, i8)*(2_i8*int(storage_size(sparse_row_t())/8, i8) &
-                              + 4_i8*ib + 5_i8*rb)
+                              + 4_i8*ib + 5_i8*rb + rsb)
         call admit(self, request, status)
         if (.not. status_ok(status)) return
         allocate (self%schur(n), self%lower(n), self%perm(n), self%pos(n), &
                   self%block(n), self%nbr(n), self%diagonal(n), self%offdiagonal(n), &
-                  self%u(n), self%v(n), self%work(n), stat=ierr)
+                  self%u(n), self%v(n), self%work(n), self%row_scale(n), &
+                  stat=ierr)
         if (ierr /= 0) then
             call allocation_error(status)
             call self%free()
@@ -255,8 +258,12 @@ contains
         self%block = 0
         self%diagonal = 0.0_dp
         self%offdiagonal = 0.0_dp
-        self%growth = 0.0_dp
-        if (a%nnz > 0) self%growth = maxval(abs(a%val(1:a%nnz)))
+        do j = 1, n
+            self%row_scale(j) = 0.0_dp
+            do p = a%col_ptr(j), a%col_ptr(j + 1) - 1
+                self%row_scale(j) = max(self%row_scale(j), abs(a%val(p)))
+            end do
+        end do
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine initialize
 
@@ -265,6 +272,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer :: k, step, pivot, first, second, m, i, j, p, q
         real(dp) :: a, b, c, scale, determinant, value, l1, l2
+        self%pivots = inertia_count_t()
         k = 1
         do while (k <= self%n)
             call choose_pivot(self, k, pivot, step, status)
@@ -284,6 +292,10 @@ contains
             self%offdiagonal(k) = b
             self%block(k) = step
             if (step == 2) self%diagonal(k + 1) = c
+            ! Local rounding threshold from the pivot rows' entry history.
+            call inertia_add_pivot(self%pivots, step, a, abs(b), c, &
+                inertia_tolerance(self%n, max(self%row_scale(first), &
+                                              self%row_scale(second))))
             scale = max(abs(a), abs(b), abs(c))
             if (step == 2) then
                 call ldlt_det_value(spd_divide(a, scale), &
@@ -367,7 +379,8 @@ contains
                         call arithmetic_error(status)
                         return
                     end if
-                    self%growth = max(self%growth, abs(value))
+                    self%row_scale(i) = max(self%row_scale(i), abs(value))
+                    self%row_scale(j) = max(self%row_scale(j), abs(value))
                     call row_put(self%schur(i), j, value, self%low_memory, &
                                self%limit, self%bytes, self%peak, self%required, status)
                     if (.not. status_ok(status)) return
@@ -385,7 +398,7 @@ contains
             k = k + step
         end do
         call release_scratch(self)
-        call count_inertia(self)
+        self%inertia_ready = .true.
         if (self%pivots%zero > 0_i8) then
             ! Zero pivot columns were eliminated as exact zero 1x1 pivots so
             ! that inertia is complete; D is singular and solves are refused.
@@ -396,26 +409,6 @@ contains
         self%ready = .true.
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine numeric
-
-    subroutine count_inertia(self)
-        class(native_ldlt_t), intent(inout) :: self
-        real(dp) :: tolerance
-        integer :: k
-        self%pivots = inertia_count_t()
-        tolerance = inertia_tolerance(self%n, self%growth)
-        k = 1
-        do while (k <= self%n)
-            if (self%block(k) == 2) then
-                call inertia_add_pivot(self%pivots, 2, self%diagonal(k), &
-                    abs(self%offdiagonal(k)), self%diagonal(k + 1), tolerance)
-            else
-                call inertia_add_pivot(self%pivots, 1, self%diagonal(k), &
-                    0.0_dp, 0.0_dp, tolerance)
-            end if
-            k = k + self%block(k)
-        end do
-        self%inertia_ready = .true.
-    end subroutine count_inertia
 
     ! Inertia of the last completed factorization. state is a
     ! FORTSPARSE_INERTIA_* code; UNAVAILABLE when no elimination completed.
@@ -429,7 +422,7 @@ contains
         if (.not. self%inertia_ready) return
         count = self%pivots
         state = inertia_status_of(count)
-        if (present(tolerance)) tolerance = inertia_tolerance(self%n, self%growth)
+        if (present(tolerance)) tolerance = count%tolerance
     end subroutine ldlt_inertia
 
     subroutine choose_pivot(self, k, pivot, step, status)
@@ -803,6 +796,10 @@ contains
             self%bytes = self%bytes - rb*size(self%v, kind=i8)
             deallocate (self%v)
         end if
+        if (allocated(self%row_scale)) then
+            self%bytes = self%bytes - rsb*size(self%row_scale, kind=i8)
+            deallocate (self%row_scale)
+        end if
     end subroutine release_scratch
 
     subroutine clear_numeric(self)
@@ -820,6 +817,7 @@ contains
         if (allocated(self%u)) deallocate (self%u)
         if (allocated(self%v)) deallocate (self%v)
         if (allocated(self%work)) deallocate (self%work)
+        if (allocated(self%row_scale)) deallocate (self%row_scale)
         self%bytes = 0_i8
         if (allocated(self%ap)) self%bytes = ib*size(self%ap, kind=i8)
         if (allocated(self%ai)) self%bytes = self%bytes + ib*size(self%ai, kind=i8)
