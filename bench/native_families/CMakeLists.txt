@@ -153,3 +153,12 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET bench_native_families_umfpack
         LABELS "benchmark;umfpack;memory;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+if(FORTSPARSE_BUILD_TESTING AND Python3_Interpreter_FOUND)
+    add_test(NAME native_family_memory_aliases COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_CURRENT_SOURCE_DIR}/test_memory_aliases.py"
+        $<TARGET_FILE:bench_native_families> "${_family_mini5}")
+    set_tests_properties(native_family_memory_aliases PROPERTIES
+        LABELS "native;benchmark;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

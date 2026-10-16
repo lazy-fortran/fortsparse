@@ -17,8 +17,36 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 EXTERNAL = ("superlu", "umfpack", "umfpack-direct", "mumps", "intel-pardiso")
-NATIVE = ("native", "native-amd")
+NATIVE = ("native", "native-amd", "native-amd-low", "native-amd-capped")
+MEMORY_ALIASES = ("native-amd-low", "native-amd-capped")
+HOST_LIMIT_ENV = "FORTSPARSE_BENCH_HOST_LIMIT_BYTES"
 KEYS = ("backend", "family", "level", "threads", "workload", "variant", "operation")
+
+
+def positive_i8(value):
+    if not str(value).isdigit() or not 0 < int(value) <= 2**63-1:
+        raise argparse.ArgumentTypeError("host limit must be positive decimal i8 bytes")
+    return int(value)
+
+
+def memory_environment(backend, host_limit_bytes=None):
+    if backend != "native-amd-capped":
+        return {}
+    return {HOST_LIMIT_ENV: str(positive_i8(host_limit_bytes))}
+
+
+def record_memory_configuration(receipt, backend, host_limit_bytes=None):
+    if backend not in MEMORY_ALIASES:
+        return receipt
+    expected = dict(memory_policy=1 if backend == "native-amd-low" else 0,
+                    host_memory_limit_bytes=(positive_i8(host_limit_bytes)
+                        if backend == "native-amd-capped" else 0))
+    receipt["requested_memory_configuration"] = expected
+    if receipt.get("status") == "ok" and any(
+            receipt.get("record", {}).get(key) != value for key, value in expected.items()):
+        receipt["status"] = "configuration_mismatch"
+        receipt["reason"] = "driver CSV does not confirm requested memory policy/cap"
+    return receipt
 
 
 def binary_name(backend):
@@ -49,7 +77,8 @@ def parse_csv(stdout):
             for key, value in tuple(record.items()):
                 if key in KEYS or key in ("status", "native_factor_family", "reused"):
                     continue
-                record[key] = float(value)
+                record[key] = (int(value) if key in ("memory_policy", "host_memory_limit_bytes")
+                               else float(value))
             record["level"] = int(record["level"])
             record["threads"] = int(record["threads"])
             return record
@@ -102,6 +131,8 @@ def invoke(binary, args, threads, cores, timeout, extra_env=None):
         process_wall_s=time.perf_counter()-start, returncode=process.returncode,
         background_load_before=background_before, background_load_after=os.getloadavg(),
         stdout=stdout, stderr=stderr, status="timeout" if timed_out else "failed")
+    if HOST_LIMIT_ENV in env:
+        receipt["environment"][HOST_LIMIT_ENV] = env[HOST_LIMIT_ENV]
     usage = process.completed_usage
     reaped_cpu = usage.ru_utime + usage.ru_stime if usage is not None else -1.0
     receipt["wait4_reaped_cpu_s"] = reaped_cpu
@@ -224,6 +255,8 @@ def main():
     parser.add_argument("--mode", choices=("measure", "calibrate"), default="measure")
     parser.add_argument("--backends", default="native,"+",".join(EXTERNAL))
     parser.add_argument("--cases", default="")
+    parser.add_argument("--native-host-limit-bytes", type=positive_i8,
+                        help="required positive i8 cap for native-amd-capped only")
     parser.add_argument("--threads", default="1,2,4,8,16")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=0.9)
@@ -263,6 +296,8 @@ def main():
             manifest["performance_levels"] = selected["levels"]
         if manifest["performance_levels"] is None:
             parser.error("performance levels await external-only calibration; use --mode calibrate")
+    if "native-amd-capped" in backends and args.native_host_limit_bytes is None:
+        parser.error("native-amd-capped requires --native-host-limit-bytes")
     cases = args.cases.split(",") if args.cases else list(manifest["cases"])
     threads = [int(v) for v in args.threads.split(",")]
     if args.mode == "measure" and any(
@@ -301,6 +336,7 @@ def main():
             "helper_reaped_rusage_children",
         selection_scope=selection_scope, diagnostic=args.diagnostic,
         requested_backends=backends, requested_cases=cases, requested_threads=threads,
+        requested_native_host_limit_bytes=args.native_host_limit_bytes,
         requested_workloads=args.workloads or manifest["workloads"],
         requested_operations=args.operations, requested_variants=args.variants,
         background_load=os.getloadavg(), binaries={})
@@ -336,13 +372,16 @@ def main():
                     if backend not in ("intel-pardiso", "umfpack-direct"):
                         command.insert(0, backend)
                     if args.dry_run:
-                        print(str(binary), *command)
+                        env = memory_environment(backend,args.native_host_limit_bytes)
+                        print(*(f"{key}={value}" for key,value in env.items()),str(binary),*command)
                         continue
                     if nt > len(cores) or not binary.exists():
                         receipt = dict(status="unavailable",
                             reason="physical cores or comparator binary unavailable")
                     else:
-                        receipt = invoke(binary, command, nt, cores[:nt], args.timeout)
+                        receipt = invoke(binary, command, nt, cores[:nt], args.timeout,
+                            extra_env=memory_environment(backend,args.native_host_limit_bytes))
+                    record_memory_configuration(receipt,backend,args.native_host_limit_bytes)
                     receipt.update(backend=backend, family=family, level=level, threads=nt,
                         workload=workload, variant=variant, operation=operation, trial=trial)
                     output.write(json.dumps(receipt)+"\n")
@@ -360,9 +399,11 @@ def main():
             groups.setdefault(tuple(row[k] for k in KEYS), []).append(row)
     summaries = []
     for key, rows in groups.items():
-        summary = dict(zip(KEYS, key), successes=len(rows))
+        summary = dict(zip(KEYS, key), successes=len(rows),
+                       memory_policy=rows[0].get("memory_policy",-1),
+                       host_memory_limit_bytes=rows[0].get("host_memory_limit_bytes",-1))
         for metric, value in rows[0].items():
-            if metric in KEYS or not isinstance(value, (float, int)):
+            if metric in (*KEYS,"memory_policy","host_memory_limit_bytes") or not isinstance(value, (float, int)):
                 continue
             values = [r[metric] for r in rows if r[metric] >= 0]
             if values:

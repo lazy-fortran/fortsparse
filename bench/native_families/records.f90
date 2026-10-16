@@ -22,6 +22,8 @@ module native_family_records
         character(32) :: variant = '', operation = 'N'
         character(32) :: native_factor_family = ''
         integer :: level = 0, n = 0, nnz = 0, threads = 1, nrhs = 1, status_code = 0
+        integer :: memory_policy = -1
+        integer(int64) :: host_memory_limit_bytes = -1
         integer :: active_threads = -1, native_factor_serial = 0
         logical :: reused = .false.
         real(dp) :: total_s = -1, parent_cpu_s = -1, helper_cpu_s = -1
@@ -47,7 +49,8 @@ contains
             'parent_rss_kib,helper_rss_kib,'// &
             'analysis_s,numeric_s,prime_factor_s,factor_nnz,factor_mem_mb,'// &
             'host_current_bytes,host_peak_bytes,active_threads,'// &
-            'native_factor_serial,native_factor_family,backward_error,forward_error'
+            'native_factor_serial,native_factor_family,backward_error,forward_error,'// &
+            'memory_policy,host_memory_limit_bytes'
         write (*, '(*(g0,:,","))') trim(self%backend), trim(self%family), &
             self%level, self%threads, trim(self%workload), trim(self%variant), &
             trim(self%operation), self%n, self%nnz, self%nrhs, trim(outcome), &
@@ -57,6 +60,7 @@ contains
             self%helper_rss_kib, self%analysis_s, self%numeric_s, self%prime_factor_s, &
             self%factor_nnz, self%factor_mem_mb, self%host_current_bytes, &
             self%host_peak_bytes, self%active_threads, self%native_factor_serial, &
-            trim(self%native_factor_family), self%backward_error, self%forward_error
+            trim(self%native_factor_family), self%backward_error, self%forward_error, &
+            self%memory_policy, self%host_memory_limit_bytes
     end subroutine
 end module native_family_records

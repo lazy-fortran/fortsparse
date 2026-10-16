@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Behavioral size-selection checks; no solver or benchmark timings run."""
+import argparse
 import itertools
 import math
 import json
 import os
 import sys
 import unittest
-from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, binary_name
-from report import summarize
+from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, NATIVE, binary_name, positive_i8, memory_environment, record_memory_configuration, parse_csv
+from report import summarize, available_backends
 from report_ab import aggregates
 from report_front import assess
 from report_private_real import normalize, requested_scaling
@@ -108,6 +109,46 @@ class ReceiptSummary(unittest.TestCase):
         self.assertEqual(result["process_wall_s_max"], 0.3)
         self.assertEqual(result["parent_rss_kib_count"], 0)
         self.assertEqual(result["timeout_observed_wall_min_s"], 0.91)
+
+
+class MemorySelections(unittest.TestCase):
+    def test_capped_alias_requires_exact_positive_i8(self):
+        cap=2**53+1
+        self.assertEqual(memory_environment('native-amd-capped',cap),
+                         {'FORTSPARSE_BENCH_HOST_LIMIT_BYTES':str(cap)})
+        for value in (None,0,-1,2**63,'12junk','1.5'):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                memory_environment('native-amd-capped',value)
+        self.assertEqual(memory_environment('superlu',cap),{})
+        self.assertEqual(memory_environment('native-amd-low',cap),{})
+        for cap in (2**53+1,2**63-1):
+            record=parse_csv('backend,family,level,threads,memory_policy,host_memory_limit_bytes\n'
+                             f'native-amd-capped,drift-real,3,1,0,{cap}\n')
+            self.assertEqual(record['host_memory_limit_bytes'],cap)
+            self.assertIsInstance(record['host_memory_limit_bytes'],int)
+
+    def test_receipt_must_confirm_actual_policy_and_cap(self):
+        good=dict(status='ok',record=dict(memory_policy=0,host_memory_limit_bytes=123))
+        record_memory_configuration(good,'native-amd-capped',123)
+        self.assertEqual(good['status'],'ok')
+        self.assertEqual(good['requested_memory_configuration']['host_memory_limit_bytes'],123)
+        bad=dict(status='ok',record=dict(memory_policy=0,host_memory_limit_bytes=0))
+        record_memory_configuration(bad,'native-amd-capped',123)
+        self.assertEqual(bad['status'],'configuration_mismatch')
+        missing=dict(status='ok',record={})
+        record_memory_configuration(missing,'native-amd-low')
+        self.assertEqual(missing['status'],'configuration_mismatch')
+
+    def test_plots_include_both_aliases_and_mixed_caps_are_rejected(self):
+        self.assertEqual(set(available_backends([{'backend':b} for b in NATIVE])),set(NATIVE))
+        with self.assertRaisesRegex(ValueError,'plot backend'):
+            available_backends([{'backend':'unknown-native'}])
+        point=dict(family='drift-real',backend='native-amd-capped',level=3,threads=1,
+                   workload='rhs8',variant='training',operation='N',status='ok')
+        attempts=[dict(point,record=dict(memory_policy=0,host_memory_limit_bytes=cap))
+                  for cap in (100,200)]
+        with self.assertRaisesRegex(ValueError,'mixed memory'):
+            summarize(attempts)
 
 
 class ProcessCPU(unittest.TestCase):
@@ -236,7 +277,7 @@ class ExternalSelection(unittest.TestCase):
         rows = sum((self.sample(level) for level in self.candidates), [])
         native = dict(rows[0], backend="native", process_wall_s=100.0, status="timeout")
         self.assertEqual(self.select(rows+[native])[0], 64)
-        for alias in ("native", "native-amd"):
+        for alias in NATIVE:
             with self.assertRaises(ValueError):
                 select_calibration_level(rows, "drift-real", self.candidates,
                                          self.peers+[alias], self.threads, self.trials)

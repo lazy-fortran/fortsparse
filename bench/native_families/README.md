@@ -157,7 +157,7 @@ without execution.
 
 `native-amd` explicitly selects native LU with AMD ordering while retaining its
 own CSV backend label. It does not change the default native ordering. Non-LU
-uses may honestly report unsupported. Both native aliases are removed before
+uses may honestly report unsupported. All native aliases are removed before
 external-only calibration and rejected as size-selection comparators.
 
 
@@ -233,3 +233,34 @@ inputs, candidates, exact per-RHS fractions and the full private fixture
 manifest remain private. The qualified fixture/policy guard prevents reporting
 a different private case with this recipe. See the retained checkpoint in
 `bench/results/private-neo2-2026-10-16`.
+
+## Bounded AMD memory selections
+
+The benchmark driver accepts `native-amd-low` (AMD with `MEMORY_LOW`, unlimited
+host cap) and `native-amd-capped` (AMD with `MEMORY_AUTO` and an explicit positive
+host cap). These are benchmark labels for existing solver options. They add no
+production solver option and do not select synthetic sizes.
+
+For `run.py` or `run_private_real.py`, capped execution requires
+`--native-host-limit-bytes BYTES`, an exact positive decimal integer through
+9223372036854775807. The runner passes `FORTSPARSE_BENCH_HOST_LIMIT_BYTES` only to
+the capped child. Direct capped-driver execution requires that environment
+variable; missing, zero, negative, malformed or overflowing input fails before
+factorization. LOW does not inherit that cap and remains separately labeled.
+
+CSV records include actual `memory_policy` (0 AUTO, 1 LOW) and exact integer
+`host_memory_limit_bytes` (0 unlimited; -1 unavailable for comparators that do
+not report these options). Runners preserve the integer in raw
+records, summary configuration and requested provenance, confirm that successful
+memory-alias records match the requested configuration, and retain mismatches as
+failures. The private runner uses the same controls after its unchanged external
+qualification gates; numeric fixtures and candidates stay in the private archive.
+
+All four native labels (`native`, `native-amd`, `native-amd-low`,
+`native-amd-capped`) are excluded from external calibration. Existing frozen
+fixture contracts, source hashes and comparator IDs are unchanged. Plotting
+includes both memory aliases with distinct styles; unknown styles and mixed
+policy/cap records within one group are rejected. Caps remain explicit in numeric
+CSV/provenance; do not merge separate cap campaigns under one backend label.
+Owned allocation payload and process RSS remain separate, and unavailable runs
+are retained. These driver checks do not establish a LOW/capped performance win.
