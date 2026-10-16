@@ -87,6 +87,16 @@ trade more copying for minimum padding. This retry adds no entry-cap bypass:
 the existing low-level LU entry policy may release storage when it already
 exceeds a newly requested cap. Public adapter reservations for ordering,
 refinement and user vectors remain part of the budget before LU runs.
+On Linux, real LOW LU advises strictly interior pages of dead factor buffers
+at least 1 MiB long with `MADV_DONTNEED` immediately before deallocation. Both
+replacement prefix copies finish first. Caller arrays, live factors, correction
+workspace, allocator metadata and partial boundary pages are untouched.
+Allocatable ownership, capacity accounting and old/new overlap remain unchanged.
+Advice failure is nonfatal, and other platforms use ordinary deallocation.
+Complex LU and AUTO execution do not issue this advice. This is an allocator
+retention tradeoff with syscall/page-fault cost, not a hard RSS limit or a
+performance-admission claim. Automatic low-level scope deallocation does not
+issue the extra hint; explicit factor free and public backend finalization do.
 HPD already uses compact exact structural storage. Separate contexts own their
 mutable work independently. Strict-budget and LOW_MEMORY execution use natural
 ordering, or the audited bounded AMD path for general LU; these matrix classes

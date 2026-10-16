@@ -224,8 +224,8 @@ contains
             'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach', &
             'prune_end','lv','uv','work','correction','row_norm']
         integer :: input,ios,i
-        logical :: real_panel
-        real_panel=.false.
+        logical :: real_only
+        real_only=.false.
         name='fortsparse_native_lu'; kind='lu_factor_t'; scalar='real(dp)'; csc='csc_t'
         leaves='fortsparse_spd_leaves';divide='spd_divide'
         scatter='spd_scatter_update';gather='spd_gather_update'
@@ -246,15 +246,15 @@ contains
             read(input,'(a)',iostat=ios) buffer
             if(ios/=0) exit
             line=trim(buffer)
-            if (line=='@REAL_PANEL_BEGIN@') then
-                real_panel=.true.
+            if (line=='@REAL_PANEL_BEGIN@'.or.line=='@REAL_ONLY_BEGIN@') then
+                real_only=.true.
                 cycle
             end if
-            if (line=='@REAL_PANEL_END@') then
-                real_panel=.false.
+            if (line=='@REAL_PANEL_END@'.or.line=='@REAL_ONLY_END@') then
+                real_only=.false.
                 cycle
             end if
-            if (z.and.real_panel) cycle
+            if (z.and.real_only) cycle
             if (z) then
                 line=replace(line,'@COMPLEX@','.true.')
             else
