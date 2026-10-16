@@ -307,7 +307,7 @@
     "max_ordinary_cuda_s": 0.45,
     "generation_reproduced": true,
     "cpu_preprocessed_text_identical_ignoring_blank_lines": true,
-    "cpu_archive_sha256": "ef1e609bf4b4268e59ce28e4d40524d31ef022bece6e1938d0090038bb508bad",
+    "cpu_archive_sha256": "a39adec53d4a72ddb98042104022c337654cd3b275bc016d973106f3a2c28eda",
     "cpu_archive_changed_despite_identical_preprocessed_text": true
   }
 }
