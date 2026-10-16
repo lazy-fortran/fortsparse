@@ -49,6 +49,10 @@ module fortsparse_native_general
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_nd_general
+        integer(c_int) function nd_available() &
+            bind(C,name='fsparse_native_order_available')
+            import :: c_int
+        end function nd_available
     end interface
     type, extends(sparse_backend_t) :: native_general_backend_t
         private
@@ -1525,8 +1529,7 @@ contains
             ledger=memory_budget_t()
             ledger%limit=cap
             call self%slu_factor%free()
-            order=SLU_ORDER_AMD
-            if (self%options%ordering==FORTSPARSE_ORDER_ND) order=SLU_ORDER_ND
+            order=supernodal_order(self%options)
             call self%slu_factor%analyze(n,ptr,rows,values,status,ordering=order, &
                 low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW, &
                 pivot_perturbation=self%options%pivot_perturbation,budget=ledger)
@@ -1588,6 +1591,24 @@ contains
         call self%slu_factor%free()
         call update_stats(self)
     end subroutine supernodal_factor
+
+    integer function supernodal_order(options) result(order)
+        ! An explicit AMD/ND request wins (ND is still refused under a host cap
+        ! or LOW_MEMORY). DEFAULT selects METIS ND when no host cap is set,
+        ! LOW_MEMORY is not requested and METIS is built; otherwise the
+        ! bounded AMD path, whose workspace the cap/LOW policy can enforce.
+        type(sparse_options_t), intent(in) :: options
+        order=SLU_ORDER_AMD
+        select case (options%ordering)
+        case (FORTSPARSE_ORDER_ND)
+            order=SLU_ORDER_ND
+        case (FORTSPARSE_ORDER_DEFAULT)
+            if (options%host_memory_limit_bytes==0_i8 .and. &
+                options%memory_policy/=FORTSPARSE_MEMORY_LOW) then
+                if (nd_available()==1) order=SLU_ORDER_ND
+            end if
+        end select
+    end function supernodal_order
 
     subroutine supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
         ! One solve of A x = A xhat for a fixed exact xhat, refined against

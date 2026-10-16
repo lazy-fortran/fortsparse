@@ -257,6 +257,7 @@ Accuracy does not change.
   - Plus `pivot_perturbation` (real, default 1e-13).
   - The default stays SCALAR until consumer evidence exists.
   - `structural_matching` keeps its meaning for the scalar path. The supernodal path always uses MPM.
+  - Ordering: `ORDER_DEFAULT` selects METIS ND when no host cap is set, LOW_MEMORY is not requested and METIS is built; bounded AMD otherwise (its workspace is enforceable under the cap/LOW policy). Explicit `ORDER_AMD`/`ORDER_ND` wins (ND stays refused under a cap or LOW). `ordering_used` reports the choice. The scalar fallback keeps AMD unless ND was requested explicitly.
 - **AUTO.** After the static symbolic analysis (ms; 1 s ≈ whole 19,989 probe on this Mac including I/O):
   - choose scalar Gilbert–Peierls when LU flops < F0 or the mean supernode width < W0;
   - otherwise choose supernodal.
