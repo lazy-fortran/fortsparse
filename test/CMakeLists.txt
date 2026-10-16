@@ -338,3 +338,16 @@ if(NOT FORTSPARSE_ENABLE_SUPERLU AND NOT FORTSPARSE_ENABLE_MUMPS)
         LABELS "native;fast" TIMEOUT 1
         ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=${CMAKE_CURRENT_BINARY_DIR}/no-helper")
 endif()
+fortsparse_add_test(test_fortsparse_native_refinement solver/test_fortsparse_native_refinement.f90)
+set_tests_properties(test_fortsparse_native_refinement PROPERTIES
+    LABELS "native;refinement;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_native_refinement_allocations
+        ../test-cmake/native/test_native_refinement_allocations.f90
+        ../test-cmake/native/refinement_allocation_counter.c)
+    target_link_libraries(test_native_refinement_allocations PRIVATE fortsparse)
+    target_link_options(test_native_refinement_allocations PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+    add_test(NAME test_native_refinement_allocations COMMAND test_native_refinement_allocations)
+    set_tests_properties(test_native_refinement_allocations PROPERTIES LABELS "native;refinement;fast" TIMEOUT 1)
+endif()
