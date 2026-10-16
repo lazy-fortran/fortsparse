@@ -14,6 +14,7 @@ module fortsparse_native
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_native_supernodes, only: supernodes_t
+    use fortsparse_native_symbolic, only: native_symbolic_counts
     use fortsparse_native_cuda, only: native_cuda_available
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
@@ -240,21 +241,29 @@ contains
         self%parent = 0
         self%mark = 0
         self%count = 0
-        ! Every previously unseen ancestor receives row j in its L column.
-        do j = 1, self%n
-            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                i = A%row_idx(p)
-                if (i >= j) exit
-                do while (i /= 0)
-                    if (self%mark(i) == j) exit
-                    self%mark(i) = j
-                    self%count(i) = self%count(i) + 1
-                    if (self%parent(i) == 0) self%parent(i) = j
-                    i = self%parent(i)
-                    if (i == j) exit
+        if (self%n >= 4096 .and. allocated(self%perm)) then
+            ! Dense filled paths need not be enumerated just to count them.
+            ! Keep the simple low-fill/small setup schedule below.
+            call native_symbolic_counts(self%n, A%col_ptr, A%row_idx, &
+                self%parent, self%count, status)
+            if (.not. status_ok(status)) return
+        else
+            ! Every previously unseen ancestor receives row j in its L column.
+            do j = 1, self%n
+                do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                    i = A%row_idx(p)
+                    if (i >= j) exit
+                    do while (i /= 0)
+                        if (self%mark(i) == j) exit
+                        self%mark(i) = j
+                        self%count(i) = self%count(i) + 1
+                        if (self%parent(i) == 0) self%parent(i) = j
+                        i = self%parent(i)
+                        if (i == j) exit
+                    end do
                 end do
             end do
-        end do
+        end if
         nz = int(self%n, i8) + sum(int(self%count, i8))
         if (nz >= int(huge(1), i8)) then
             call self%free()

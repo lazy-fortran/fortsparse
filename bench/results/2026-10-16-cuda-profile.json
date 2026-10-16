@@ -1,0 +1,353 @@
+{
+  "diagnostic": true,
+  "workload": "native-cuda grid2 3 1 refactor training",
+  "source_revision": "289bd63",
+  "source_dirty": true,
+  "host": "Ryzen 9 5950X / RTX 5060 Ti device 0",
+  "binary_sha256": "959592f58968a702d6da29e9c28a0420df7ce48e22c36f68c0287fbfb2090f03",
+  "nsys_version": "2026.3.2.476",
+  "trace_visible_cuda_allocation_peak_bytes": 68707332,
+  "remaining_trace_visible_bytes": 144,
+  "memory_limit": "CUPTI-visible allocations only; excludes unobserved context/driver allocations. Instrumented RSS/timing are not ordinary performance results.",
+  "ncu_status": "ERR_NVGPUCTRPERM: hardware counters unavailable; system permissions unchanged",
+  "failed_replay": "profile-refactor internal 0.9s budget exceeded under instrumentation; reran ordinary refactor workflow for diagnostic tracing",
+  "trace_sha256": "3b16be185ef46dbfbe5a0601172f612f7d9cf7a0216473a6a39e6c2c77b40273",
+  "reports": {
+    "cuda_api_sum": [
+      {
+        "Time (%)": "81.5",
+        "Total Time (ns)": "50856156",
+        "Num Calls": "17",
+        "Avg (ns)": "2991538.6",
+        "Med (ns)": "3479927.0",
+        "Min (ns)": "74400",
+        "Max (ns)": "6692249",
+        "StdDev (ns)": "1598271.5",
+        "Name": "cuLibraryLoadData"
+      },
+      {
+        "Time (%)": "7.6",
+        "Total Time (ns)": "4720984",
+        "Num Calls": "7",
+        "Avg (ns)": "674426.3",
+        "Med (ns)": "67176.0",
+        "Min (ns)": "15058",
+        "Max (ns)": "2259908",
+        "StdDev (ns)": "1076700.9",
+        "Name": "cudaMemcpyAsync"
+      },
+      {
+        "Time (%)": "5.1",
+        "Total Time (ns)": "3191659",
+        "Num Calls": "546",
+        "Avg (ns)": "5845.5",
+        "Med (ns)": "2956.0",
+        "Min (ns)": "2735",
+        "Max (ns)": "1318344",
+        "StdDev (ns)": "56401.0",
+        "Name": "cudaLaunchKernel"
+      },
+      {
+        "Time (%)": "2.7",
+        "Total Time (ns)": "1678884",
+        "Num Calls": "252",
+        "Avg (ns)": "6662.2",
+        "Med (ns)": "160.0",
+        "Min (ns)": "130",
+        "Max (ns)": "1633378",
+        "StdDev (ns)": "102881.7",
+        "Name": "cuKernelGetFunction"
+      },
+      {
+        "Time (%)": "1.3",
+        "Total Time (ns)": "804434",
+        "Num Calls": "252",
+        "Avg (ns)": "3192.2",
+        "Med (ns)": "3015.5",
+        "Min (ns)": "2776",
+        "Max (ns)": "7284",
+        "StdDev (ns)": "629.6",
+        "Name": "cuLaunchKernel"
+      },
+      {
+        "Time (%)": "0.6",
+        "Total Time (ns)": "404233",
+        "Num Calls": "8",
+        "Avg (ns)": "50529.1",
+        "Med (ns)": "5741.0",
+        "Min (ns)": "2685",
+        "Max (ns)": "193846",
+        "StdDev (ns)": "83840.3",
+        "Name": "cudaFree"
+      },
+      {
+        "Time (%)": "0.4",
+        "Total Time (ns)": "236195",
+        "Num Calls": "7",
+        "Avg (ns)": "33742.1",
+        "Med (ns)": "5931.0",
+        "Min (ns)": "2194",
+        "Max (ns)": "135836",
+        "StdDev (ns)": "51888.6",
+        "Name": "cudaMalloc"
+      },
+      {
+        "Time (%)": "0.3",
+        "Total Time (ns)": "200977",
+        "Num Calls": "880",
+        "Avg (ns)": "228.4",
+        "Med (ns)": "201.0",
+        "Min (ns)": "80",
+        "Max (ns)": "4218",
+        "StdDev (ns)": "183.2",
+        "Name": "cuGetProcAddress_v2"
+      },
+      {
+        "Time (%)": "0.1",
+        "Total Time (ns)": "82593",
+        "Num Calls": "538",
+        "Avg (ns)": "153.5",
+        "Med (ns)": "121.0",
+        "Min (ns)": "100",
+        "Max (ns)": "6122",
+        "StdDev (ns)": "271.2",
+        "Name": "cuStreamGetGreenCtx"
+      },
+      {
+        "Time (%)": "0.1",
+        "Total Time (ns)": "57980",
+        "Num Calls": "546",
+        "Avg (ns)": "106.2",
+        "Med (ns)": "91.0",
+        "Min (ns)": "80",
+        "Max (ns)": "561",
+        "StdDev (ns)": "51.0",
+        "Name": "cuKernelGetName"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "30367",
+        "Num Calls": "3",
+        "Avg (ns)": "10122.3",
+        "Med (ns)": "9047.0",
+        "Min (ns)": "8806",
+        "Max (ns)": "12514",
+        "StdDev (ns)": "2074.7",
+        "Name": "cudaMemsetAsync"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "25078",
+        "Num Calls": "1",
+        "Avg (ns)": "25078.0",
+        "Med (ns)": "25078.0",
+        "Min (ns)": "25078",
+        "Max (ns)": "25078",
+        "StdDev (ns)": "0.0",
+        "Name": "cudaStreamCreateWithFlags"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "23304",
+        "Num Calls": "19",
+        "Avg (ns)": "1226.5",
+        "Med (ns)": "581.0",
+        "Min (ns)": "381",
+        "Max (ns)": "7424",
+        "StdDev (ns)": "1776.3",
+        "Name": "cuLibraryGetKernel"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "17904",
+        "Num Calls": "7",
+        "Avg (ns)": "2557.7",
+        "Med (ns)": "1402.0",
+        "Min (ns)": "891",
+        "Max (ns)": "7925",
+        "StdDev (ns)": "2532.5",
+        "Name": "cudaStreamSynchronize"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "11054",
+        "Num Calls": "18",
+        "Avg (ns)": "614.1",
+        "Med (ns)": "311.0",
+        "Min (ns)": "251",
+        "Max (ns)": "3647",
+        "StdDev (ns)": "842.4",
+        "Name": "cudaEventCreateWithFlags"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "8183",
+        "Num Calls": "4",
+        "Avg (ns)": "2045.8",
+        "Med (ns)": "1647.5",
+        "Min (ns)": "771",
+        "Max (ns)": "4117",
+        "StdDev (ns)": "1574.6",
+        "Name": "cudaDeviceSynchronize"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "7134",
+        "Num Calls": "18",
+        "Avg (ns)": "396.3",
+        "Med (ns)": "291.0",
+        "Min (ns)": "200",
+        "Max (ns)": "1723",
+        "StdDev (ns)": "343.7",
+        "Name": "cudaEventDestroy"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "6322",
+        "Num Calls": "4",
+        "Avg (ns)": "1580.5",
+        "Med (ns)": "1443.0",
+        "Min (ns)": "1382",
+        "Max (ns)": "2054",
+        "StdDev (ns)": "317.1",
+        "Name": "cuInit"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "4268",
+        "Num Calls": "1",
+        "Avg (ns)": "4268.0",
+        "Med (ns)": "4268.0",
+        "Min (ns)": "4268",
+        "Max (ns)": "4268",
+        "StdDev (ns)": "0.0",
+        "Name": "cudaStreamDestroy"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "3095",
+        "Num Calls": "3",
+        "Avg (ns)": "1031.7",
+        "Med (ns)": "330.0",
+        "Min (ns)": "100",
+        "Max (ns)": "2665",
+        "StdDev (ns)": "1419.2",
+        "Name": "cuModuleGetLoadingMode"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "1854",
+        "Num Calls": "3",
+        "Avg (ns)": "618.0",
+        "Med (ns)": "331.0",
+        "Min (ns)": "290",
+        "Max (ns)": "1233",
+        "StdDev (ns)": "533.0",
+        "Name": "cudaGetDriverEntryPointByVersion"
+      }
+    ],
+    "cuda_gpu_kern_sum": [
+      {
+        "Time (%)": "52.0",
+        "Total Time (ns)": "4487939",
+        "Instances": "132",
+        "Avg (ns)": "33999.5",
+        "Med (ns)": "37248.0",
+        "Min (ns)": "992",
+        "Max (ns)": "81856",
+        "StdDev (ns)": "11820.6",
+        "Name": "<unnamed>::factor_panel(double *, int, int, int *, bool)"
+      },
+      {
+        "Time (%)": "22.9",
+        "Total Time (ns)": "1979648",
+        "Instances": "130",
+        "Avg (ns)": "15228.1",
+        "Med (ns)": "16416.0",
+        "Min (ns)": "1824",
+        "Max (ns)": "30240",
+        "StdDev (ns)": "4389.3",
+        "Name": "void trsm_right_kernel<int, double, (int)256, (int)4, (bool)0, (bool)0, (bool)1, (bool)0, (bool)0>(cublasTrsmParams<T1, T2>, T2, const T2 *, int)"
+      },
+      {
+        "Time (%)": "21.5",
+        "Total Time (ns)": "1860481",
+        "Instances": "252",
+        "Avg (ns)": "7382.9",
+        "Med (ns)": "7744.0",
+        "Min (ns)": "4448",
+        "Max (ns)": "7776",
+        "StdDev (ns)": "1033.2",
+        "Name": "void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_32x32_16x5_nt_align1>(T1::Params)"
+      },
+      {
+        "Time (%)": "3.3",
+        "Total Time (ns)": "283520",
+        "Instances": "268",
+        "Avg (ns)": "1057.9",
+        "Med (ns)": "1040.0",
+        "Min (ns)": "896",
+        "Max (ns)": "1344",
+        "StdDev (ns)": "99.9",
+        "Name": "<unnamed>::scatter_update(double *, int, int, const double *, int, int, const int *, const int *, const int *)"
+      },
+      {
+        "Time (%)": "0.2",
+        "Total Time (ns)": "21248",
+        "Instances": "14",
+        "Avg (ns)": "1517.7",
+        "Med (ns)": "1504.0",
+        "Min (ns)": "1376",
+        "Max (ns)": "1664",
+        "StdDev (ns)": "86.7",
+        "Name": "void gemvNSP_kernel<double, double, double, double, (int)11, (int)32, (int)4, (int)1024, (bool)0, cublasGemvParamsEx<int, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<double>, double>>(T10)"
+      },
+      {
+        "Time (%)": "0.0",
+        "Total Time (ns)": "1760",
+        "Instances": "2",
+        "Avg (ns)": "880.0",
+        "Med (ns)": "880.0",
+        "Min (ns)": "800",
+        "Max (ns)": "960",
+        "StdDev (ns)": "113.1",
+        "Name": "void gemmk1_kernel<int, double, (int)256, (int)5, (bool)0, (bool)0, (bool)1, (bool)0, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<const double>, cublasGemvTensorStridedBatched<double>, double, (int)0>(cublasGemmk1Params<T2, T9, T10, T11, T12, biasType<T11::value_type, T12>::type>)"
+      }
+    ],
+    "cuda_gpu_mem_time_sum": [
+      {
+        "Time (%)": "50.5",
+        "Total Time (ns)": "57632",
+        "Count": "3",
+        "Avg (ns)": "19210.7",
+        "Med (ns)": "28320.0",
+        "Min (ns)": "928",
+        "Max (ns)": "28384",
+        "StdDev (ns)": "15833.3",
+        "Operation": "[CUDA memcpy Host-to-Device]"
+      },
+      {
+        "Time (%)": "48.5",
+        "Total Time (ns)": "55328",
+        "Count": "4",
+        "Avg (ns)": "13832.0",
+        "Med (ns)": "13824.0",
+        "Min (ns)": "512",
+        "Max (ns)": "27168",
+        "StdDev (ns)": "15288.6",
+        "Operation": "[CUDA memcpy Device-to-Host]"
+      },
+      {
+        "Time (%)": "1.0",
+        "Total Time (ns)": "1120",
+        "Count": "3",
+        "Avg (ns)": "373.3",
+        "Med (ns)": "256.0",
+        "Min (ns)": "256",
+        "Max (ns)": "608",
+        "StdDev (ns)": "203.2",
+        "Operation": "[CUDA memset]"
+      }
+    ]
+  }
+}
