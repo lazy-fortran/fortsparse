@@ -1,0 +1,91 @@
+{
+  "mode": "measure",
+  "source_revision": "c7207e78fddc35a0fb84fe50dd8ec7fe3b5fe4d6",
+  "fixture_id": "neo2-lorentz-tag6-4856-v1",
+  "manifest_sha256": "08741c8f0261d20ff2d04b5a2c87706c9f6c9aebe5d6047304656a5ffdfa4516",
+  "policy_sha256": "c03da85fc3dfae66b8c09874a69faf78d10de0d9b368b18d6b91813046a42d54",
+  "window_note": "Root coordinated quiet window: all task builds/tests/profiles/renders paused, fixed physical cores; ordinary workstation and resident LLM services retained, nonexclusivehost. Five fresh matched trials six peers, unchanged private physical fixture and accuracy policy frozen before native execution. Exact audit and prerequisites separate from child including I/O/export/check/teardown.",
+  "qualification_sha256": {
+    "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-qualification-c7207e7/receipt.json": "62ad9f8cabe8a518ed7a2245471466255166e276bcd00b0949314e4be2f484c2"
+  },
+  "required_external_peers": [
+    "superlu",
+    "umfpack",
+    "umfpack-direct",
+    "mumps",
+    "intel-pardiso"
+  ],
+  "comparison_scope": [
+    "superlu",
+    "umfpack",
+    "umfpack-direct",
+    "mumps",
+    "intel-pardiso",
+    "native-amd"
+  ],
+  "requested_thread_budgets": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "fresh_process_trials": 5,
+  "script_sha256": {
+    "run_private_real.py": "e6768e9f932b5afcf9f43d7edf40554475ff2791264414ad15dd91f6cd5e7f57",
+    "real_fixture_audit.py": "c6350a968c49875f151f15d5c4cfde6e080024c1247a21ffd287a2b46a5365bd",
+    "run.py": "28577ed541078b926566ab1cedabff0a097228ae0bbc848cdcf6c8a2e0539638"
+  },
+  "preparation_and_prerequisite_audit_wall_s": 2.8085157689638436,
+  "timing_scope": "child includes input/reference I/O, original-matrix checks, candidate export and teardown; exact rational audit is separate, explicitly timed. Child-only time is not certificate-inclusive workflow.",
+  "claims_unavailable": [
+    "forward-error certificate",
+    "continuous accuracy",
+    "performance/frontier admission"
+  ],
+  "status": "pass",
+  "adapter_wall_s": 100.69608249596786,
+  "raw_attempts_sha256": "60583a9d47f7e6b0c493089ff372505be269a7a28dcac3d1f7b88ceea64effb2",
+  "report_script_sha256": {
+    "report_private_real.py": "8ce88cce6c8cfab215cbfc4e4a902d4edd6d063910a78b5fb0d7f4afe2c01ee4",
+    "report.py": "a3c403164d6a83b06b14979ef08dbeb7c20f3c55858cc09e193547850bbf9902",
+    "report_front.py": "2c088606bd9fd4091c7ebcd4f9906138be110639cb63dcbab5038b826365a80b"
+  },
+  "missing_attempts": 0,
+  "privacy": "aggregate metrics and hashes only; numeric inputs/candidates remain private",
+  "binaries": [
+    {
+      "backend": "intel-pardiso",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families_pardiso",
+      "sha256": "fd8b59351616367e8fd1cb1de9c0ca58c4b7864d7b50e1e91dcd8925d9c2c2bb"
+    },
+    {
+      "backend": "mumps",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families",
+      "sha256": "2bf27cfe25ea63a5d16e4fddedde53dc8583b6fac72a5c187ef0c0b4d7633d73"
+    },
+    {
+      "backend": "native-amd",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families",
+      "sha256": "2bf27cfe25ea63a5d16e4fddedde53dc8583b6fac72a5c187ef0c0b4d7633d73"
+    },
+    {
+      "backend": "superlu",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families",
+      "sha256": "2bf27cfe25ea63a5d16e4fddedde53dc8583b6fac72a5c187ef0c0b4d7633d73"
+    },
+    {
+      "backend": "umfpack",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families",
+      "sha256": "2bf27cfe25ea63a5d16e4fddedde53dc8583b6fac72a5c187ef0c0b4d7633d73"
+    },
+    {
+      "backend": "umfpack-direct",
+      "path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/integrated-baseline-c7207e7/bin/bench_native_families_umfpack",
+      "sha256": "984ca49db4491b81ae6defad91d26c1e4ecd452a25f7ff7bdbcf604fefab317c"
+    }
+  ],
+  "raw_private_path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/scaling-c7207e7/attempts.jsonl",
+  "receipt_private_path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/scaling-c7207e7/receipt.json",
+  "receipt_sha256": "a9788b3e6090a266c36d1120eab9f0ff91db94c9474babea313792c98d0e0557"
+}
