@@ -1,0 +1,177 @@
+{
+  "case": "KIN6D coupled nonnested Solovev P2",
+  "command_arguments": [
+    "solovev",
+    "2",
+    "1e6"
+  ],
+  "mesh_levels": [
+    8,
+    16,
+    32
+  ],
+  "requested_openmp_threads": 4,
+  "blas_threads": 1,
+  "cpu_affinity": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "hardware": "AMD Ryzen 9 5950X",
+  "repetitions_per_variant": 1,
+  "watchdog_seconds": 900,
+  "baseline": {
+    "wall_s": 6.049655176,
+    "user_s": 10.49234,
+    "system_s": 0.520245,
+    "cpu_s": 11.012585,
+    "maxrss_kib": 642452,
+    "exit_status": 0,
+    "cpu_affinity": "0,1,2,3",
+    "correctness_status": "PASS"
+  },
+  "native_failed_attempt": {
+    "wall_s": 900.025097186,
+    "user_s": 893.16976,
+    "system_s": 2.703688,
+    "cpu_s": 895.873448,
+    "maxrss_kib": 7398032,
+    "exit_status": 143,
+    "cpu_affinity": "0,1,2,3"
+  },
+  "successful_native_delta_available": false,
+  "previous_registered_correctness": {
+    "result": "PASS",
+    "wall_seconds": 797.81,
+    "plotted": false,
+    "reason": "Different load/affinity; no matched CPU/RSS receipt."
+  },
+  "provenance": {
+    "baseline": {
+      "source_revision": "73891c54a71c3a080826043fd02924779a6e79a3",
+      "binary_sha256": "36b234805a148eb8852ae609fb9304470a7c924330cecf7466abd20a58deaba8",
+      "driver_sha256": {
+        "test_nonnested_coupled.f90": "6c9ff2b42ec9f38f3f0db36c9fa0d5833e8255ccf16ce9030478eb420ff1a643"
+      },
+      "dependencies": {
+        "fortfem_revision": "72a2c44bac62d61f08541359c79590b1dfcf99ab",
+        "fortsparse_revision": "a651a40972d96e07e89aded59f8c7d613a2b81cd",
+        "fortnum_revision": "b29e82cf6e41dc1e5509c2e6722ad99f5a5132bd"
+      },
+      "flags": {
+        "CMAKE_BUILD_TYPE:STRING": "Release",
+        "CMAKE_Fortran_COMPILER:FILEPATH": "/usr/bin/f95",
+        "CMAKE_Fortran_FLAGS:STRING": "",
+        "CMAKE_Fortran_FLAGS_RELEASE:STRING": "-O3",
+        "KIN6D_ENABLE_MUMPS:BOOL": "ON"
+      },
+      "linked_libraries": {
+        "libgfortran.so.5": {
+          "sha256": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+          "resolved_filename": "libgfortran.so.5.0.0"
+        },
+        "libm.so.6": {
+          "sha256": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+          "resolved_filename": "libm.so.6"
+        },
+        "libmvec.so.1": {
+          "sha256": "cea848d7c542078f91f11aa44157eb07e0c62f3941d6b1c5f8e7d25fcf8b8eea",
+          "resolved_filename": "libmvec.so.1"
+        },
+        "libopenblas.so.0": {
+          "sha256": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+          "resolved_filename": "libopenblas.so.0.3"
+        },
+        "libgomp.so.1": {
+          "sha256": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+          "resolved_filename": "libgomp.so.1.0.0"
+        },
+        "libgcc_s.so.1": {
+          "sha256": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+          "resolved_filename": "libgcc_s.so.1"
+        },
+        "libc.so.6": {
+          "sha256": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+          "resolved_filename": "libc.so.6"
+        },
+        "ld-linux-x86-64.so.2": {
+          "sha256": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+          "resolved_filename": "ld-linux-x86-64.so.2"
+        }
+      }
+    },
+    "native": {
+      "source_revision": "fc8b36a39cd1484454f7ad1a0bb206b435059705",
+      "binary_sha256": "3c8122c8bc63bab28bc2c56b4af4e14dfcf91f61443d62d16f15ee24f2abe765",
+      "driver_sha256": {
+        "test_nonnested_coupled.f90": "6c9ff2b42ec9f38f3f0db36c9fa0d5833e8255ccf16ce9030478eb420ff1a643"
+      },
+      "dependencies": {
+        "fortfem_revision": "6210f96f2d94f719244cf449e181d3485dc4cf9c",
+        "fortsparse_revision": "886f7dcf8d61e122e7c83b26accdcb17fe5dba70",
+        "fortnum_revision": "b29e82cf6e41dc1e5509c2e6722ad99f5a5132bd"
+      },
+      "flags": {
+        "CMAKE_BUILD_TYPE:STRING": "Release",
+        "CMAKE_Fortran_COMPILER:FILEPATH": "/usr/bin/f95",
+        "CMAKE_Fortran_FLAGS:STRING": "",
+        "CMAKE_Fortran_FLAGS_RELEASE:STRING": "-O3"
+      },
+      "linked_libraries": {
+        "libgfortran.so.5": {
+          "sha256": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+          "resolved_filename": "libgfortran.so.5.0.0"
+        },
+        "libm.so.6": {
+          "sha256": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+          "resolved_filename": "libm.so.6"
+        },
+        "libmvec.so.1": {
+          "sha256": "cea848d7c542078f91f11aa44157eb07e0c62f3941d6b1c5f8e7d25fcf8b8eea",
+          "resolved_filename": "libmvec.so.1"
+        },
+        "libgomp.so.1": {
+          "sha256": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+          "resolved_filename": "libgomp.so.1.0.0"
+        },
+        "libopenblas.so.0": {
+          "sha256": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+          "resolved_filename": "libopenblas.so.0.3"
+        },
+        "libmetis.so": {
+          "sha256": "b339c99b4314402b5384608c37ce0256f91bd3e74bcb6f7b777e3e048ca74148",
+          "resolved_filename": "libmetis.so"
+        },
+        "libamd.so.3": {
+          "sha256": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+          "resolved_filename": "libamd.so.3.3.4"
+        },
+        "libgcc_s.so.1": {
+          "sha256": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+          "resolved_filename": "libgcc_s.so.1"
+        },
+        "libc.so.6": {
+          "sha256": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+          "resolved_filename": "libc.so.6"
+        },
+        "ld-linux-x86-64.so.2": {
+          "sha256": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+          "resolved_filename": "ld-linux-x86-64.so.2"
+        },
+        "libsuitesparseconfig.so.7": {
+          "sha256": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad",
+          "resolved_filename": "libsuitesparseconfig.so.7.14.1"
+        }
+      }
+    }
+  },
+  "limits": [
+    "n1; shared host with unrelated services remaining",
+    "RSS is per-process Linux ru_maxrssKiB, not aggregate workflow memory",
+    "Requested OMP4; actual solver team sizes not measured",
+    "Native TIMEOUT is excluded from feasible and Pareto points",
+    "Only conditional on continuing the same execution: accumulated CPU and peak RSS cannot decrease; this does not predict a repeat",
+    "No retry or increased deadline; native progress unknown because buffered stdout was empty"
+  ]
+}
