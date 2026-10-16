@@ -55,12 +55,12 @@
       "sha256": "6c6fe39e42ddbaf2599611272993cd51a1413674d0bf17846ffbe22e5dee5158"
     }
   ],
-  "recipe_sha256": "c92d3be24921bff1a709d1b333d555ce0e8c9ede51dbeee56d5a8410fd9bde3b",
+  "recipe_sha256": "8e3e700ba913e6bc6f6ee55623057353dc8396dda5f3b2cf65cf424498654911",
   "report_sources": {
     "report.py": "39d13d53d086cf69e6d0b374bbce4277179629ae6a112c77ae8720bd96e44199",
     "run.py": "d374ec4855c1dca9184d4515f90daddbaf90ae1f222869d07c0450fd42bed4c2"
   },
   "coverage": "native-only policy A/B, CPU0; no frontier admission",
-  "omitted_campaign": "ordinary LOW with positive cap not measured here",
+  "separate_campaign": "../low-positive-cap; source cac6656; 40 ordinary capped-LOW attempts, not merged with 240 A/B",
   "units": "payload bytes; cumulative copy/allocation bytes are traffic, not peak; RSS KiB"
 }

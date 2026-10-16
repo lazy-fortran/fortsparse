@@ -1,0 +1,10 @@
+{
+  "source": "cac6656",
+  "binary_sha256": "35bab7166064b492102d046c5ba926fbdda1315bf3c3e878556cd7355a7e28d9",
+  "binary_manifest_sha256": "bbf18270600fc1a9c5228e8f2692a9e69d2b49733b749c6858ed00eb51d104ee",
+  "scope": "ordinary positive-cap LOW native-only CPU0, no frontier claim",
+  "watchdog_s": 0.9,
+  "trials": 5,
+  "real_cap_bytes": 16777216,
+  "complex_cap_bytes": 5242880
+}

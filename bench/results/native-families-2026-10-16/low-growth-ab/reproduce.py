@@ -149,7 +149,8 @@ def describe(rows, manifest, raw, counters):
         'candidate 120 passed. Each version/policy/case/workload/variant has five trials. '
         f'Raw SHA256 `{digest(raw)}`.', '',
         'Policies are AUTO without a cap, AUTO with a 64 MiB cap, and LOW without a cap. '
-        'The optional positive LOW-cap campaign is not present here. Native factorization '
+        'A separate 40-trial positive LOW-cap checkpoint at source cac6656 is retained in '
+        '../low-positive-cap; it is not merged into these 240 trials. Native factorization '
         'is serial. No external-frontier or thread-scaling claim follows.', '',
         'LOW complete process wall milliseconds, median [minimum,maximum]:', '',
         '| Family | Workload | Variant | Baseline LOW | Candidate LOW |',
@@ -198,8 +199,8 @@ def describe(rows, manifest, raw, counters):
         '- Dense80 diagnostic evidence retains one exact retry after the hinted growth '
         'attempt: success with peak 144,812 bytes at that cap, failure one byte below, '
         'required 38,880 versus available 38,879. Actual peak is max across sequential '
-        'attempts, never their sum. These diagnostics are not the pending ordinary '
-        'positive LOW-cap campaign. Source-only final cleanup is distinguished in the '
+        'attempts, never their sum. These diagnostics remain distinct from the separate ordinary '
+        'positive LOW-cap checkpoint. Source-only final cleanup is distinguished in the '
         'diagnostic archive from the final replay’s instrumented algorithm.']
     return '\n'.join(text)+'\n'
 
@@ -242,7 +243,7 @@ def main():
         recipe_sha256=digest(Path(__file__)),
         report_sources={name: digest(REPO/'bench/native_families'/name)
                         for name in ('report.py', 'run.py')}, coverage='native-only policy A/B, CPU0; no frontier admission',
-        omitted_campaign='ordinary LOW with positive cap not measured here',
+        separate_campaign='../low-positive-cap; source cac6656; 40 ordinary capped-LOW attempts, not merged with 240 A/B',
         units='payload bytes; cumulative copy/allocation bytes are traffic, not peak; RSS KiB'
         ), indent=2)+'\n')
     if args.plots:

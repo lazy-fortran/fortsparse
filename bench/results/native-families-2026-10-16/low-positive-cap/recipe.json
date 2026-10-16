@@ -1,0 +1,37 @@
+{
+  "source_revision": "cac66561dce6178e04804da4af9c95c6fd6b19a3",
+  "scope": "separate ordinary native-only positive-cap LOW checkpoint; no external-frontier claim",
+  "files": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-positive-cap/attempts.jsonl",
+      "sha256": "610c64a1505d03ba3a17e077782c0ca3082735700a22daec012fa08c04ef252d"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-positive-cap/manifest.json",
+      "sha256": "152e99a5277e5b01e91d586dddbfa5f208ce2736727f3889d8f7adb2351e2f1e"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-positive-cap/run.py",
+      "sha256": "9778d6a394302c64423a4b4829e33e25f2480d587960f7f509ae027ab0b406e6"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/integrated-baseline-cac6656/binary-manifest.json",
+      "sha256": "bbf18270600fc1a9c5228e8f2692a9e69d2b49733b749c6858ed00eb51d104ee"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/integrated-baseline-cac6656/bin/bench_native_families",
+      "sha256": "35bab7166064b492102d046c5ba926fbdda1315bf3c3e878556cd7355a7e28d9"
+    }
+  ],
+  "acquisition_recipe": "external run.py is retained by path/hash only; no solver invocation made for this report",
+  "aggregation": "record scalar metrics grouped by family/level/workload/variant/backend/threads/operation; successful-trial min/median/max via report.summarize; cap/headroom checked for every raw record",
+  "report_source_sha256": "39d13d53d086cf69e6d0b374bbce4277179629ae6a112c77ae8720bd96e44199",
+  "controller_schedule_note": {
+    "source": "controller message",
+    "following_separate_ab_attempts": 80,
+    "gap_after_previous_campaign_completion_s": 13.289,
+    "overlap_reported": false
+  },
+  "distinction": "40 sourcecac6656 receipts are not merged into240 source7e1f123/2f0cb01 A/B; original20 timeouts retained",
+  "memory": "solver-owned payload cap; process RSS is separate and may exceed cap"
+}
