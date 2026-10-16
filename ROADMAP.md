@@ -28,6 +28,13 @@ out-of-core factors are outside this plan. Reach a usable GPU SPD checkpoint,
 then prioritize CPU matrix-class coverage. Full GPU Pareto admission remains
 a requirement later; it does not block CPU development.
 
+Current delivery priority is **feature completeness and correctness before
+further performance tuning**. Create native-only FortSparse branches and draft
+PRs for the ITPplasma consumers. Pin verified library revisions, preserve each
+consumer's mathematical/storage/lifetime contracts, and run affected independent
+checks. Document unsupported paths explicitly; a draft PR is not validation or
+release admission. The Pareto requirement above remains a later gate.
+
 Use `main` for coherent, locally verified integration and regular publication.
 Use explicit, reentrant state and preserve existing calling conventions through
 defaults. Update checked milestones only when their executable evidence exists.
