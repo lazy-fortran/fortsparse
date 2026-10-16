@@ -2,9 +2,11 @@ module fortsparse_native_general
     ! Native general sparse factors; orchestration only, arithmetic is generated.
     use fortsparse_kinds, only: dp, i8
     use fortsparse_memory, only: refinement_payload_bytes
+    use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
-        FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_MEMORY_LOW
+        FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
+        FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_lu_leaves, only: lu_z_update
@@ -21,8 +23,20 @@ module fortsparse_native_general
     implicit none
     private
     public :: native_general_backend_t
+    interface
+        integer(c_int) function order_amd_general(n,nnz,ptr,row,perm,inverse) &
+            bind(C,name='fsparse_native_order_amd_general')
+            import :: c_int
+            integer(c_int), value :: n,nnz
+            integer(c_int), intent(in) :: ptr(*),row(*)
+            integer(c_int), intent(out) :: perm(*),inverse(*)
+        end function order_amd_general
+    end interface
     type, extends(sparse_backend_t) :: native_general_backend_t
         private
+        logical, public :: reference_only = .false.
+        integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
+        logical :: same_ordering_strategy = .false.
         type(native_hpd_t) :: hpd_factor
         type(native_ldlt_t) :: ldlt_factor
         type(native_ldlt_z_t) :: complex_ldlt_factor
@@ -66,12 +80,70 @@ module fortsparse_native_general
         final :: general_finalize
     end type native_general_backend_t
 contains
+    subroutine column_order(self,n,ptr,rows,is_complex,order,status)
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        logical, intent(in) :: is_complex
+        integer, allocatable, intent(out) :: order(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, allocatable :: inverse(:)
+        integer :: ierr,code
+        logical :: matched
+        real(dp) :: started
+        call status_set(status,FORTSPARSE_OK,'')
+        if (self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
+        if (n <= 0 .or. n == huge(n)) then
+            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                'native LU: AMD needs positive dimension')
+            return
+        end if
+        if (size(ptr) /= n+1 .or. size(rows) == huge(n)) then
+            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                'native LU: AMD CSC extent mismatch')
+            return
+        end if
+        started = seconds()
+        allocate(order(n),stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY, &
+                'native LU: AMD output allocation failed')
+            return
+        end if
+        matched = .false.
+        if (self%same_ordering_strategy) then
+            if (is_complex) then
+                call self%complex_factor%copy_column_order(n,ptr,rows,order,matched)
+            else
+                call self%real_factor%copy_column_order(n,ptr,rows,order,matched)
+            end if
+        end if
+        if (.not.matched) then
+            allocate(inverse(n),stat=ierr)
+            if (ierr /= 0) then
+                deallocate(order)
+                call status_set(status,FORTSPARSE_OUT_OF_MEMORY, &
+                'native LU: AMD inverse allocation failed')
+                return
+            end if
+            code = order_amd_general(n,size(rows),ptr,rows,order,inverse)
+            if (code /= FORTSPARSE_OK) then
+                deallocate(order)
+                call status_set(status,code,'native LU: AMD ordering failed or unavailable')
+                return
+            end if
+        end if
+        self%selected_order = FORTSPARSE_ORDER_AMD
+        self%stats%analysis_s = seconds()-started
+    end subroutine column_order
+
     subroutine prepare(self, refine, cap, status)
         class(native_general_backend_t), intent(inout) :: self
         logical, intent(in) :: refine
         integer(i8), intent(out) :: cap
         type(fortsparse_status_t), intent(out) :: status
         self%ready = .false.
+        self%same_ordering_strategy = self%selected_order == self%options%ordering
+        self%selected_order = FORTSPARSE_ORDER_DEFAULT
         self%stats = sparse_factor_stats_t()
         self%stats%host_peak_bytes = current_bytes(self)
         self%failed_required = 0_i8
@@ -83,11 +155,20 @@ contains
             return
         end if
         call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-            'native CPU: CPU factorization and natural ordering required')
+            'native CPU: requested factorization or ordering is unavailable')
         if (self%options%device /= -1) return
         if (self%options%symmetry < FORTSPARSE_SYM_GENERAL .or. &
             self%options%symmetry > FORTSPARSE_SYM_HERMITIAN) return
-        if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) return
+        if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
+            if (self%options%ordering /= FORTSPARSE_ORDER_AMD) return
+            if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) return
+            if (self%reference_only) return
+            if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'native LU: AMD private workspace has no strict memory contract')
+                return
+            end if
+        end if
         if (cap > 0_i8 .and. associated(self%user_vector)) then
             cap = cap-8_i8*size(self%user_vector,kind=i8)
             if (cap <= 0_i8) then
@@ -109,9 +190,16 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         integer(i8) :: cap
+        integer, allocatable :: order(:)
         real(dp) :: threshold, started
         call prepare(self,refine,cap,status)
         if (.not. status_ok(status)) return
+        if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
+            .not.allocated(A%val)) then
+            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                'native CPU: CSC storage is unallocated')
+            return
+        end if
         call self%complex_factor%free()
         call self%complex_ldlt_factor%free()
         self%reused_special = .false.
@@ -141,10 +229,15 @@ contains
         call self%ldlt_factor%free()
         call reserve_original(self,A%ncol,A%nnz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
+        call column_order(self,A%ncol,A%col_ptr,A%row_idx,.false., &
+            order,status)
+        if (.not.status_ok(status)) return
+        started = seconds()
         call self%real_factor%factor(A,status, &
-            pivot_threshold=threshold,memory_limit_bytes=cap, &
+            column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
+        if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
         if (self%ready) call retain_real(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
         self%ready = status_ok(status)
@@ -184,9 +277,12 @@ contains
             attempt_peak=self%stats%host_peak_bytes
         end if
         call self%factor_real(A,refine,status)
-        self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,attempt_peak)
+        if (self%selected_order /= FORTSPARSE_ORDER_AMD) then
+            self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,attempt_peak)
+        end if
         reused = .false.
-        if (status_ok(status)) reused = self%real_factor%last_reused_pattern
+        if (status_ok(status)) reused = self%real_factor%last_reused_pattern &
+            .and. self%same_ordering_strategy
     end subroutine general_refactor_real
 
     subroutine general_factor_real_raw(self,nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
@@ -196,6 +292,7 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         integer(i8) :: cap
+        integer, allocatable :: order(:)
         real(dp) :: threshold, started
         self%ready = .false.
         if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
@@ -221,10 +318,14 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
+        call column_order(self,ncol,col_ptr,row_idx,.false.,order,status)
+        if (.not.status_ok(status)) return
+        started = seconds()
         call self%real_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
-            pivot_threshold=threshold,memory_limit_bytes=cap, &
+            column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
+        if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
         if (self%ready) call retain_real(self,ncol,col_ptr,row_idx,val,refine,status)
         self%ready = status_ok(status)
@@ -240,7 +341,8 @@ contains
         logical, intent(out) :: reused
         call self%factor_real_raw(nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
         reused = .false.
-        if (status_ok(status)) reused = self%real_factor%last_reused_pattern
+        if (status_ok(status)) reused = self%real_factor%last_reused_pattern &
+            .and. self%same_ordering_strategy
     end subroutine general_refactor_real_raw
 
     subroutine general_solve_real(self,b,x,status)
@@ -324,9 +426,16 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         integer(i8) :: cap
+        integer, allocatable :: order(:)
         real(dp) :: threshold, started
         call prepare(self,refine,cap,status)
         if (.not. status_ok(status)) return
+        if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
+            .not.allocated(A%val)) then
+            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                'native CPU: CSC storage is unallocated')
+            return
+        end if
         call self%real_factor%free()
         self%reused_special = .false.
         self%is_complex = .true.
@@ -379,10 +488,15 @@ contains
         call self%ldlt_factor%free()
         call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
+        call column_order(self,A%ncol,A%col_ptr,A%row_idx,.true., &
+            order,status)
+        if (.not.status_ok(status)) return
+        started = seconds()
         call self%complex_factor%factor(A,status, &
-            pivot_threshold=threshold,memory_limit_bytes=cap, &
+            column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
+        if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
         if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
         self%ready = status_ok(status)
@@ -398,7 +512,7 @@ contains
         call self%factor_complex(A,refine,status)
         reused = .false.
         if (.not.status_ok(status)) return
-        reused = self%complex_factor%last_reused_pattern
+        reused = self%complex_factor%last_reused_pattern .and. self%same_ordering_strategy
         if (self%mode == 2 .or. self%mode == 4 .or. self%mode == 5) reused = self%reused_special
     end subroutine general_refactor_complex
 
@@ -409,6 +523,7 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         integer(i8) :: cap
+        integer, allocatable :: order(:)
         real(dp) :: threshold, started
         self%ready = .false.
         if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
@@ -434,10 +549,14 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
+        call column_order(self,ncol,col_ptr,row_idx,.true.,order,status)
+        if (.not.status_ok(status)) return
+        started = seconds()
         call self%complex_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
-            pivot_threshold=threshold,memory_limit_bytes=cap, &
+            column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
+        if (allocated(order)) deallocate(order)
         self%ready = status_ok(status)
         if (self%ready) call retain_complex(self,ncol,col_ptr,row_idx,val,refine,status)
         self%ready = status_ok(status)
@@ -453,7 +572,8 @@ contains
         logical, intent(out) :: reused
         call self%factor_complex_raw(nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
         reused = .false.
-        if (status_ok(status)) reused = self%complex_factor%last_reused_pattern
+        if (status_ok(status)) reused = self%complex_factor%last_reused_pattern &
+            .and. self%same_ordering_strategy
     end subroutine general_refactor_complex_raw
 
     subroutine general_solve_complex(self,b,x,status)
@@ -609,7 +729,14 @@ contains
         end select
         self%stats%active_threads = 1
         self%stats%nthreads = self%options%nthreads
-        self%stats%ordering_used = FORTSPARSE_ORDER_DEFAULT
+        self%stats%ordering_used = self%selected_order
+        if (self%selected_order == FORTSPARSE_ORDER_AMD) then
+            ! AMD's opaque setup workspace prevents a complete host peak or
+            ! strict-cap claim. Retained owned payload remains exactly counted.
+            self%stats%host_peak_bytes = -1_i8
+            self%stats%factor_mem_mb = -1.0_dp
+            self%stats%strict_memory_supported = .false.
+        end if
     end subroutine update_stats
 
     integer(i8) function original_bytes(self) result(bytes)
@@ -891,6 +1018,8 @@ contains
         call self%ldlt_factor%free()
         call self%complex_ldlt_factor%free()
         self%n = 0
+        self%selected_order = FORTSPARSE_ORDER_DEFAULT
+        self%same_ordering_strategy = .false.
         call release_original(self)
         self%factor_external_live = 0_i8
         self%failed_required = 0_i8

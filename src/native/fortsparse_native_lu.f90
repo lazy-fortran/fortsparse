@@ -29,9 +29,33 @@ module fortsparse_native_lu
         procedure, private :: solve_vector, solve_block
         generic :: solve => solve_vector, solve_block
         procedure :: free
-        procedure :: memory_bytes
+        procedure :: memory_bytes, copy_column_order
     end type lu_factor_t
 contains
+    subroutine copy_column_order(self,n,col_ptr,row_idx,order,matched)
+        ! Metadata only: reuse a validated order from successful same-pattern
+        ! factors without duplicating the original pattern in the adapter.
+        class(lu_factor_t), intent(in) :: self
+        integer, intent(in) :: n,col_ptr(:),row_idx(:)
+        integer, intent(out) :: order(:)
+        logical, intent(out) :: matched
+        integer :: i
+        matched=.false.
+        if (.not.self%ready .or. n/=self%n .or. size(order)/=n) return
+        if (.not.allocated(self%ap)) return
+        if (.not.allocated(self%ai)) return
+        if (.not.allocated(self%q)) return
+        if (size(col_ptr)/=size(self%ap) .or. size(row_idx)/=size(self%ai)) return
+        do i=1,size(col_ptr)
+            if (col_ptr(i)/=self%ap(i)) return
+        end do
+        do i=1,size(row_idx)
+            if (row_idx(i)/=self%ai(i)) return
+        end do
+        order=self%q
+        matched=.true.
+    end subroutine copy_column_order
+
     subroutine factor(self,a,status,column_permutation,pivot_threshold,memory_limit_bytes,low_memory)
         class(lu_factor_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
@@ -610,9 +634,33 @@ module fortsparse_native_lu_z
         procedure, private :: solve_vector, solve_block
         generic :: solve => solve_vector, solve_block
         procedure :: free
-        procedure :: memory_bytes
+        procedure :: memory_bytes, copy_column_order
     end type lu_factor_z_t
 contains
+    subroutine copy_column_order(self,n,col_ptr,row_idx,order,matched)
+        ! Metadata only: reuse a validated order from successful same-pattern
+        ! factors without duplicating the original pattern in the adapter.
+        class(lu_factor_z_t), intent(in) :: self
+        integer, intent(in) :: n,col_ptr(:),row_idx(:)
+        integer, intent(out) :: order(:)
+        logical, intent(out) :: matched
+        integer :: i
+        matched=.false.
+        if (.not.self%ready .or. n/=self%n .or. size(order)/=n) return
+        if (.not.allocated(self%ap)) return
+        if (.not.allocated(self%ai)) return
+        if (.not.allocated(self%q)) return
+        if (size(col_ptr)/=size(self%ap) .or. size(row_idx)/=size(self%ai)) return
+        do i=1,size(col_ptr)
+            if (col_ptr(i)/=self%ap(i)) return
+        end do
+        do i=1,size(row_idx)
+            if (row_idx(i)/=self%ai(i)) return
+        end do
+        order=self%q
+        matched=.true.
+    end subroutine copy_column_order
+
     subroutine factor(self,a,status,column_permutation,pivot_threshold,memory_limit_bytes,low_memory)
         class(lu_factor_z_t), intent(inout) :: self
         type(csc_z_t), intent(in) :: a

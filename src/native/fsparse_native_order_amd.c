@@ -8,15 +8,18 @@
 
 /* Same public index/status conventions as fsparse_native_order (METIS).
  * perm[new] = old; inverse[old] = new; all are one-based. */
-int fsparse_native_order_amd(int n, int nnz, const int *ptr, const int *row,
-                            int *perm, int *inverse) {
+static int order_amd(int n, int nnz, const int *ptr, const int *row,
+                     int *perm, int *inverse, int symmetric) {
 #ifndef FORTSPARSE_HAVE_AMD
     (void)n; (void)nnz; (void)ptr; (void)row; (void)perm; (void)inverse;
+    (void)symmetric;
     return 3;
 #else
     int32_t *ap = NULL, *ai = NULL, *p = NULL, *ip = NULL;
     int result = 0;
-    if (!perm || !inverse || !fsparse_graph_valid(n, nnz, ptr, row)) return 2;
+    if (!perm || !inverse) return 2;
+    if (symmetric ? !fsparse_graph_valid(n, nnz, ptr, row) :
+                    !fsparse_csc_graph_valid(n, nnz, ptr, row)) return 2;
     if ((size_t)n + 1 > SIZE_MAX / sizeof(int32_t) ||
         (size_t)nnz > SIZE_MAX / sizeof(int32_t)) return 6;
     ap = malloc(((size_t)n + 1) * sizeof(*ap));
@@ -50,4 +53,18 @@ done:
     free(ap); free(ai); free(p); free(ip);
     return result;
 #endif
+}
+
+/* The original ABI retains structural-symmetry validation for SPD callers. */
+int fsparse_native_order_amd(int n, int nnz, const int *ptr, const int *row,
+                            int *perm, int *inverse) {
+    return order_amd(n, nnz, ptr, row, perm, inverse, 1);
+}
+
+/* AMD accepts unsymmetric input and internally orders the A+A^T pattern.
+ * Source: AMD/Include/amd.h (BSD-3-Clause), input contract of amd_order.
+ * LU consumes this as a column permutation; numerical row pivots stay native. */
+int fsparse_native_order_amd_general(int n, int nnz, const int *ptr, const int *row,
+                                    int *perm, int *inverse) {
+    return order_amd(n, nnz, ptr, row, perm, inverse, 0);
 }
