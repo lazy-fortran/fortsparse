@@ -134,8 +134,8 @@ largest passing **scanned prefix**, not a claim of monotonic solver performance
 or an extrapolation beyond the first failure. Missing comparators are recorded
 separately from size/time or numerical failures.
 
-With five external backends, five thread budgets and five trials, a completely
-passing four-level scan needs at most 2125 processes across these five cases.
+With six external configurations, five thread budgets and five trials, a completely
+passing four-level scan needs at most 2550 processes across these five cases.
 Each failure ends its family immediately; the process watchdog is 0.9 s.
 Native execution never participates in calibration or size selection. No
 ordinary measurements accompany this source change. Freeze the raw receipts
@@ -181,13 +181,14 @@ Per-panel axes adapt to the fixture's regime. The compact CSV retains solve,
 refactor, main-workflow and subprocess timings separately, actual factor-team
 reports (unknown externally) and memory diagnostics without aggregating RSS.
 
-The default comparator set now includes both `umfpack` (the FortSparse IPC
-backend) and `umfpack-direct` (a standalone GPL general-LU executable).
+The current comparator set includes `umfpack` (the FortSparse IPC backend),
+`umfpack-direct` (standalone GPL general LU with native defaults) and
+`umfpack-direct-noir` (the same isolated executable with only IRSTEP=0).
 The direct target is optional when UMFPACK is found and never links FortSparse.
 It reuses these same fixtures, records, process metrics and original-CSC oracles.
 Its packed complex I4 API maps ordinary T to `UMFPACK_Aat` and adjoint H to
 `UMFPACK_At`. Symbolic analysis is retained across numerical refactorization;
-native controls/defaults are unchanged. HPD/LDLT cases are compared using
+the selected controls persist across refactorization and warm-context recreation. HPD/LDLT cases are compared using
 UMFPACK's general LU, not mislabelled Cholesky/LDL execution.
 
 The standalone process has no helper or IPC: its Linux `VmHWM` is the complete
@@ -200,10 +201,9 @@ actual active UMFPACK teams are not reported. The installed library inspected
 for this addition links reference BLAS/LAPACK, so these source checks establish
 no best-tuned UMFPACK performance claim. See `umfpack_direct/README.md`.
 
-Contract schema 3 adds this fifth required external baseline. Existing receipts
+Historical contract schema 3 added the fifth required external baseline. Existing receipts
 and four-comparator selections keep their original historical scope; they do
-not silently acquire the new baseline. Such selections now need explicit
-`--diagnostic` use until a complete five-comparator calibration is collected.
+not silently acquire the new baseline. Those old selections retain their original scope.
 No ordinary measurements or calibration were performed for this source change.
 
 The scalar/indexed diagnostic has a separate recipe that keeps the revision
@@ -267,3 +267,37 @@ policy/cap records within one group are rejected. Caps remain explicit in numeri
 CSV/provenance; do not merge separate cap campaigns under one backend label.
 Owned allocation payload and process RSS remain separate, and unavailable runs
 are retained. These driver checks do not establish a LOW/capped performance win.
+
+
+Contract schema 4 requires six external configurations, retaining direct UMFPACK
+both with its default `UMFPACK_IRSTEP=2` and with only that control set to zero.
+The IPC helper uses IRSTEP=0 when `solver%refine` is false, as in these native
+family runs. This adds a matched no-refinement alternative without discarding
+the default comparison. No ordering, scaling, pivot, scientific fixture or
+accuracy gate changes. Both variants must independently pass the unchanged
+original-matrix backward/known-solution gates.
+
+The direct driver's optional eighth argument is `default` (also the omitted
+argument) or `no-refinement`. The runner supplies it only for
+`umfpack-direct-noir`; CSV backend labels stay distinct. A bounded
+`umfpack_controls,` JSON line records the runtime version, zero-based IRSTEP
+index, complete native-default vector and complete effective vector after
+execution. Receipts retain this snapshot and reject a successful result whose
+label/controls differ from the request, including any override outside IRSTEP.
+The arrays passed to vendor calls are exactly those recorded; the official
+UMFPACK API declares Control const. Warm and refactor paths retain this choice.
+
+Existing four/five-comparator selections and reports remain immutable historical
+evidence. New matched admission needs a complete schema-4 six-configuration
+calibration; older selections require explicit `--diagnostic` use.
+`report_front.py --coverage historical-five` remains the default historical
+verifier. `--coverage contract-v4-six` requires six-comparator calibration,
+schema-4 provenance and confirmed controls, and compares all 30 external
+configuration/thread combinations. The private runner likewise requires all
+six qualified configurations; its old fixed-scope report remains historical.
+
+Best-tuned external baseline coverage remains open until calibration and matched
+measurements are complete. Testing this justified IRSTEP variation does not
+establish exhaustive tuning of ordering, pivoting, scaling, dense runtime or
+other documented vendor choices. No new ordinary timings accompany the source
+change; existing default-mode results retain their recorded controls and scope.

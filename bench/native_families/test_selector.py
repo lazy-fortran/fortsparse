@@ -8,10 +8,10 @@ import os
 import sys
 import unittest
 from unittest.mock import patch
-from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, NATIVE, binary_name, positive_i8, memory_environment, record_memory_configuration, parse_csv
+from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, NATIVE, binary_name, positive_i8, memory_environment, record_memory_configuration, parse_csv, driver_arguments, record_umfpack_configuration
 from report import summarize, available_backends
 from report_ab import aggregates
-from report_front import assess
+from report_front import assess, frontier, PEERS, SIX_PEERS, validate_coverage
 from report_private_real import normalize, requested_scaling
 
 
@@ -179,6 +179,67 @@ class MemorySelections(unittest.TestCase):
             summarize(attempts)
 
 
+class UmfpackControls(unittest.TestCase):
+    def receipt(self, backend, effective=None):
+        controls = dict(schema=1, version=[6, 3, 8], irstep_index=1,
+                        default=[.1, 2, .01], effective=effective or [.1, 2, .01])
+        return dict(status="ok", record=dict(backend=backend),
+                    stdout="umfpack_controls,"+json.dumps(controls)+"\n")
+
+    def test_distinct_commands_and_only_irstep_override(self):
+        self.assertEqual(binary_name('umfpack-direct-noir'), binary_name('umfpack-direct'))
+        self.assertEqual(driver_arguments('umfpack-direct', ['case']), ['case'])
+        self.assertEqual(driver_arguments('umfpack-direct-noir', ['case']),
+                         ['case','no-refinement'])
+        for backend, effective in [('umfpack-direct',[.1,2,.01]),
+                                   ('umfpack-direct-noir',[.1,0,.01])]:
+            result=record_umfpack_configuration(self.receipt(backend,effective),backend)
+            self.assertEqual(result['status'],'ok')
+            self.assertEqual(result['umfpack_controls']['effective'],effective)
+        for backend, effective in [('umfpack-direct',[.1,0,.01]),
+                                   ('umfpack-direct-noir',[.2,0,.01]),
+                                   ('umfpack-direct-noir',[.1,2,.01])]:
+            self.assertEqual(record_umfpack_configuration(self.receipt(backend,effective),
+                             backend)['status'],'configuration_mismatch')
+
+    def test_missing_duplicate_and_malformed_controls_refused(self):
+        for stdout in ('', 'umfpack_controls,broken',
+                       self.receipt('umfpack-direct')['stdout']*2):
+            row=self.receipt('umfpack-direct');row['stdout']=stdout
+            self.assertEqual(record_umfpack_configuration(row,'umfpack-direct')['status'],
+                             'configuration_mismatch')
+
+    def test_current_coverage_requires_complete_provenance_and_controls(self):
+        selection=dict(backends=list(SIX_PEERS),calibration_scope='complete_declared_baselines')
+        provenance=[dict(contract=dict(schema_version=4,required_external_backends=list(SIX_PEERS)))]
+        attempts=[]
+        for backend, effective in [('umfpack-direct',[.1,2,.01]),
+                                   ('umfpack-direct-noir',[.1,0,.01])]:
+            attempts.append(dict(self.receipt(backend,effective),backend=backend))
+        self.assertEqual(validate_coverage('contract-v4-six',selection,provenance,attempts),SIX_PEERS)
+        for bad_selection in (dict(selection,backends=list(PEERS)),
+                              dict(selection,calibration_scope='diagnostic_subset')):
+            with self.assertRaises(ValueError):
+                validate_coverage('contract-v4-six',bad_selection,provenance,attempts)
+        attempts[-1]['stdout']=''
+        with self.assertRaisesRegex(ValueError,'controls not confirmed'):
+            validate_coverage('contract-v4-six',selection,provenance,attempts)
+
+    def test_six_peer_front_requires_the_additional_configuration(self):
+        point=dict(family='drift-real',level=3,workload='rhs8',variant='training',
+                   operation='N',process_wall_s_min=.1,process_wall_s_max=.2,
+                   process_tree_cpu_s_min=.1,process_tree_cpu_s_max=.2,
+                   parent_rss_kib_min=100,parent_rss_kib_max=200)
+        rows=[dict(point,backend=b,threads=n) for b in PEERS for n in (1,2,4,8,16)]
+        rows.append(dict(point,backend='native',threads=1))
+        self.assertEqual(len(frontier(rows)),2)
+        with self.assertRaisesRegex(ValueError,'incomplete 6-comparator'):
+            frontier(rows,SIX_PEERS)
+        rows.extend(dict(point,backend='umfpack-direct-noir',threads=n)
+                    for n in (1,2,4,8,16))
+        self.assertEqual(len(frontier(rows,SIX_PEERS)),2)
+
+
 class ProcessCPU(unittest.TestCase):
     def test_unrequested_inherited_cap_is_removed_from_child(self):
         with patch.dict(os.environ, FORTSPARSE_BENCH_HOST_LIMIT_BYTES="17"):
@@ -245,7 +306,7 @@ class ExternalSelection(unittest.TestCase):
                     threads=self.threads, trials=self.trials)
 
     def test_direct_and_ipc_umfpack_are_distinct_required_comparators(self):
-        peers = ["umfpack", "umfpack-direct"]
+        peers = ["umfpack", "umfpack-direct", "umfpack-direct-noir"]
         row = dict(family="drift-real", level=16, threads=1, trial=0,
                    status="ok", returncode=0, process_wall_s=0.1,
                    workload="rhs8", operation="N", variant="training")
@@ -253,7 +314,10 @@ class ExternalSelection(unittest.TestCase):
         direct = dict(row, backend="umfpack-direct")
         self.assertIsNone(select_calibration_level([ipc], "drift-real", [16],
                           peers, [1], 1)[0])
-        self.assertEqual(select_calibration_level([ipc, direct], "drift-real",
+        self.assertIsNone(select_calibration_level([ipc,direct], "drift-real",
+                          [16],peers,[1],1)[0])
+        noir=dict(row,backend="umfpack-direct-noir")
+        self.assertEqual(select_calibration_level([ipc,direct,noir], "drift-real",
                          [16], peers, [1], 1)[0], 16)
         self.assertIn("umfpack-direct", EXTERNAL)
         self.assertNotEqual(binary_name("umfpack"), binary_name("umfpack-direct"))

@@ -16,9 +16,10 @@ import time
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-EXTERNAL = ("superlu", "umfpack", "umfpack-direct", "mumps", "intel-pardiso")
+EXTERNAL = ("superlu", "umfpack", "umfpack-direct", "umfpack-direct-noir", "mumps", "intel-pardiso")
 NATIVE = ("native", "native-amd", "native-amd-low", "native-amd-capped")
 MEMORY_ALIASES = ("native-amd-low", "native-amd-capped")
+UMFPACK_DIRECT = ("umfpack-direct", "umfpack-direct-noir")
 HOST_LIMIT_ENV = "FORTSPARSE_BENCH_HOST_LIMIT_BYTES"
 KEYS = ("backend", "family", "level", "threads", "workload", "variant", "operation")
 
@@ -52,9 +53,52 @@ def record_memory_configuration(receipt, backend, host_limit_bytes=None):
 def binary_name(backend):
     if backend == "intel-pardiso":
         return "bench_native_families_pardiso"
-    if backend == "umfpack-direct":
+    if backend in UMFPACK_DIRECT:
         return "bench_native_families_umfpack"
     return "bench_native_families"
+
+
+def driver_arguments(backend, arguments):
+    arguments = list(arguments)
+    if backend == "umfpack-direct-noir":
+        arguments.append("no-refinement")
+    elif backend not in ("intel-pardiso", "umfpack-direct"):
+        arguments.insert(0, backend)
+    return arguments
+
+
+def record_umfpack_configuration(receipt, backend):
+    """Retain vendor snapshots and reject an unconfirmed direct control mode."""
+    if backend not in UMFPACK_DIRECT:
+        return receipt
+    receipt["requested_umfpack_configuration"] = (
+        "native_defaults" if backend == "umfpack-direct" else "native_defaults_irstep_0")
+    try:
+        lines = [line.split(",", 1)[1] for line in receipt.get("stdout", "").splitlines()
+                 if line.startswith("umfpack_controls,")]
+        if len(lines) != 1:
+            raise ValueError("one postexecution control snapshot required")
+        control = json.loads(lines[0])
+        receipt["umfpack_controls"] = control
+        defaults, effective, slot = (control["default"], control["effective"],
+                                     control["irstep_index"])
+        if (control["schema"] != 1 or not isinstance(slot, int) or
+                not 0 <= slot < len(defaults) or len(defaults) != len(effective) or
+                len(control["version"]) != 3 or
+                not all(isinstance(v, int) and v >= 0 for v in control["version"]) or
+                not all(isinstance(v, (int, float)) and math.isfinite(v)
+                        for v in defaults+effective)):
+            raise ValueError("invalid vendor control snapshot")
+        expected = list(defaults)
+        if backend == "umfpack-direct-noir":
+            expected[slot] = 0
+        if effective != expected or receipt.get("record", {}).get("backend") != backend:
+            raise ValueError("driver controls/label do not match requested mode")
+    except (ValueError, KeyError, TypeError, IndexError) as error:
+        if receipt.get("status") == "ok":
+            receipt["status"] = "configuration_mismatch"
+            receipt["reason"] = str(error)
+    return receipt
 
 
 def physical_cores():
@@ -370,8 +414,7 @@ def main():
                     binary = args.build.resolve()/"bin"/binary_name(backend)
                     command = [family, str(level), str(nt), workload, operation,
                                variant, str(ROOT/"bench/fixtures/neo2-mini5/matrix.mtx")]
-                    if backend not in ("intel-pardiso", "umfpack-direct"):
-                        command.insert(0, backend)
+                    command = driver_arguments(backend, command)
                     if args.dry_run:
                         env = memory_environment(backend,args.native_host_limit_bytes)
                         print(*(f"{key}={value}" for key,value in env.items()),str(binary),*command)
@@ -383,6 +426,7 @@ def main():
                         receipt = invoke(binary, command, nt, cores[:nt], args.timeout,
                             extra_env=memory_environment(backend,args.native_host_limit_bytes))
                     record_memory_configuration(receipt,backend,args.native_host_limit_bytes)
+                    record_umfpack_configuration(receipt,backend)
                     receipt.update(backend=backend, family=family, level=level, threads=nt,
                         workload=workload, variant=variant, operation=operation, trial=trial)
                     output.write(json.dumps(receipt)+"\n")

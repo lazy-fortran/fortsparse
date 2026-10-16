@@ -102,7 +102,7 @@ class AuditTests(unittest.TestCase):
         path = self.path/"qualification.json"
         path.write_text(json.dumps(dict(mode="qualify", status="pass",
             manifest_sha256="matrix", policy_sha256="policy", attempts=[])))
-        with self.assertRaisesRegex(ValueError, "five declared"):
+        with self.assertRaisesRegex(ValueError, "all declared"):
             verify_qualification(path, Fixture(), self.path)
 
     def test_split_qualification_and_changed_binary(self):
@@ -165,10 +165,10 @@ class CampaignTests(unittest.TestCase):
             raw = [json.loads(s) for s in (path/"output/attempts.jsonl").read_text().splitlines()]
             self.assertEqual(receipt["status"], "failed")
             self.assertEqual(receipt["requested_native_host_limit_bytes"],2**63-1)
-            self.assertEqual(len(raw), 24)
+            self.assertEqual(len(raw), 4*(len(EXTERNAL)+1))
             self.assertEqual(sum(a["status"] == "timeout" for a in raw), 1)
             self.assertEqual(receipt["attempts"], raw)
-            self.assertEqual(len({entry[3] for entry in launched}), 24)
+            self.assertEqual(len({entry[3] for entry in launched}), 4*(len(EXTERNAL)+1))
             for nt in (1, 2):
                 for trial in (0, 1):
                     self.assertEqual({a["backend"] for a in raw
@@ -187,8 +187,8 @@ def driver_check(binary, backend):
             write_array(path/name, values)
         target = path/"candidate.mtx"
         args = ["real-mm", "1", "1", "rhs4", "N", "training", str(path)]
-        if backend not in ("intel-pardiso", "umfpack-direct"):
-            args.insert(0, backend)
+        from run import driver_arguments
+        args = driver_arguments(backend, args)
         env = dict(os.environ, FORTSPARSE_BENCH_SOLUTION=str(target))
         result = subprocess.run([binary, *args], env=env, capture_output=True,
                                 text=True, timeout=.8)
