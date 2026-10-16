@@ -9,13 +9,14 @@ existing Cholesky engine and other classes to the following new CPU references:
 | Complex general | Row-scaled threshold-pivoted sparse LU | Natural order, retained CSC L/U, serial factorization |
 | Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Natural-order simplicial reference |
 | Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
-| Complex symmetric/Hermitian indefinite | General complex sparse LU | Full supplied CSC; specialized pivoted complex LDL remains planned |
+| Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
+| Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
 
 These are usable native reference families, not production performance admission.
 The previous real-SPD CPU frontier results do not extend to these classes.
-Complex structural hints other than SPD select general LU, not a symmetry-specific
-factorization. HPD Cholesky validates full conjugate symmetry and nonpositive
-pivots. The real indefinite factorization validates full ordinary symmetry.
+HPD Cholesky and complex LDLH validate full conjugate symmetry. Real and complex
+LDLT validate full ordinary symmetry. Invalid declared structures return
+`INVALID_MATRIX`; HPD Cholesky also checks positive pivots.
 
 Existing CSC factor/refactor, in-place/vector/block solve and lifetime APIs are
 preserved. LU raw CSC input is borrowed directly, including under a host cap;
@@ -27,10 +28,13 @@ The new references enforce `host_memory_limit_bytes` across their owned arrays,
 including factor growth replacement overlap, and support RAM-only LOW_MEMORY.
 LU uses exact-needed growth instead of geometric spare capacity in LOW_MEMORY;
 HPD already uses compact exact structural storage. Separate contexts own their
-mutable work independently. Their first adapters require natural ordering and
-CPU execution; requesting refinement currently returns BACKEND_UNAVAILABLE
-rather than silently ignoring it. Production blocking/parallel factorization,
-refinement/conditioning diagnostics and broader ordering are remaining work.
+mutable work independently. These adapters require natural ordering and CPU
+execution. LU, HPD and real/complex LDL support `solver%refine=.true.` with
+retained original-matrix residuals, a 32-epsilon normwise backward-error target
+and at most three corrections. Statistics report correction steps and final
+backward error. See [native refinement](native-refinement.md) for failure,
+allocation and refactor-cap semantics. Production blocking/parallel
+factorization, conditioning diagnostics and broader ordering remain planned.
 
 `pivot_tolerance` selects LU's finite threshold in [0,1]; a negative value uses
 the native default 1.0 (maximum-candidate row pivoting after scaling). A numerical
@@ -45,7 +49,9 @@ call sparse_solve_block_op(solver, Bmany, Xmany, FORTSPARSE_OP_ADJOINT, status)
 ```
 
 NORMAL=0, TRANSPOSE=1 and ADJOINT=2. Real symmetric paths have the same action
-for all three; complex HPD still needs a distinct ordinary transpose action.
+for all three. Complex Hermitian factors, including HPD, have a distinct ordinary
+transpose action; complex transpose-symmetric factors have a distinct adjoint
+action.
 Existing `sparse_solve` remains a normal solve. External backends that do not
 expose retained transpose operations report BACKEND_UNAVAILABLE for those calls.
 
