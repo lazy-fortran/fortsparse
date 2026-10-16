@@ -12,9 +12,37 @@ program test_fortsparse_native_lu
     call scaling(20000)
     call sparse_complex(4096)
     call raw_errors()
+    call diagonal_cases()
     call limits()
     print '(a)', 'Native sparse real/complex LU values, operations, pivoting, reuse and memory pass'
 contains
+    subroutine diagonal_cases()
+        type(lu_factor_t) :: rfactor
+        type(lu_factor_z_t) :: zfactor
+        type(fortsparse_status_t) :: status
+        real(dp) :: r(4),rv(4)
+        complex(dp) :: z(4),zv(4)
+        integer :: n,op,j
+        do n=1,4,3
+            rv=2.0_dp
+            zv=cmplx(2.0_dp,.5_dp,dp)
+            call rfactor%factor_raw(n,[(j,j=1,n+1)],[(j,j=1,n)],rv(:n),status)
+            call checked(status)
+            call zfactor%factor_raw(n,[(j,j=1,n+1)],[(j,j=1,n)],zv(:n),status)
+            call checked(status)
+            do op=LU_NORMAL,LU_ADJOINT
+                r=2.0_dp;z=zv
+                if(op==LU_ADJOINT) z=conjg(zv)
+                call rfactor%solve(r(:n),status,op)
+                call checked(status)
+                call zfactor%solve(z(:n),status,op)
+                call checked(status)
+                if(maxval(abs(r(:n)-1.0_dp))>1e-14_dp.or. &
+                   maxval(abs(z(:n)-1.0_dp))>1e-14_dp) &
+                    error stop 'empty-L diagonal factor/solve'
+            end do
+        end do
+    end subroutine diagonal_cases
     subroutine checked(status)
         type(fortsparse_status_t), intent(in) :: status
         if(status%code/=FORTSPARSE_OK) then

@@ -5,7 +5,8 @@ program gen_lu
     use fortsym_expr, only: expr_t,sym,operator(+),operator(-),operator(*),operator(/)
     use fortsym_diff, only: diff
     use fortsym_string, only: str,chars
-    use fortsym_kernel, only: kernel_spec_t,emit_kernel,TARGET_FORTRAN_CPU
+    use fortsym_kernel, only: kernel_spec_t,emit_kernel,TARGET_FORTRAN_CPU, &
+        KERNEL_SNIPPET,CSE_NONE
     implicit none
     character(*), parameter :: revision='7e8ef7abdd90c49bb5f75e2c119e7d181656bcc6'
     type(arena_t), target :: arena
@@ -27,11 +28,13 @@ program gen_lu
     write(unit,'(a)') '    implicit none'
     write(unit,'(a)') '    private'
     write(unit,'(a)') '    public :: lu_z_update, lu_z_divide, lu_z_norm, lu_z_finite'
+    write(unit,'(a)') '    public :: lu_z_scatter_update, lu_z_gather_update'
     write(unit,'(a)') '    public :: lu_z_update_value, lu_z_update_jvp, lu_z_update_vjp'
     write(unit,'(a)') '    public :: lu_z_quotient_value, lu_z_quotient_jvp, lu_z_quotient_vjp'
     write(unit,'(a)') 'contains'
     f=[x(1)-x(3)*x(5)+x(4)*x(6),x(2)-x(3)*x(6)-x(4)*x(5)]
     call leaf('update',6)
+    call indexed_update()
     denominator=x(3)*x(3)+x(4)*x(4)
     f=[(x(1)*x(3)+x(2)*x(4))/denominator,(x(2)*x(3)-x(1)*x(4))/denominator]
     call leaf('quotient',4)
@@ -100,6 +103,40 @@ contains
         spec%name=str('lu_z_'//name//'_vjp')
         write(unit,'(a)') chars(emit_kernel(pullback,spec))
     end subroutine leaf
+    subroutine indexed_update()
+        ! The scalar symbolic definition above owns every arithmetic operation.
+        ! Consumer schedules load indexed operands; generic snippet emission
+        ! places the same primal roots in the loop, avoiding per-entry calls.
+        type(kernel_spec_t) :: spec
+        character(:), allocatable :: statement
+        logical :: ok
+        integer :: k,input,ios
+        character(1024) :: line
+        spec%name=str('lu_z_indexed_update')
+        spec%generator=str('gen/gen_lu.f90')
+        spec%generator_revision=str(revision)
+        spec%regenerate_command=str('gen/regenerate_lu.sh /path/to/fortsym')
+        spec%mode=KERNEL_SNIPPET
+        spec%cse_level=CSE_NONE
+        allocate(spec%args(6),spec%outputs(2))
+        do k=1,6
+            spec%args(k)=str('x'//digit(k))
+        end do
+        spec%outputs=[str('vr'),str('vi')]
+        statement=chars(emit_kernel(f,spec,ok))
+        if (.not.ok) error stop 'FortSym refused indexed complex update'
+        open(newunit=input,file='gen/lu_indexed_schedule.f90.inc',status='old')
+        do
+            read(input,'(a)',iostat=ios) line
+            if(ios/=0) exit
+            if(trim(line)=='@UPDATE_BODY@') then
+                write(unit,'(a)') statement
+            else
+                write(unit,'(a)') trim(line)
+            end if
+        end do
+        close(input)
+    end subroutine indexed_update
     subroutine copy(path,out)
         character(*), intent(in) :: path
         integer, intent(in) :: out
@@ -126,17 +163,21 @@ contains
     end function replace
     subroutine schedule(z)
         logical, intent(in) :: z
-        character(:), allocatable :: line,name,kind,scalar,csc,leaves,update,divide,extra,finite,norm,zero,adjoint
+        character(:), allocatable :: line,name,kind,scalar,csc,leaves,divide,extra
+        character(:), allocatable :: finite,norm,zero,adjoint
+        character(:), allocatable :: scatter,gather
         character(1024) :: buffer
         character(8), parameter :: arrays(*)=[character(8) :: &
             'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach','lv','uv','work','row_norm']
         integer :: input,ios,i
         name='fortsparse_native_lu'; kind='lu_factor_t'; scalar='real(dp)'; csc='csc_t'
-        leaves='fortsparse_spd_leaves';update='spd_update';divide='spd_divide'
+        leaves='fortsparse_spd_leaves';divide='spd_divide'
+        scatter='spd_scatter_update';gather='spd_gather_update'
         extra='';finite='ieee_is_finite';norm='abs';zero='0.0_dp';adjoint='a'
         if(z) then
             name=name//'_z';kind='lu_factor_z_t';scalar='complex(dp)';csc='csc_z_t'
-            leaves='fortsparse_lu_leaves';update='lu_z_update';divide='lu_z_divide'
+            leaves='fortsparse_lu_leaves';divide='lu_z_divide'
+            scatter='lu_z_scatter_update';gather='lu_z_gather_update'
             extra='use fortsparse_lu_leaves, only: lu_z_finite, lu_z_norm'
             finite='lu_z_finite';norm='lu_z_norm';zero='(0.0_dp,0.0_dp)';adjoint='conjg(a)'
         end if
@@ -145,6 +186,8 @@ contains
             read(input,'(a)',iostat=ios) buffer
             if(ios/=0) exit
             line=trim(buffer)
+            if(z) line=replace(line,'@GATHER_ADJOINT@',',op==LU_ADJOINT')
+            line=replace(line,'@GATHER_ADJOINT@','')
             if(line=='@MEMORY@'.or.line=='@FREE@') then
                 do i=1,size(arrays)
                     if(line=='@FREE@') then
@@ -163,7 +206,8 @@ contains
             end if
             line=replace(line,'@MODULE@',name);line=replace(line,'@TYPE@',kind)
             line=replace(line,'@CSC@',csc);line=replace(line,'@SCALAR@',scalar)
-            line=replace(line,'@LEAVES@',leaves);line=replace(line,'@UPDATE@',update)
+            line=replace(line,'@LEAVES@',leaves)
+            line=replace(line,'@SCATTER@',scatter);line=replace(line,'@GATHER@',gather)
             line=replace(line,'@DIVIDE@',divide);line=replace(line,'@EXTRA_USE@',extra)
             line=replace(line,'@FINITE@',finite);line=replace(line,'@NORM@',norm)
             line=replace(line,'@ZERO@',zero);line=replace(line,'@ADJOINT@',adjoint)

@@ -128,3 +128,21 @@ leading dimensions, including untouched padding. This bounded schedule choice
 was measured end to end; wider panels trade some upper-triangle storage for
 fewer update/packing calls. Matrix residual and implicit derivative contracts
 are unchanged.
+
+## Sparse LU update schedules
+
+`gen_lu.f90` owns the Cartesian complex update definition and its scalar
+primal/JVP/VJP. Its generic FortSym snippet emission inserts the same primal
+roots directly into the allocation-free scatter/gather loops retained in
+`lu_indexed_schedule.f90.inc`. Both output components are computed before the
+complex value is stored. Scatter indices must be valid and unique; gather
+accepts arbitrary valid indices and optionally conjugates coefficients for
+adjoint solves. The real LU schedule reuses the generated SPD scatter/gather.
+Empty sparse columns are skipped before forming array slices. Division,
+scaling, pivot selection, factor storage and memory caps retain their contracts.
+
+The LU leaf fixture checks indexed values against independent complex products,
+untouched entries, empty batches, finite differences, and the retained symbolic
+JVP/VJP using the ordinary real component pairing. LU factor fixtures also cover
+one-element and diagonal matrices with empty L storage, N/T/H solves, column
+permutations, re-pivoting and unchanged owned memory across solves.
