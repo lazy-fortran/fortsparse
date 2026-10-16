@@ -24,6 +24,7 @@ target_sources(fortsparse PRIVATE
     native/fortsparse_native_residual.f90
     native/fortsparse_native.f90
     native/fortsparse_native_matching.f90
+    native/fortsparse_native_mpm.f90
     native/fortsparse_native_general.f90
     native/fortsparse_native_hpd.f90
     native/fortsparse_native_ldlt.f90

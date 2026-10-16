@@ -615,6 +615,22 @@ fortsparse_add_test(test_fortsparse_matching_api solver/test_fortsparse_matching
 set_tests_properties(test_fortsparse_structural_matching test_fortsparse_matching_api
     PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+fortsparse_add_test(test_fortsparse_mpm solver/test_fortsparse_mpm.f90)
+set_tests_properties(test_fortsparse_mpm PROPERTIES LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_mpm_allocations
+        ../test-cmake/native/test_mpm_allocations.f90
+        ../test-cmake/native/probe_spd_amd_allocations.c)
+    target_include_directories(test_mpm_allocations PRIVATE ../src/native)
+    target_link_libraries(test_mpm_allocations PRIVATE fortsparse)
+    target_link_options(test_mpm_allocations PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free"
+        "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
+    add_test(NAME test_mpm_allocations COMMAND test_mpm_allocations)
+    set_tests_properties(test_mpm_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_matching_allocations
         ../test-cmake/native/test_matching_allocations.f90
