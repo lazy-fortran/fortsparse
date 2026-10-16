@@ -5,6 +5,7 @@ program test_fortsparse_native_refinement
     call real_lu()
     call correction_limit()
     call structured()
+    call complex_indefinite()
     call memory_and_reuse()
     print '(a)', 'Native CPU refinement original residuals, operations, reuse and memory pass'
 contains
@@ -226,6 +227,115 @@ contains
         end do
         call sparse_free(solver)
     end subroutine structured
+    subroutine complex_indefinite()
+        type(sparse_solver_t) :: solver
+        type(csc_z_t) :: a,changed
+        type(fortsparse_status_t) :: status
+        type(sparse_factor_stats_t) :: stats
+        complex(dp) :: matrix(3,3),exact(3),rhs(3),x(3),block(3,2),result(3,2)
+        integer :: i,j,p,op,family,rows(9),cols(9)
+        integer(i8) :: cap
+        logical :: reused,mask(9)
+        character(16) :: expected_family
+        p=0
+        do j=1,3
+            do i=1,3
+                p=p+1;rows(p)=i;cols(p)=j
+            end do
+        end do
+        exact=[cmplx(1,.3_dp,dp),cmplx(-.5_dp,.7_dp,dp),cmplx(.2_dp,-.1_dp,dp)]
+        solver%backend_id=FORTSPARSE_BACKEND_NATIVE
+        solver%refine=.true.
+        do family=1,2
+            matrix=(0._dp,0._dp)
+            matrix(1,2)=cmplx(1,.5_dp,dp)
+            matrix(1,3)=cmplx(.1_dp,-.2_dp,dp)
+            matrix(2,3)=cmplx(-.2_dp,.1_dp,dp)
+            matrix(3,3)=2
+            do j=1,3
+                do i=j+1,3
+                    matrix(i,j)=matrix(j,i)
+                    if(family==1) matrix(i,j)=conjg(matrix(j,i))
+                end do
+            end do
+            if(family==1) then
+                solver%options%symmetry=FORTSPARSE_SYM_HERMITIAN
+                expected_family='LDLH_COMPLEX'
+            else
+                solver%options%symmetry=FORTSPARSE_SYM_INDEFINITE
+                matrix(3,3)=cmplx(2,.4_dp,dp)
+                expected_family='LDLT_COMPLEX'
+            end if
+            call csc_from_triplet(3,3,rows,cols,reshape(matrix,[9]),a,status)
+            call checked(status)
+            call sparse_factor(solver,a,status)
+            call checked(status)
+            call sparse_factor_stats(solver,stats,status)
+            call checked(status)
+            call check(stats%native_factor_family==expected_family,'complex indefinite native dispatch')
+            call check(stats%factor_nnz>0.and.stats%host_current_bytes>0,'complex indefinite owned memory')
+            cap=stats%host_peak_bytes
+            solver%options%host_memory_limit_bytes=cap
+            matrix=1.125_dp*matrix
+            a%val=reshape(matrix,[9])
+            call sparse_refactor(solver,a,status,reused)
+            if (.not.status_ok(status)) then
+                call check(status%code==FORTSPARSE_RESOURCE_LIMIT,'tight complex refactor budget fails explicitly')
+                call check(.not.reused,'tight cap cannot report completed reuse')
+            end if
+            ! Original/checker storage is retained during a refactor's growth.
+            ! Add its exact quota to the independently observed fresh peak.
+            cap=cap+int(storage_size(0)/8,i8)*(4+9)+16_i8*(9+2*3)
+            solver%options%host_memory_limit_bytes=cap
+            call sparse_refactor(solver,a,status,reused)
+            call checked(status)
+            call check(reused,'complex indefinite retained pattern refactor')
+            do op=0,2
+                select case(op)
+                case(0)
+                    rhs=matmul(matrix,exact)
+                case(1)
+                    rhs=matmul(transpose(matrix),exact)
+                case(2)
+                    rhs=matmul(conjg(transpose(matrix)),exact)
+                end select
+                call sparse_solve_op(solver,rhs,x,op,status)
+                call checked(status)
+                call check(maxval(abs(x-exact))<2e-12_dp,'complex indefinite N/T/H oracle')
+                call sparse_factor_stats(solver,stats,status)
+                call check(stats%backward_error>=0.and.stats%backward_error<=32*epsilon(1._dp),'complex LDL refinement')
+                call check(stats%host_peak_bytes<=cap,'complex indefinite refactor/growth budget')
+                block(:,1)=rhs;block(:,2)=2*rhs
+                call sparse_solve_block_op(solver,block,result,op,status)
+                call checked(status)
+                call check(maxval(abs(result(:,2)-2*exact))<3e-12_dp,'complex indefinite block oracle')
+            end do
+            solver%options%host_memory_limit_bytes=1_i8
+            call sparse_refactor(solver,a,status,reused)
+            call check(status%code==FORTSPARSE_RESOURCE_LIMIT,'complex indefinite capped refinement')
+            call check(.not.reused,'failed complex refactor cannot report successful reuse')
+            solver%options%host_memory_limit_bytes=cap+2000_i8
+            mask=.not.((rows==1.and.cols==3).or.(rows==3.and.cols==1))
+            matrix(1,3)=0;matrix(3,1)=0
+            call csc_from_triplet(3,3,pack(rows,mask),pack(cols,mask), &
+                pack(reshape(matrix,[9]),mask),changed,status)
+            call checked(status)
+            call sparse_refactor(solver,changed,status,reused)
+            call checked(status)
+            call check(.not.reused,'complex indefinite changed pattern full fallback')
+            rhs=matmul(matrix,exact)
+            call sparse_solve(solver,rhs,x,status)
+            call checked(status)
+            call check(maxval(abs(x-exact))<2e-12_dp,'complex changed-pattern residual refresh')
+            if(family==2) then
+                solver%options%symmetry=FORTSPARSE_SYM_HERMITIAN
+                call sparse_factor(solver,a,status)
+                call check(status%code==FORTSPARSE_INVALID_MATRIX,'Hermitian class cannot silently use general LU')
+            end if
+            call sparse_free(solver)
+            solver%options%host_memory_limit_bytes=0_i8
+        end do
+    end subroutine complex_indefinite
     subroutine memory_and_reuse()
         type(sparse_solver_t) :: solver
         type(csc_t) :: a,changed

@@ -10,6 +10,7 @@ module fortsparse_native_general
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use fortsparse_native_hpd, only: native_hpd_t
     use fortsparse_native_ldlt, only: native_ldlt_t
+    use fortsparse_native_ldlt_z, only: native_ldlt_z_t
     use fortsparse_native_lu, only: lu_factor_t
     use fortsparse_native_lu_z, only: lu_factor_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
@@ -23,8 +24,9 @@ module fortsparse_native_general
         private
         type(native_hpd_t) :: hpd_factor
         type(native_ldlt_t) :: ldlt_factor
+        type(native_ldlt_z_t) :: complex_ldlt_factor
         integer :: n = 0
-        integer :: mode = 0 ! 0 real LU, 1 complex LU, 2 HPD, 3 real LDLT
+        integer :: mode = 0 ! 0 real LU, 1 complex LU, 2 HPD, 3 real LDLT, 4 LDLH, 5 complex LDLT
         logical :: reused_special = .false.
         type(lu_factor_t) :: real_factor
         type(lu_factor_z_t) :: complex_factor
@@ -110,6 +112,7 @@ contains
         call prepare(self,refine,cap,status)
         if (.not. status_ok(status)) return
         call self%complex_factor%free()
+        call self%complex_ldlt_factor%free()
         self%reused_special = .false.
         self%is_complex = .false.
         threshold = self%options%pivot_tolerance
@@ -206,6 +209,7 @@ contains
             return
         end if
         call self%complex_factor%free()
+        call self%complex_ldlt_factor%free()
         call self%hpd_factor%free()
         call self%ldlt_factor%free()
         self%mode = 0
@@ -329,6 +333,30 @@ contains
         if (threshold < 0.0_dp) threshold = 1.0_dp
         self%n = A%ncol
         started = seconds()
+        if (self%options%symmetry == FORTSPARSE_SYM_HERMITIAN .or. &
+            self%options%symmetry == FORTSPARSE_SYM_INDEFINITE) then
+            call self%complex_factor%free()
+            call self%hpd_factor%free()
+            call self%ldlt_factor%free()
+            self%mode = 4
+            if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE) self%mode = 5
+            call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
+            if (.not.status_ok(status)) return
+            call self%complex_ldlt_factor%refactor(A,status,hermitian=self%mode==4, &
+                host_limit_bytes=cap,low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW)
+            self%reused_special=status_ok(status)
+            if (status%code==FORTSPARSE_INVALID_MATRIX) then
+                call self%complex_ldlt_factor%factor(A,status,hermitian=self%mode==4, &
+                    host_limit_bytes=cap,low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW)
+            end if
+            self%stats%factor_s=seconds()-started
+            self%ready=status_ok(status)
+            if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
+            self%ready=status_ok(status)
+            call update_stats(self)
+            return
+        end if
+        call self%complex_ldlt_factor%free()
         if (self%options%symmetry == FORTSPARSE_SYM_SPD) then
             call self%complex_factor%free()
             call self%ldlt_factor%free()
@@ -368,8 +396,9 @@ contains
         logical, intent(out) :: reused
         call self%factor_complex(A,refine,status)
         reused = .false.
-        if (status_ok(status)) reused = self%complex_factor%last_reused_pattern
-        if (self%mode == 2) reused = self%reused_special
+        if (.not.status_ok(status)) return
+        reused = self%complex_factor%last_reused_pattern
+        if (self%mode == 2 .or. self%mode == 4 .or. self%mode == 5) reused = self%reused_special
     end subroutine general_refactor_complex
 
     subroutine general_factor_complex_raw(self,nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
@@ -393,6 +422,7 @@ contains
             return
         end if
         call self%real_factor%free()
+        call self%complex_ldlt_factor%free()
         call self%hpd_factor%free()
         call self%ldlt_factor%free()
         self%mode = 1
@@ -445,7 +475,7 @@ contains
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
         x = b
-        call solve_complex_values(self%complex_factor,self%hpd_factor, &
+        call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
             self%mode,x,operation,status)
         if (status_ok(status) .and. self%refining) call refine_complex(self,x,operation,status)
     end subroutine general_solve_complex_op
@@ -459,7 +489,7 @@ contains
         call solve_shape(self,size(b),size(b),.true.,status)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
-        call solve_complex_values(self%complex_factor,self%hpd_factor, &
+        call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
             self%mode,b,0,status)
         if (status_ok(status) .and. self%refining) call refine_complex(self,b,0,status)
     end subroutine general_solve_complex_inplace
@@ -519,7 +549,7 @@ contains
         n = self%real_factor%n
         if (self%is_complex) n = self%complex_factor%n
         if (self%mode == 2) n = self%hpd_factor%dimension()
-        if (self%mode == 3) n = self%n
+        if (self%mode >= 3) n = self%n
         call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: RHS dimension mismatch')
         if (nb /= n .or. nx /= n) return
         call status_set(status,FORTSPARSE_OK,'')
@@ -532,13 +562,14 @@ contains
         if (associated(self%user_vector)) vector_bytes = 8_i8*size(self%user_vector,kind=i8)
         self%stats%host_current_bytes = self%real_factor%memory_bytes() &
             +self%complex_factor%memory_bytes()+self%hpd_factor%memory_current_bytes() &
-            +self%ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)
+            +self%ldlt_factor%retained_bytes()+self%complex_ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)
         self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
             self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
-            +self%hpd_factor%memory_peak_bytes()+self%ldlt_factor%peak_bytes()+self%factor_external_live, &
+            +self%hpd_factor%memory_peak_bytes()+self%ldlt_factor%peak_bytes() &
+            +self%complex_ldlt_factor%peak_bytes()+self%factor_external_live, &
             self%stats%host_current_bytes)
         self%stats%factor_nnz = self%real_factor%factor_nnz+self%complex_factor%factor_nnz &
-            +self%hpd_factor%factor_nnz()+self%ldlt_factor%factor_nnz()
+            +self%hpd_factor%factor_nnz()+self%ldlt_factor%factor_nnz()+self%complex_ldlt_factor%factor_nnz()
         self%stats%budget_required_bytes = self%real_factor%failed_required_bytes &
             +self%complex_factor%failed_required_bytes
         self%stats%budget_available_bytes = self%real_factor%failed_available_bytes &
@@ -548,6 +579,10 @@ contains
         if (self%mode == 3) then
             self%stats%budget_required_bytes = self%ldlt_factor%required_bytes()
             self%stats%budget_available_bytes = self%ldlt_factor%available_bytes()
+        end if
+        if (self%mode == 4 .or. self%mode == 5) then
+            self%stats%budget_required_bytes = self%complex_ldlt_factor%required_bytes()
+            self%stats%budget_available_bytes = self%complex_ldlt_factor%available_bytes()
         end if
         if (self%failed_required > 0_i8) then
             self%stats%budget_required_bytes = self%failed_required
@@ -566,6 +601,10 @@ contains
             self%stats%native_factor_family = 'CHOLESKY_HPD'
         case(3)
             self%stats%native_factor_family = 'LDLT_REAL'
+        case(4)
+            self%stats%native_factor_family = 'LDLH_COMPLEX'
+        case(5)
+            self%stats%native_factor_family = 'LDLT_COMPLEX'
         end select
         self%stats%active_threads = 1
         self%stats%nthreads = self%options%nthreads
@@ -589,7 +628,8 @@ contains
     integer(i8) function current_bytes(self) result(bytes)
         class(native_general_backend_t), intent(in) :: self
         bytes=self%real_factor%memory_bytes()+self%complex_factor%memory_bytes() &
-            +self%hpd_factor%memory_current_bytes()+self%ldlt_factor%retained_bytes()+original_bytes(self)
+            +self%hpd_factor%memory_current_bytes()+self%ldlt_factor%retained_bytes() &
+            +self%complex_ldlt_factor%retained_bytes()+original_bytes(self)
         if (associated(self%user_vector)) bytes=bytes+8_i8*size(self%user_vector,kind=i8)
     end function current_bytes
 
@@ -762,14 +802,17 @@ contains
         end if
     end subroutine solve_real_values
 
-    subroutine solve_complex_values(lu,hpd,mode,x,operation,status)
+    subroutine solve_complex_values(lu,hpd,ldlt,mode,x,operation,status)
         type(lu_factor_z_t), intent(inout) :: lu
         type(native_hpd_t), intent(inout) :: hpd
+        type(native_ldlt_z_t), intent(inout) :: ldlt
         integer, intent(in) :: mode,operation
         complex(dp), intent(inout) :: x(:)
         type(fortsparse_status_t), intent(out) :: status
         if (mode==2) then
             call hpd%solve_inplace(x,status,operation)
+        else if (mode==4 .or. mode==5) then
+            call ldlt%solve_inplace(x,status,operation)
         else
             call lu%solve(x,status,operation)
         end if
@@ -913,7 +956,8 @@ contains
                 return
             end if
             if (step==3) exit
-            call solve_complex_values(self%complex_factor,self%hpd_factor,self%mode,self%zresidual,operation,status)
+            call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
+                self%mode,self%zresidual,operation,status)
             if (.not.status_ok(status)) return
             do i=1,size(x)
                 x(i)=lu_z_update(x(i),cmplx(-1.0_dp,0.0_dp,dp),self%zresidual(i))
@@ -942,7 +986,7 @@ contains
         if (associated(self%user_vector)) deallocate(self%user_vector)
         required = self%real_factor%memory_bytes()+self%complex_factor%memory_bytes() &
             +self%hpd_factor%memory_current_bytes()+self%ldlt_factor%retained_bytes() &
-            +original_bytes(self)+8_i8*int(n,i8)
+            +self%complex_ldlt_factor%retained_bytes()+original_bytes(self)+8_i8*int(n,i8)
         self%failed_required = 0_i8
         self%failed_available = 0_i8
         cap = self%options%host_memory_limit_bytes
@@ -964,6 +1008,7 @@ contains
         call self%complex_factor%free()
         call self%hpd_factor%free()
         call self%ldlt_factor%free()
+        call self%complex_ldlt_factor%free()
         self%n = 0
         call release_original(self)
         self%factor_external_live = 0_i8
