@@ -10,6 +10,29 @@ from run import select_calibration_level, validate_selected_levels, invoke, EXTE
 from report import summarize
 from report_ab import aggregates
 from report_front import assess
+from report_private_real import normalize
+
+
+class PrivateReport(unittest.TestCase):
+    def test_wrapper_audit_failure_overrides_successful_child_without_numeric_export(self):
+        wrapper = dict(backend='native-amd', threads=1, trial=0, status='failed',
+            candidate_path='/private/numeric-export.mtx',
+            process_receipt=dict(status='ok', returncode=0, process_wall_s=.1,
+                                 record=dict(factor_s=.01, matrix_values=[99, 98])),
+            independent_audit=dict(status='failed', rhs=[dict(normwise_backward=.02,
+                row_scaled_backward=.03, residual_inf_exact='PRIVATE_FRACTION',
+                forward_relative_inf=dict(known_x=.04))]))
+        normalized, safe = normalize(wrapper, 'private-fixture')
+        self.assertEqual(normalized['status'], 'failed')
+        self.assertEqual(safe['child_status'], 'ok')
+        self.assertEqual(safe['audit_status'], 'failed')
+        self.assertEqual(safe['audit_normwise_backward_max'], .02)
+        self.assertNotIn('candidate_path', safe)
+        self.assertNotIn('matrix_values', normalized['record'])
+        self.assertNotIn('residual_inf_exact', safe)
+        wrapper.update(status='pass')
+        wrapper['independent_audit']['status'] = 'pass'
+        self.assertEqual(normalize(wrapper, 'private-fixture')[0]['status'], 'ok')
 
 
 class ObservedFront(unittest.TestCase):

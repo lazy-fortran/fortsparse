@@ -223,3 +223,13 @@ all five external peer/thread configurations and separates robust observed-range
 nondominance, known domination and indeterminate comparisons. It reads actual
 matrix dimensions from the numeric records. Its retained checkpoint and recipe
 are in `bench/results/native-families-2026-10-16/five-peer-openblas`.
+
+`report_private_real.py` reads the immutable completed private-real measurement
+receipts without executing a solver or rereading numeric candidates. It
+normalizes wrapper, child and independent-audit statuses conservatively before
+using the shared summaries/range assessments. Its explicit scalar whitelist
+publishes only aggregate benchmark metrics, status counts and hashes; numeric
+inputs, candidates, exact per-RHS fractions and the full private fixture
+manifest remain private. The qualified fixture/policy guard prevents reporting
+a different private case with this recipe. See the retained checkpoint in
+`bench/results/private-neo2-2026-10-16`.
