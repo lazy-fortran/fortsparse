@@ -505,3 +505,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_spd_amd_bounded PROPERTIES LABELS "native;memory;refinement;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+# Public synthetic NEO-2 spline system: preserve the original observable gate,
+# not just a tiny normwise backward error in its ill-conditioned coefficient basis.
+add_executable(test_native_lu_spline ../test-cmake/native/test_native_lu_spline.f90)
+target_link_libraries(test_native_lu_spline PRIVATE fortsparse)
+add_test(NAME test_native_lu_spline COMMAND test_native_lu_spline
+    "${CMAKE_CURRENT_SOURCE_DIR}/../test-cmake/native/data")
+set_tests_properties(test_native_lu_spline PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
