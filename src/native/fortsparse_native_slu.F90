@@ -85,6 +85,7 @@ module fortsparse_native_slu
         logical :: opaque_ordering = .false.
         ! The last factorization produced a non-finite panel entry.
         logical :: nonfinite = .false.
+        integer :: order_used = 0 ! SLU_ORDER_AMD or SLU_ORDER_ND
         real(dp) :: analysis_s = 0.0_dp, factor_s = 0.0_dp
         logical, private :: analyzed = .false., factored = .false.
         logical, private :: strict = .false., use_blas = .true.
@@ -103,6 +104,7 @@ module fortsparse_native_slu
         procedure :: solve
         procedure :: solve_block
         procedure :: is_factored
+        procedure :: gate_reason
         procedure :: free => slu_free
         procedure :: memory_bytes
         procedure :: plan
@@ -192,6 +194,7 @@ contains
         call ledger%reserve(0_i8, status)
         if (.not. status_ok(status)) return
         self%strict = ledger%limit > 0_i8
+        self%order_used = order_kind
         baseline = ledger%current
         call analyze_phases(self, n, ptr, rows, values, order_kind, low, ledger, &
             status)
@@ -223,14 +226,16 @@ contains
         ! Keep the failure diagnostics; release every owned array.
         class(slu_factor_t), intent(inout) :: self
         integer(i8) :: required, available, peak
-        integer :: phase
+        integer :: phase, order
         logical :: opaque
         required = self%failed_required_bytes
         available = self%failed_available_bytes
         peak = self%peak_memory_bytes
         phase = self%failed_phase
         opaque = self%opaque_ordering
+        order = self%order_used
         call self%free()
+        self%order_used = order
         self%failed_required_bytes = required
         self%failed_available_bytes = available
         self%peak_memory_bytes = peak
@@ -978,6 +983,7 @@ contains
         self%max_abs_u = 0.0_dp
         self%anorm = 0.0_dp
         self%nonfinite = .false.
+        self%order_used = 0
         self%owned_budget_bytes = 0_i8
     end subroutine slu_free
 
@@ -1417,6 +1423,30 @@ contains
             call slu_apply_swaps(self%solve_work(first), self%pivots(first), w, .true.)
         end do
     end subroutine backward_transpose
+
+    function gate_reason(self, perturb_limit, growth_limit) result(reason)
+        ! Factor-time gates (design section 6); blank when the factor passes.
+        ! Defaults: more than max(0, n/1000) perturbed pivots, or growth
+        ! max|U|/max|M| above 1/(64 sqrt(eps)).
+        class(slu_factor_t), intent(in) :: self
+        integer, optional, intent(in) :: perturb_limit
+        real(dp), optional, intent(in) :: growth_limit
+        character(16) :: reason
+        integer :: limit
+        real(dp) :: growth
+        reason = ''
+        limit = max(0, self%n/1000)
+        if (present(perturb_limit)) limit = perturb_limit
+        growth = 1.0_dp/(64.0_dp*sqrt(epsilon(1.0_dp)))
+        if (present(growth_limit)) growth = growth_limit
+        if (self%nonfinite) then
+            reason = 'NONFINITE'
+        else if (self%perturbed_pivots > limit) then
+            reason = 'PERTURBATION'
+        else if (.not. self%max_growth <= growth) then
+            reason = 'GROWTH'
+        end if
+    end function gate_reason
 
     logical function is_factored(self)
         class(slu_factor_t), intent(in) :: self

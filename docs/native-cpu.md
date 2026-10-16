@@ -173,6 +173,46 @@ METIS owns opaque internal workspace: ND always reports unknown complete peak
 with ND fail before calling METIS; use natural or bounded AMD for those contracts.
 This does not extend ND to the complex structured reference families.
 
+## Opt-in supernodal real LU
+
+`solver%options%lu_method=FORTSPARSE_LU_SUPERNODAL` selects the static-structure
+supernodal LU ([design](lu-supernodal.md)) for real GENERAL matrices on the
+explicit `FORTSPARSE_BACKEND_NATIVE` CPU backend. The default stays
+`FORTSPARSE_LU_SCALAR`; `FORTSPARSE_LU_AUTO` behaves as SCALAR until its
+thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNODAL'`.
+
+- Analysis: maximum-product matching with dual scaling, then AMD (DEFAULT or AMD;
+  bounded caller-workspace AMD when available) or METIS ND on the matched
+  symmetrized pattern, an etree postorder, and the shared supernode partition
+  and schedule. `structural_matching` does not apply; the matching is always
+  weighted (`matching_used=FORTSPARSE_MATCHING_WEIGHTED`).
+- Factor: serial left-looking panels, partial pivoting restricted to each
+  supernode diagonal block, and pivots below `pivot_perturbation*||A~||_inf`
+  (default 1e-13) replaced by `sign(p)` times that threshold. Statistics report
+  `perturbed_pivots`, `block_pivot_swaps`, `pivot_growth`, `min_pivot` and
+  `scaling_log10_range`.
+- Gates: a non-finite factor entry, more than `max(0,n/1000)` perturbed pivots
+  or growth above `1/(64*sqrt(eps))` fall back to the scalar LU (threshold 0.1,
+  structural matching, AMD unless ND was requested). With `verify_factor`
+  (default true) and always after perturbations, one solve against the original
+  matrix is refined at most three times to the `32*eps` backward-error gate;
+  failure falls back with reason REFINEMENT. A perturbed factor retains the
+  original matrix for refinement even when `refine` is false; if that does not
+  fit the cap it falls back instead. Structurally singular matrices go to the
+  scalar LU (reason SINGULAR), which reports the singularity. The fallback runs
+  its own preflight under the same cap: a refusal returns RESOURCE_LIMIT and keeps
+  `lu_fallback_reason`. A successful fallback returns OK with `lu_fallback=.true.`,
+  family `LU_REAL` and the supernodal attempt's pivot counters. A refined user solve
+  that misses the gate refactors once with the fallback when no host cap is set.
+- Refactor: a same-pattern refactor reuses matching, scaling, order, partition
+  and panels (`reused=.true.`). An entry outside the static structure or a
+  failed gate repeats the full analysis. NORMAL, TRANSPOSE/ADJOINT and block solves,
+  refinement, implicit JVP/VJP and context copies use the retained factors.
+- Unsupported: complex values (BACKEND_UNAVAILABLE), structured symmetries,
+  NATIVE_REFERENCE, devices and OpenMP execution (one active thread). ND is
+  refused under a host cap or LOW_MEMORY. LOW_MEMORY currently changes only
+  the matching cost cache and the AMD workspace.
+
 ## Retained transpose and adjoint solves
 
 ```fortran
