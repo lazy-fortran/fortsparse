@@ -138,3 +138,20 @@ Two other bounded experiments were rejected: BLAS triangular-solve lowering
 provided no end-to-end gain, and segmented generated scatter introduced 2D
 regressions despite some 3D improvement. Their raw diagnostics remain in
 `/var/tmp/fortsparse-mvp/`; their implementation changes were removed.
+
+## Wider exact panels
+
+An exact-width 128 variant alone provided little gain. A follow-up four-thread
+3D profile (553 samples, no losses) attributed 11.8% to generated triangular
+panel solves. Lowering only the larger solves (n>=96, m>=32) to BLAS TRSM
+reduced one-thread warm factor-plus-solve from 66.40 to 62.49 ms and refactor
+from 40.10 to 36.93 ms; four-thread warm time changed 57.99 to 55.45 ms.
+This increases the one-thread warm process peak from 39.71 to 40.54 MiB, so
+it is a time/memory tradeoff pending the retained-layout optimization. Small
+and banded schedules remain unchanged. All 80 candidate trials, five focused
+CPU tests and three actual-CUDA integration tests pass. The changed generated
+source was regenerated through the retained FortSym revision.
+
+A separate OpenMP passive-wait experiment reduced wasted process CPU time;
+wall improvements were small. The runner now records the selected wait policy.
+It does not silently change library-wide threading policy.

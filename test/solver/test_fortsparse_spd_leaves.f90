@@ -11,6 +11,8 @@ program test_fortsparse_spd_leaves
     real(dp) :: l(4,4), matrix(4,4), reconstruction(4,4), panel(3,4), rhs(3,4)
     real(dp) :: left(3,2), right(4,2), schur(3,4), expected(3,4)
     real(dp) :: sparse_x(10), sparse_expected(10), sparse_values(4), dot_expected
+    real(dp) :: large_l(133,128), large_b(65,128), large_exact(64,128)
+    real(dp) :: large_rhs(64,128)
     integer, parameter :: sparse_indices(4) = [2, 5, 7, 9]
     integer :: sparse_map(10)
     integer :: i, j, info
@@ -69,6 +71,25 @@ program test_fortsparse_spd_leaves
     call spd_panel_solve(l, 4, 4, panel, 3, 3)
     if (maxval(abs(matmul(panel, transpose(l))-rhs)) > 2.0e-14_dp) &
         error stop 'triangular panel solve residual'
+    ! Independent larger triangular solve with padding and unequal strides.
+    large_l = 0.0_dp
+    do j = 1, 128
+        large_l(j,j) = 2.0_dp+real(j,dp)/128.0_dp
+        do i = j+1, 128
+            large_l(i,j) = real(mod(i+j,5)-2,dp)/128.0_dp
+        end do
+        do i = 1, 64
+            large_exact(i,j) = real(mod(3*i-j,17),dp)/16.0_dp
+        end do
+    end do
+    large_rhs = matmul(large_exact, transpose(large_l(:128,:)))
+    large_b(:64,:) = large_rhs
+    large_b(65,:) = 12345.0_dp
+    call spd_panel_solve(large_l, 128, 133, large_b, 64, 65)
+    if (maxval(abs(large_b(:64,:)-large_exact)) > 2.0e-13_dp) &
+        error stop 'large triangular solve differs from independent solution'
+    if (any(large_b(65,:) /= 12345.0_dp)) &
+        error stop 'large triangular solve changed row padding'
     left = rhs(:,1:2)
     right = transpose(rhs(1:2,:))
     schur = rhs

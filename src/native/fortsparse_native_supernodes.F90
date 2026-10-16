@@ -20,7 +20,7 @@ module fortsparse_native_supernodes
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
     private
-    integer, parameter :: EXACT_WIDTH = 64, RELAXED_WIDTH = 32, NOT_SPD = 8
+    integer, parameter :: EXACT_WIDTH = 128, RELAXED_WIDTH = 32, NOT_SPD = 8
 
     type :: panel_t
         integer :: first = 0, width = 0, m = 0

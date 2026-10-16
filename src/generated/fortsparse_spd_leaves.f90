@@ -210,6 +210,20 @@ end subroutine spd_update_vjp
         real(dp), intent(in) :: l(ldl, n)
         real(dp), intent(inout) :: b(ldb, n)
         integer :: i, j, k
+        interface
+            subroutine dtrsm(side, uplo, trans, diag, rows, cols, alpha, &
+                    factor, ldf, values, ldv)
+                import dp
+                character, intent(in) :: side, uplo, trans, diag
+                integer, intent(in) :: rows, cols, ldf, ldv
+                real(dp), intent(in) :: alpha, factor(ldf,*)
+                real(dp), intent(inout) :: values(ldv,*)
+            end subroutine dtrsm
+        end interface
+        if (n >= 96 .and. m >= 32) then
+            call dtrsm('R', 'L', 'T', 'N', m, n, 1.0_dp, l, ldl, b, ldb)
+            return
+        end if
         do j = 1, n
             do k = 1, j-1
                 !$omp simd
