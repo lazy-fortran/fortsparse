@@ -1,0 +1,26 @@
+{
+  "scope": "Generic small negative-power lowering integrated through retained FortSym; no performance admission from static counts.",
+  "fortgen": "42a4c6cce9272a6bc92e0539b21f3ffc0c97a068",
+  "fortsym": "ded561c5e4119aa176fec1541afac7c106f30fa4",
+  "checks": {
+    "fortgen_native": 3,
+    "fortgen_cuda_device": 2,
+    "fortsym_affected_native": 5,
+    "fortsparse_cpu_native": 14,
+    "fortsparse_cuda": 16
+  },
+  "cpu_leaf_object_identical": true,
+  "cpu_leaf_object_sha256": "64f400be0cf468a735f7b8a40d2e15f8cdc8d1f8c0daa1bf54a79828f50e8f9f",
+  "cpu_core_archive_identical": true,
+  "cpu_core_archive_sha256": "b3339276bc2eb28b1c2193d995bb5d9b047a08eab27c6669e012fdf9ada2e513",
+  "cuda_ptx_sha256": "18ec8e04b95d488a41c0f24fc8a66af96238ed3f90adf23cced4572b38cd99c4",
+  "cuda_pow_text_references": 0,
+  "static_factor_sass_instruction_records": {
+    "before": 744,
+    "after": 608,
+    "limit": "Static records, not executed instruction counts or elapsed-time gains."
+  },
+  "gremlin": "Attempted resident lane; blocked by another host work-slot owner. Task owner850033 stopped and exit verified; native CMake/CTest authoritative checks passed.",
+  "hardware": "Ryzen9 5950X / RTX5060Ti physicalGPU1; CUDA13.4, unchanged strict flags; shared resident LLM; correctness/static-code evidence only.",
+  "generator_recipe": "bash gen/regenerate_spd.sh FORTSYM_SOURCE GEN_BUILD FORTSYM_BUILD; repeat and diff committed generated sources"
+}

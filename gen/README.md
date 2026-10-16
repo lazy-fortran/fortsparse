@@ -24,6 +24,12 @@ bash gen/regenerate_spd.sh /path/to/fortsym
 git diff --exit-code -- src/generated/
 ```
 
+For an out-of-tree FortSym build, pass the generator build directory as the
+second argument and the FortSym build directory as the third. The retained
+FortSym revision pins FortGen's reciprocal-aware emitter. Exact small negative
+powers use typed reciprocals rather than general CUDA `pow`; this is scalar
+source shaping, not a faithfully rounded complete quotient or an enclosure.
+
 The generator uses FortSym's native simplifier. Ordinary library builds use
 the committed output and require neither FortSym nor a CAS. Compile the
 generated Fortran module into `fortsparse`; register
