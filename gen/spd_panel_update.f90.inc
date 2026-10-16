@@ -6,7 +6,7 @@
         integer, intent(in) :: indices(*), n, lanes, active
         real(dp), intent(in) :: values(*), coeff(*)
         real(dp) :: a, b, c, y
-        integer :: i, lane, row
+        integer :: i, lane, row, valid, first_lane, last_lane, range_mask
         ! Uniform mask permits contiguous lane SIMD; arbitrary masks retain
         ! the original guarded schedule. Caller contract: 1 <= lanes <= 8.
         if (active == 2**lanes-1) then
@@ -23,19 +23,45 @@
                 end do
             end do
         else
-            do i = 1, n
-                row = indices(i)
-                masks(row) = ior(masks(row), active)
-                b = values(i)
-                !$omp simd private(a,c,y)
-                do lane = 1, lanes
-                    if (.not. btest(active,lane-1)) cycle
-                    a = x(lane,row)
-                    c = coeff(lane)
+            valid = ibits(active,0,lanes)
+            first_lane = 1
+            last_lane = 0
+            range_mask = 0
+            if (valid /= 0) then
+                first_lane = trailz(valid)+1
+                last_lane = bit_size(valid)-leadz(valid)
+                range_mask = ishft(2**(last_lane-first_lane+1)-1,first_lane-1)
+            end if
+            ! An empty run evaluates no numerical entries. Gapped masks retain
+            ! the original guarded path; no inactive lane is evaluated.
+            if (valid == range_mask) then
+                do i = 1, n
+                    row = indices(i)
+                    masks(row) = ior(masks(row), active)
+                    b = values(i)
+                    !$omp simd private(a,c,y)
+                    do lane = first_lane, last_lane
+                        a = x(lane,row)
+                        c = coeff(lane)
 @PANEL_VALUE@
-                    x(lane,row) = y
+                        x(lane,row) = y
+                    end do
                 end do
-            end do
+            else
+                do i = 1, n
+                    row = indices(i)
+                    masks(row) = ior(masks(row), active)
+                    b = values(i)
+                    !$omp simd private(a,c,y)
+                    do lane = 1, lanes
+                        if (.not. btest(active,lane-1)) cycle
+                        a = x(lane,row)
+                        c = coeff(lane)
+@PANEL_VALUE@
+                        x(lane,row) = y
+                    end do
+                end do
+            end if
         end if
     end subroutine spd_panel_scatter
 
@@ -46,7 +72,7 @@
         integer, intent(in) :: indices(*), n, lanes, active
         real(dp), intent(in) :: values(*), dvalues(*), coeff(*), dcoeff(*)
         real(dp) :: a, b, c, da, db, dc, y, dy
-        integer :: i, lane, row
+        integer :: i, lane, row, valid, first_lane, last_lane, range_mask
         ! Uniform mask permits contiguous lane SIMD; arbitrary masks retain
         ! the original guarded schedule. Caller contract: 1 <= lanes <= 8.
         if (active == 2**lanes-1) then
@@ -67,23 +93,53 @@
                 end do
             end do
         else
-            do i = 1, n
-                row = indices(i)
-                masks(row) = ior(masks(row), active)
-                b = values(i)
-                db = dvalues(i)
-                !$omp simd private(a,c,da,dc,y,dy)
-                do lane = 1, lanes
-                    if (.not. btest(active,lane-1)) cycle
-                    a = x(lane,row)
-                    c = coeff(lane)
-                    da = dx(lane,row)
-                    dc = dcoeff(lane)
+            valid = ibits(active,0,lanes)
+            first_lane = 1
+            last_lane = 0
+            range_mask = 0
+            if (valid /= 0) then
+                first_lane = trailz(valid)+1
+                last_lane = bit_size(valid)-leadz(valid)
+                range_mask = ishft(2**(last_lane-first_lane+1)-1,first_lane-1)
+            end if
+            ! An empty run evaluates no numerical entries. Gapped masks retain
+            ! the original guarded path; no inactive lane is evaluated.
+            if (valid == range_mask) then
+                do i = 1, n
+                    row = indices(i)
+                    masks(row) = ior(masks(row), active)
+                    b = values(i)
+                    db = dvalues(i)
+                    !$omp simd private(a,c,da,dc,y,dy)
+                    do lane = first_lane, last_lane
+                        a = x(lane,row)
+                        c = coeff(lane)
+                        da = dx(lane,row)
+                        dc = dcoeff(lane)
 @PANEL_JVP@
-                    x(lane,row) = y
-                    dx(lane,row) = dy
+                        x(lane,row) = y
+                        dx(lane,row) = dy
+                    end do
                 end do
-            end do
+            else
+                do i = 1, n
+                    row = indices(i)
+                    masks(row) = ior(masks(row), active)
+                    b = values(i)
+                    db = dvalues(i)
+                    !$omp simd private(a,c,da,dc,y,dy)
+                    do lane = 1, lanes
+                        if (.not. btest(active,lane-1)) cycle
+                        a = x(lane,row)
+                        c = coeff(lane)
+                        da = dx(lane,row)
+                        dc = dcoeff(lane)
+@PANEL_JVP@
+                        x(lane,row) = y
+                        dx(lane,row) = dy
+                    end do
+                end do
+            end if
         end if
     end subroutine spd_panel_scatter_jvp
 

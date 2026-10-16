@@ -6,9 +6,11 @@ program test_fortsparse_lu_panel
     use fortsparse_native_lu_z, only: lu_factor_z_t
     use fortsparse_spd_leaves, only: spd_panel_scatter, spd_panel_scatter_jvp, &
                                      spd_panel_scatter_vjp
-    use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
+    use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan, &
+        ieee_set_flag, ieee_get_flag, ieee_overflow
     implicit none
     call kernel_oracle()
+    call inactive_range_oracle()
     call closure_oracle()
     call factor_oracles()
     call memory_and_failure_oracles()
@@ -29,6 +31,7 @@ contains
         real(dp) :: seed(8, n), xb(8, n), v(m), dv(m), c(8), dc(8), vb(m), cb(8)
         real(dp) :: left, right, expected, tangent
         integer :: i, j, mask, active, marks(n), checkmarks(n), lanes
+        integer :: expected_marks(n)
         do j = 1, n
             do i = 1, 8
                 original(i, j) = real(3*i - j, dp)/17
@@ -49,8 +52,10 @@ contains
                 call spd_panel_scatter(x, marks, rows, v, m, c, lanes, active)
                 call spd_panel_scatter_jvp(y, dx, checkmarks, rows, v, dv, &
                     m, c, dc, lanes, active)
-                if (any(marks /= checkmarks)) &
-                    error stop 'panel primal/JVP graph mismatch'
+                expected_marks = 0
+                expected_marks(rows) = active
+                if (any(marks /= expected_marks).or.any(checkmarks /= expected_marks)) &
+                    error stop 'panel primal/JVP graph oracle'
                 do j = 1, n
                     do i = 1, 8
                         expected = original(i, j); tangent = dx0(i, j)
@@ -85,6 +90,39 @@ contains
         call spd_panel_scatter(x, marks, rows, v, 0, c, 8, 255)
         if (any(x /= original) .or. any(marks /= 4)) error stop 'empty panel scatter'
     end subroutine kernel_oracle
+
+    subroutine inactive_range_oracle()
+        ! Inactive arithmetic would overflow even if a masked store hid its
+        ! result. Check flags independently for primal and tangent schedules.
+        real(dp) :: x(8,1), dx(8,1), values(1), coeff(8), dc(8), dv(1)
+        integer :: marks(1), active, mode
+        logical :: overflowed
+        values = huge(1.0_dp)/2
+        do mode = 0, 1
+            active = 0
+            if (mode==1) active = 48 ! lanes 5:6, not a prefix/full run
+            coeff = huge(1.0_dp)/4
+            coeff(5:6) = tiny(1.0_dp)
+            dc = huge(1.0_dp)/4
+            dc(5:6) = 0
+            dv = 0
+            x = huge(1.0_dp)/4
+            x(5:6,1) = 0
+            marks = 0
+            call ieee_set_flag(ieee_overflow,.false.)
+            call spd_panel_scatter(x,marks,[1],values,1,coeff,8,active)
+            call ieee_get_flag(ieee_overflow,overflowed)
+            if (overflowed) error stop 'inactive range primal evaluated'
+            x = huge(1.0_dp)/4
+            x(5:6,1) = 0
+            dx = 0
+            marks = 0
+            call ieee_set_flag(ieee_overflow,.false.)
+            call spd_panel_scatter_jvp(x,dx,marks,[1],values,dv,1,coeff,dc,8,active)
+            call ieee_get_flag(ieee_overflow,overflowed)
+            if (overflowed) error stop 'inactive range tangent evaluated'
+        end do
+    end subroutine inactive_range_oracle
 
     function closure(graph) result(r)
         logical, intent(in) :: graph(:, :)
