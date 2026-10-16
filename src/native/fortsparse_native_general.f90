@@ -65,6 +65,7 @@ module fortsparse_native_general
         logical :: bounded_amd = .false., factor_invoked = .false.
         integer(i8) :: refinement_quota = 0_i8
         logical :: previous_matching = .false.
+        real(dp) :: lu_threshold = -1.0_dp ! resolved scalar LU pivot threshold
         integer, allocatable :: matching_preference(:), matching_inverse(:)
         integer, allocatable :: matching_work(:), matching_rows(:)
         type(native_hpd_t) :: hpd_factor
@@ -466,8 +467,8 @@ contains
         call self%complex_ldlt_factor%free()
         self%reused_special = .false.
         self%is_complex = .false.
-        threshold = self%options%pivot_tolerance
-        if (threshold < 0.0_dp) threshold = 1.0_dp
+        threshold = lu_pivot_threshold(self%options%pivot_tolerance,refine)
+        self%lu_threshold = threshold
         self%n = A%ncol
         started = seconds()
         if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
@@ -633,8 +634,8 @@ contains
         call self%ldlt_factor%free()
         self%mode = 0
         self%is_complex = .false.
-        threshold = self%options%pivot_tolerance
-        if (threshold < 0.0_dp) threshold = 1.0_dp
+        threshold = lu_pivot_threshold(self%options%pivot_tolerance,refine)
+        self%lu_threshold = threshold
         self%n = ncol
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.false.,cap,status)
@@ -817,8 +818,8 @@ contains
         call self%slu_factor%free()
         self%reused_special = .false.
         self%is_complex = .true.
-        threshold = self%options%pivot_tolerance
-        if (threshold < 0.0_dp) threshold = 1.0_dp
+        threshold = lu_pivot_threshold(self%options%pivot_tolerance,refine)
+        self%lu_threshold = threshold
         self%n = A%ncol
         started = seconds()
         if (self%options%symmetry == FORTSPARSE_SYM_HERMITIAN .or. &
@@ -938,8 +939,8 @@ contains
         call self%ldlt_factor%free()
         self%mode = 1
         self%is_complex = .true.
-        threshold = self%options%pivot_tolerance
-        if (threshold < 0.0_dp) threshold = 1.0_dp
+        threshold = lu_pivot_threshold(self%options%pivot_tolerance,refine)
+        self%lu_threshold = threshold
         self%n = ncol
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.true.,cap,status)
@@ -1165,6 +1166,7 @@ contains
         case(6)
             self%stats%native_factor_family = 'LU_SUPERNODAL'
         end select
+        if (self%mode <= 1) self%stats%effective_pivot_tolerance = self%lu_threshold
         if (self%mode==0 .and. .not.self%is_complex) then
             self%stats%lu_method_used = FORTSPARSE_LU_SCALAR
             self%stats%matching_used = FORTSPARSE_MATCHING_NONE
@@ -1761,6 +1763,20 @@ contains
             self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,peak)
         if (peak<0_i8) self%stats%host_peak_bytes=-1_i8
     end subroutine supernodal_fallback
+
+    pure real(dp) function lu_pivot_threshold(requested,refine) result(threshold)
+        ! A negative request selects the native default: maximum-candidate row
+        ! pivoting after row scaling (1.0) without refinement, and the
+        ! diagonal-preferring threshold 0.01 when every solve is refined and
+        ! gated against the original matrix (docs/native-cpu.md).
+        real(dp), intent(in) :: requested
+        logical, intent(in) :: refine
+        threshold = requested
+        if (threshold < 0.0_dp) then
+            threshold = 1.0_dp
+            if (refine) threshold = 0.01_dp
+        end if
+    end function lu_pivot_threshold
 
     logical function supernodal_requested(self)
         class(native_general_backend_t), intent(in) :: self
