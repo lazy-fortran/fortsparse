@@ -68,6 +68,17 @@ class FrontAudit(unittest.TestCase):
         self.assertEqual(result["cases"][0]["candidates"][0]["objectives"]
                          ["wall_host_rss"]["status"], "native_incomplete")
 
+    def test_pool_configurations_never_pool_trials(self):
+        small = trials("cudss", [1, 2, 2, 2, 3], 20, 30)
+        large = copy.deepcopy(small)
+        for row in small:
+            row["pool_limit_bytes"] = 64 * 2**20
+        for row in large:
+            row["pool_limit_bytes"] = 256 * 2**20
+        groups = summarize(small + large)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual([r["samples"] for r in groups], [5, 5])
+
 
 if __name__ == "__main__":
     unittest.main()

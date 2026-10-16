@@ -7,7 +7,7 @@ from pathlib import Path
 import statistics
 
 CASE_KEYS = ("family", "level", "workload", "variant", "io_mode", "requested_device")
-CONFIG_KEYS = ("requested_backend", "threads", "ordering", "repeats")
+CONFIG_KEYS = ("requested_backend", "threads", "ordering", "repeats", "pool_budget_bytes")
 OBJECTIVES = {
     "wall_host_rss": ("primary_phase_s", "parent_rss_kib"),
     "wall_device_total": ("primary_phase_s", "device_total_peak_bytes"),
@@ -28,11 +28,14 @@ def summarize(trials, required_trials=5):
     for trial in trials:
         trial = dict(trial)
         trial.setdefault("requested_backend", trial["backend"])
+        trial.setdefault("pool_budget_bytes", trial.get("gpu_pool_budget_bytes",
+                         trial.get("pool_limit_bytes", -1)))
         key = tuple(trial[k] for k in CASE_KEYS + CONFIG_KEYS)
         groups.setdefault(key, []).append(trial)
     result = []
     fields = set(sum((list(v) for v in OBJECTIVES.values()), [])) | {
         "factor_s", "refactor_s", "solve_s", "total_s", "backward_error",
+        "active_threads", "requested_threads", "process_wall_s", "analysis_s", "numeric_s",
         "device_process_sampled_max_bytes", "wrapper_device_bytes", "pinned_host_bytes"}
     for key, records in sorted(groups.items()):
         good = [r for r in records if r["status"] == "ok"]
