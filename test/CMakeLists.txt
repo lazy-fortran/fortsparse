@@ -548,3 +548,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_ldlt_amd PROPERTIES LABELS "native;memory;refinement;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_csc_normalize_symmetric ../test-cmake/native/test_csc_normalize_symmetric.f90
+        ../test-cmake/native/refinement_allocation_counter.c)
+    target_link_libraries(test_csc_normalize_symmetric PRIVATE fortsparse)
+    target_link_options(test_csc_normalize_symmetric PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+    if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(test_csc_normalize_symmetric PRIVATE
+            $<$<COMPILE_LANGUAGE:Fortran>:-ffpe-trap=invalid,zero,overflow>)
+    endif()
+    add_test(NAME test_csc_normalize_symmetric COMMAND test_csc_normalize_symmetric)
+    set_tests_properties(test_csc_normalize_symmetric PROPERTIES LABELS "native;csc;fast"
+        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

@@ -29,6 +29,26 @@ HPD Cholesky and complex LDLH validate full conjugate symmetry. Real and complex
 LDLT validate full ordinary symmetry. Invalid declared structures return
 `INVALID_MATRIX`; HPD Cholesky also checks positive pivots.
 
+For an assembled operator known mathematically to be real self-adjoint,
+`csc_normalize_symmetric_raw(n, col_ptr, row_idx, values, rtol, &
+max_entry_correction, status)` provides an explicit caller-owned normalization.
+It validates finite values, exact array extents, sorted unique rows and every
+reflected off-diagonal entry before changing any value. Missing zero diagonals
+are allowed; missing reflected entries are rejected even for a stored zero.
+With finite `rtol` in `[0,1]`, it accepts only when the maximum entry-difference
+bound is at most `rtol*max(abs(original_values))`. It then copies the original
+lower triangle into the upper triangle, preserving lower and diagonal entries.
+The helper allocates nothing and also accepts a symmetric CSR view (where its
+lower CSC triangle corresponds to the original upper CSR triangle).
+
+On success, `max_entry_correction` is an outward one-ulp bound on the largest
+absolute change to a stored entry; zero means exact symmetry. The caller must
+retain this perturbation separately from solver error. Rejection leaves the
+input unchanged; the correction output is only a partial diagnostic for malformed
+input and may be infinity for an unrepresentable difference. This helper is
+opt-in: factorization still requires exact symmetry, and a tolerance does not
+establish that a general assembled operator is mathematically self-adjoint.
+
 Existing CSC factor/refactor, in-place/vector/block solve and lifetime APIs are
 preserved. LU raw CSC input is borrowed directly, including under a host cap;
 no intermediate input value copy or split-complex conversion is needed.
