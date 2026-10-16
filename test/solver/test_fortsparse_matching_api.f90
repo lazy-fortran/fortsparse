@@ -26,6 +26,10 @@ program test_matching_api
             bind(C, name='fsparse_native_amd_bounded_available')
             import c_int
         end function
+        integer(c_int) function nd_available() &
+            bind(C, name='fsparse_native_order_available')
+            import c_int
+        end function
     end interface
     k = 0
     do j = 1, n
@@ -39,10 +43,10 @@ program test_matching_api
     solver%backend_id = FORTSPARSE_BACKEND_NATIVE
     solver%options%structural_matching = .true.
     solver%options%pivot_tolerance = 0.1_dp
-    do ord = 0, 1
+    do ord = FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND
         if (ord == 1 .and. amd_available() /= 1) cycle
-        solver%options%ordering = merge(FORTSPARSE_ORDER_AMD, &
-                                        FORTSPARSE_ORDER_DEFAULT, ord == 1)
+        if (ord == FORTSPARSE_ORDER_ND .and. nd_available() /= 1) cycle
+        solver%options%ordering = ord
         do cycle = 1, 2
             dense = 0
             do i = 1, n
@@ -51,6 +55,20 @@ program test_matching_api
             end do
             call csc_from_triplet(n, n, row, col, reshape(dense, [n*n]), a, status)
             call checked('real canonical input')
+            solver%options%structural_matching = .false.
+            call sparse_factor(solver, a, status)
+            call checked('unmatched general ordering')
+            call real_operations()
+            if (ord == FORTSPARSE_ORDER_ND) then
+                call sparse_factor_stats(solver, stats, status)
+                call checked('ND statistics')
+                call check(stats%ordering_used == FORTSPARSE_ORDER_ND, &
+                           'actual ND ordering is reported')
+                call check(stats%host_peak_bytes == -1 .and. &
+                           .not. stats%strict_memory_supported, &
+                           'opaque METIS peak remains unknown')
+            end if
+            solver%options%structural_matching = .true.
             if (cycle == 1) then
                 call sparse_factor(solver, a, status)
             else
@@ -66,6 +84,16 @@ program test_matching_api
             zdense = cmplx(dense, 0.5_dp*dense, dp)
             call csc_from_triplet(n, n, row, col, reshape(zdense, [n*n]), z, &
                                   status)
+            solver%options%structural_matching = .false.
+            call sparse_factor(solver, z, status)
+            call checked('unmatched complex ordering')
+            zrhs(:, 1) = matmul(zdense, zexact)
+            zrhs(:, 2) = 2*zrhs(:, 1)
+            call sparse_solve_block_op(solver, zrhs, zanswer, 0, status)
+            call checked('unmatched complex block solve')
+            call check(maxval(abs(zanswer(:, 1) - zexact)) < 1e-12_dp, &
+                       'unmatched complex original matrix oracle')
+            solver%options%structural_matching = .true.
             call sparse_factor(solver, z, status)
             call checked('complex matching')
             do op = 0, 2
@@ -176,6 +204,23 @@ program test_matching_api
         call checked('bounded AMD exact cap includes transformed graph')
         call real_operations()
         call sparse_destroy(solver)
+    end if
+    solver%options%ordering = FORTSPARSE_ORDER_ND
+    solver%options%host_memory_limit_bytes = 1024_i8*1024_i8
+    solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
+    call sparse_factor(solver, a, status)
+    call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+               'ND rejects a strict cap before opaque ordering')
+    solver%options%host_memory_limit_bytes = 0
+    solver%options%memory_policy = FORTSPARSE_MEMORY_LOW
+    call sparse_factor(solver, a, status)
+    call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+               'ND rejects LOW before opaque ordering')
+    solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
+    if (nd_available() /= 1) then
+        call sparse_factor(solver, a, status)
+        call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+                   'METIS-off explicit ordering status')
     end if
     solver%options%host_memory_limit_bytes = 0
     solver%options%ordering = FORTSPARSE_ORDER_DEFAULT

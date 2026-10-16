@@ -7,6 +7,7 @@ module fortsparse_native_general
         backend_factor_real_raw, backend_refactor_real_raw, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
+        FORTSPARSE_ORDER_ND, &
         FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_spd_leaves, only: spd_update
@@ -35,6 +36,13 @@ module fortsparse_native_general
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_amd_general
+        integer(c_int) function order_nd_general(n,nnz,ptr,row,perm,inverse) &
+            bind(C,name='fsparse_native_order_general')
+            import :: c_int
+            integer(c_int), value :: n,nnz
+            integer(c_int), intent(in) :: ptr(*),row(*)
+            integer(c_int), intent(out) :: perm(*),inverse(*)
+        end function order_nd_general
     end interface
     type, extends(sparse_backend_t) :: native_general_backend_t
         private
@@ -106,11 +114,11 @@ contains
         call status_set(status,FORTSPARSE_OK,'')
         if (self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
         if (n <= 0 .or. n == huge(n)) then
-            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: AMD needs positive dimension')
+            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: ordering needs positive dimension')
             return
         end if
         if (size(ptr) /= n+1 .or. size(rows) == huge(n)) then
-            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: AMD CSC extent mismatch')
+            call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: ordering CSC extent mismatch')
             return
         end if
         if (self%bounded_amd .and. (n>=huge(0_c_int)/4 .or. size(rows)>=huge(0_c_int)/4)) then
@@ -127,7 +135,7 @@ contains
         end if
         allocate(order(n),stat=ierr)
         if (ierr /= 0) then
-            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: AMD output allocation failed')
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: ordering output allocation failed')
             goto 900
         end if
         if (self%bounded_amd) call record_order_peak(self,order_bytes)
@@ -157,7 +165,7 @@ contains
             end if
             allocate(inverse(n),stat=ierr)
             if (ierr /= 0) then
-                call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: AMD inverse allocation failed')
+                call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native LU: ordering inverse allocation failed')
                 goto 900
             end if
             if (self%bounded_amd) then
@@ -172,10 +180,12 @@ contains
                 end if
                 call record_order_peak(self,total)
                 code=bounded_amd_order(n,size(rows),ptr,rows,low,arena,arena_bytes,order,inverse)
+            else if (self%options%ordering == FORTSPARSE_ORDER_ND) then
+                code=order_nd_general(n,size(rows),ptr,rows,order,inverse)
             else
                 code=order_amd_general(n,size(rows),ptr,rows,order,inverse)
             end if
-            call status_set(status,code,'native LU: AMD ordering failed or unavailable')
+            call status_set(status,code,'native LU: column ordering failed or unavailable')
             if (.not.status_ok(status)) goto 900
         end if
         if (self%bounded_amd) then
@@ -192,7 +202,7 @@ contains
             end if
             self%factor_external_live=self%factor_external_live+order_bytes
         end if
-        self%selected_order=FORTSPARSE_ORDER_AMD
+        self%selected_order=self%options%ordering
         call status_set(status,FORTSPARSE_OK,'')
 900     continue
         if (allocated(arena)) deallocate(arena)
@@ -224,7 +234,7 @@ contains
         call status_set(status,FORTSPARSE_INVALID_MATRIX,'matching: dimension exceeds workspace range')
         if(n<0.or.n>huge(0)/7) return
         entries=7_i8*int(n,i8)
-        if(self%options%ordering==FORTSPARSE_ORDER_AMD) entries=entries+size(rows,kind=i8)
+        if(self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) entries=entries+size(rows,kind=i8)
         bytes=0_i8
         call memory_checked_mul(matching_integer_bytes,entries,bytes,status)
         if(.not.status_ok(status)) return
@@ -245,7 +255,7 @@ contains
                 self%matching_inverse,self%matching_work,status)
         end if
         if(.not.status_ok(status)) goto 900
-        if(self%options%ordering==FORTSPARSE_ORDER_AMD) then
+        if(self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) then
             allocate(self%matching_rows(size(rows)),stat=ierr)
             if(ierr/=0) then
                 call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'matching graph allocation failed')
@@ -357,7 +367,10 @@ contains
         if (self%options%symmetry < FORTSPARSE_SYM_GENERAL .or. &
             self%options%symmetry > FORTSPARSE_SYM_HERMITIAN) return
         if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
-            if (self%options%ordering /= FORTSPARSE_ORDER_AMD) return
+            if (self%options%ordering /= FORTSPARSE_ORDER_AMD .and. &
+                self%options%ordering /= FORTSPARSE_ORDER_ND) return
+            if (self%options%ordering == FORTSPARSE_ORDER_ND .and. &
+                self%options%symmetry /= FORTSPARSE_SYM_GENERAL) return
             supported_structure = self%options%symmetry == FORTSPARSE_SYM_GENERAL
             if (present(real_structured)) then
                 if (real_structured) supported_structure = supported_structure .or. &
@@ -367,6 +380,11 @@ contains
             if (.not. supported_structure) return
             if (self%reference_only) return
             if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+                if (self%options%ordering == FORTSPARSE_ORDER_ND) then
+                    call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                        'native CPU: opaque METIS workspace cannot enforce a strict cap or LOW')
+                    return
+                end if
                 if (bounded_amd_available()/=1) then
                     call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
                         'native LU: audited AMD caller-workspace ABI unavailable')
@@ -1026,9 +1044,10 @@ contains
         self%stats%active_threads = 1
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
-        if ((self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd) .or. &
+        if (self%selected_order == FORTSPARSE_ORDER_ND .or. &
+            (self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd) .or. &
             self%converted_raw) then
-            ! Opaque AMD setup or uncapped raw conversion prevents a complete peak or
+            ! Opaque graph ordering or uncapped raw conversion prevents a complete peak or
             ! strict-cap claim. Retained owned payload remains exactly counted.
             self%stats%host_peak_bytes = -1_i8
             self%stats%factor_mem_mb = -1.0_dp
