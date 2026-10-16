@@ -6,6 +6,9 @@ library that does the factorization. Factor a matrix once, solve any number of
 right-hand sides against that factorization, then free it. The backend is an
 integer tag on the solver; switching it never changes the calling code.
 
+A small [native C/C++ API](docs/native-c-api.md) exposes owned general-LU
+contexts with real/complex N/T/H block solves and explicit failure status.
+
 The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
 The next requirements are native CPU coverage across audited ITPplasma matrix
