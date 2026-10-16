@@ -171,3 +171,25 @@ The focused pruning fixture checks actual graph partitions against independent
 Boolean graph closure, aligned real/complex coefficients, an exact-cancellation
 counterexample, pivot permutations, implicit derivatives and allocation caps.
 Performance retention requires the controller's matched end-to-end measurements.
+
+General LU first removes recursive structural row singletons: when one original
+nonzero remains in an uneliminated row, its column and that row form a prefix
+pivot. The pivot row has no entries in later columns, so its elimination creates
+no Schur update or fill there. Removing the column can expose further singleton
+rows. Degree counts and XOR column identities implement the pass in O(n+nnz),
+using existing DFS/factor workspace. The untouched core keeps the requested
+relative column order (natural for DEFAULT); its numerical threshold partial
+pivoting is unchanged. Singleton pivots bypass that core threshold because they
+cannot update the remaining block. Forced rows are recorded in p until each
+pivot position overwrites its own entry with the actual pivot.
+
+This standard preprocessing matters for accuracy as well as fill: the retained
+public synthetic NEO-2 spline system is completely singleton-reducible, but
+mixing its constraint rows into the ill-conditioned coefficient basis loses
+input-node accuracy despite a small normwise backward error. The regression
+checks the original 1e-12 interpolation observable with refinement disabled.
+The additional mixed-core fixture checks non-involutory permutations, real and
+complex N/T/H blocks, explicit stored zeros, duplicate rejection, changed values
+with the same graph, requested core order and pruning. Existing strict-cap
+fixtures keep their exact payload formulas; preprocessing adds no allocation.
+This is an accuracy repair, with no new performance admission claim.

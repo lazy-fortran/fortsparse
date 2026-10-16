@@ -515,3 +515,7 @@ add_test(NAME test_native_lu_spline COMMAND test_native_lu_spline
 set_tests_properties(test_native_lu_spline PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+fortsparse_add_test(test_native_lu_singletons ../test-cmake/native/test_native_lu_singletons.f90)
+set_tests_properties(test_native_lu_singletons PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
