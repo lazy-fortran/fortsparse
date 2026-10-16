@@ -1,0 +1,44 @@
+{
+  "kind": "interleaved native scalar/indexed comparison only; no external frontier admission",
+  "selection_scope": "diagnostic_subset",
+  "case_calibration_sha256": "3206b7ded01755bd2f94ac7cf9a73712a87b27abc92079391941cace605a9485",
+  "fixture_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
+  "source_manifest_new": {
+    "source_revision": "b62e1de981dd848df3d68a63d6ef43e17433a7f6",
+    "frozen_utc": "2026-10-16T10:15:59.751623+00:00",
+    "files": [
+      {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-baseline/bin/bench_native_families",
+        "sha256": "e3bc7e2e21e83341f18e5812255880ed7841406dcfc016972da2112e050ab1ec"
+      },
+      {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-baseline/bin/fortsparse_umfpack_helper",
+        "sha256": "3a1c5e8bbae8a5d73b685843c9fdb8b8a46b1a255ea36b727e5077bd6a7e6920"
+      }
+    ]
+  },
+  "source_manifest_old": {
+    "source_revision": "52dde039f95c189532533d99440d0fee3055f554",
+    "frozen_utc": "2026-10-16T09:58:54.210435+00:00",
+    "files": [
+      {
+        "name": "bench_native_families",
+        "sha256": "3950869f1f57eea0799830643651b2540c8997bcdcc3ff1c11aa62381a580fd9",
+        "source": "/var/tmp/fortsparse-main/build-cpu/bin/bench_native_families"
+      },
+      {
+        "name": "bench_native_families_pardiso",
+        "sha256": "a4f08acc57cfdbf36462eca4eef8d6d922144042fc81f2371cec5bd8aefeb708",
+        "source": "/var/tmp/fortsparse-main/build-cpu/bin/bench_native_families_pardiso"
+      },
+      {
+        "name": "fortsparse_umfpack_helper",
+        "sha256": "3a1c5e8bbae8a5d73b685843c9fdb8b8a46b1a255ea36b727e5077bd6a7e6920",
+        "source": "/var/tmp/fortsparse-main/build-cpu/bin/fortsparse_umfpack_helper"
+      }
+    ]
+  },
+  "trials": 5,
+  "thread_budget": 1,
+  "process_timeout_s": 0.9
+}

@@ -1,0 +1,25 @@
+{
+  "raw_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-ab/attempts.jsonl",
+  "raw_sha256": "a46fcbcfc74adad1dfd8aefda7de83ce82a1fed88c4f974245518ff7da7fcf7e",
+  "provenance_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-ab/provenance.json",
+  "provenance_sha256": "35581ed56d60a16df04f3588a473681fdd14edc99156ac8f6a9e1201ed717372",
+  "binaries": [
+    {
+      "label": "scalar",
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/amd-baseline/bin/bench_native_families",
+      "sha256": "3950869f1f57eea0799830643651b2540c8997bcdcc3ff1c11aa62381a580fd9"
+    },
+    {
+      "label": "indexed",
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-baseline/bin/bench_native_families",
+      "sha256": "e3bc7e2e21e83341f18e5812255880ed7841406dcfc016972da2112e050ab1ec"
+    }
+  ],
+  "fixture_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
+  "original_calibration_sha256": "3206b7ded01755bd2f94ac7cf9a73712a87b27abc92079391941cace605a9485",
+  "selection_scope": "diagnostic_subset",
+  "cpu_scope": "completed wait4 user+system including reaped children",
+  "ratio": "scalar/indexed, matched configuration and trial ID; median/min/max",
+  "plots": "timing.png and storage.png, external only",
+  "performance_admission": "unknown"
+}
