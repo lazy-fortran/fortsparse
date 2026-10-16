@@ -16,12 +16,14 @@ target_sources(fortsparse PRIVATE
     fortsparse_version.f90
     generated/fortsparse_hpd_leaves.f90
     generated/fortsparse_ldlt_leaves.f90
+    generated/fortsparse_ldlt_z_leaves.f90
     generated/fortsparse_lu_leaves.f90
     generated/fortsparse_spd_leaves.f90
     native/fortsparse_native.f90
     native/fortsparse_native_general.f90
     native/fortsparse_native_hpd.f90
     native/fortsparse_native_ldlt.f90
+    native/fortsparse_native_ldlt_z.f90
     native/fortsparse_native_lu.f90
     native/fsparse_native_symbolic.c
     native/fortsparse_native_cuda.F90
