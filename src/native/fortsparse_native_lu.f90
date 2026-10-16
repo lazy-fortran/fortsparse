@@ -268,6 +268,10 @@ contains
         self%un=0
         self%lp(1)=1
         self%up(1)=1
+        call order_row_singletons(self,col_ptr,row_idx,values)
+        self%up(1)=1
+        self%pinv=0
+        self%mark=0
         factor_columns: do j=1,n
             col=self%q(j)
             count=0
@@ -320,10 +324,21 @@ contains
                 call status_set(status,FORTSPARSE_SINGULAR,'LU zero pivot after sparse elimination')
                 return
             end if
-            row=self%q(j)
-            if (self%pinv(row)==0 .and. self%mark(row)==j) then
-                magnitude=abs(self%work(row))
-                if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
+            row=self%p(j)
+            if(row>0) then
+                ! A structural singleton row has no entries in later columns,
+                ! so this pivot creates no Schur update or numerical fill.
+                if(self%work(row)==0.0_dp) then
+                    call status_set(status,FORTSPARSE_SINGULAR,'LU zero singleton pivot')
+                    return
+                end if
+                pivot=row
+            else
+                row=self%q(j)
+                if (self%pinv(row)==0 .and. self%mark(row)==j) then
+                    magnitude=abs(self%work(row))
+                    if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
+                end if
             end if
             diagonal=self%work(pivot)
             ! A valid pivot is one of the nonzero unpivoted entries counted above.
@@ -402,6 +417,69 @@ contains
         self%ready=.true.
         call status_set(status,FORTSPARSE_OK,'')
     end subroutine factor_raw
+
+    subroutine order_row_singletons(self,col_ptr,row_idx,values)
+        ! Standard singleton preprocessing. A row with one remaining original
+        ! nonzero fixes its column without mixing independent equations. Such a
+        ! row has no later-column entries, so its elimination creates no fill.
+        ! Remove that column, update row degrees/XORs, and append the untouched
+        ! core in the requested relative order. Every entry is visited O(1) times.
+        ! Existing factor/DFS work arrays suffice; no additional allocation.
+        class(lu_factor_t), intent(inout) :: self
+        integer, intent(in) :: col_ptr(:),row_idx(:)
+        real(dp), intent(in) :: values(:)
+        integer :: row,col,e,head,tail,done,j,child
+        self%reach=self%q
+        self%mark=0
+        self%edge=0
+        self%up=0
+        self%pinv=0
+        self%p=0
+        do col=1,self%n
+            do e=col_ptr(col),col_ptr(col+1)-1
+                if(values(e)==0.0_dp) cycle
+                row=row_idx(e)
+                self%mark(row)=self%mark(row)+1
+                self%edge(row)=ieor(self%edge(row),col)
+            end do
+        end do
+        tail=0
+        do row=1,self%n
+            if(self%mark(row)/=1) cycle
+            tail=tail+1
+            self%stack(tail)=row
+        end do
+        head=1
+        done=0
+        do while(head<=tail)
+            row=self%stack(head)
+            head=head+1
+            if(self%pinv(row)/=0) cycle
+            if(self%mark(row)/=1) cycle
+            col=self%edge(row)
+            done=done+1
+            self%q(done)=col
+            self%p(done)=row
+            self%up(col)=1
+            self%pinv(row)=-1
+            do e=col_ptr(col),col_ptr(col+1)-1
+                if(values(e)==0.0_dp) cycle
+                child=row_idx(e)
+                if(self%pinv(child)/=0) cycle
+                self%mark(child)=self%mark(child)-1
+                self%edge(child)=ieor(self%edge(child),col)
+                if(self%mark(child)/=1) cycle
+                tail=tail+1
+                self%stack(tail)=child
+            end do
+        end do
+        do j=1,self%n
+            col=self%reach(j)
+            if(self%up(col)/=0) cycle
+            done=done+1
+            self%q(done)=col
+        end do
+    end subroutine order_row_singletons
 
     ! Iterative DFS gives postorder of the current L graph in original row
     ! identities. Each visited numerical workspace entry is cleared once.
@@ -1013,6 +1091,10 @@ contains
         self%un=0
         self%lp(1)=1
         self%up(1)=1
+        call order_row_singletons(self,col_ptr,row_idx,values)
+        self%up(1)=1
+        self%pinv=0
+        self%mark=0
         factor_columns: do j=1,n
             col=self%q(j)
             count=0
@@ -1065,10 +1147,21 @@ contains
                 call status_set(status,FORTSPARSE_SINGULAR,'LU zero pivot after sparse elimination')
                 return
             end if
-            row=self%q(j)
-            if (self%pinv(row)==0 .and. self%mark(row)==j) then
-                magnitude=lu_z_norm(self%work(row))
-                if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
+            row=self%p(j)
+            if(row>0) then
+                ! A structural singleton row has no entries in later columns,
+                ! so this pivot creates no Schur update or numerical fill.
+                if(self%work(row)==(0.0_dp,0.0_dp)) then
+                    call status_set(status,FORTSPARSE_SINGULAR,'LU zero singleton pivot')
+                    return
+                end if
+                pivot=row
+            else
+                row=self%q(j)
+                if (self%pinv(row)==0 .and. self%mark(row)==j) then
+                    magnitude=lu_z_norm(self%work(row))
+                    if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
+                end if
             end if
             diagonal=self%work(pivot)
             ! A valid pivot is one of the nonzero unpivoted entries counted above.
@@ -1147,6 +1240,69 @@ contains
         self%ready=.true.
         call status_set(status,FORTSPARSE_OK,'')
     end subroutine factor_raw
+
+    subroutine order_row_singletons(self,col_ptr,row_idx,values)
+        ! Standard singleton preprocessing. A row with one remaining original
+        ! nonzero fixes its column without mixing independent equations. Such a
+        ! row has no later-column entries, so its elimination creates no fill.
+        ! Remove that column, update row degrees/XORs, and append the untouched
+        ! core in the requested relative order. Every entry is visited O(1) times.
+        ! Existing factor/DFS work arrays suffice; no additional allocation.
+        class(lu_factor_z_t), intent(inout) :: self
+        integer, intent(in) :: col_ptr(:),row_idx(:)
+        complex(dp), intent(in) :: values(:)
+        integer :: row,col,e,head,tail,done,j,child
+        self%reach=self%q
+        self%mark=0
+        self%edge=0
+        self%up=0
+        self%pinv=0
+        self%p=0
+        do col=1,self%n
+            do e=col_ptr(col),col_ptr(col+1)-1
+                if(values(e)==(0.0_dp,0.0_dp)) cycle
+                row=row_idx(e)
+                self%mark(row)=self%mark(row)+1
+                self%edge(row)=ieor(self%edge(row),col)
+            end do
+        end do
+        tail=0
+        do row=1,self%n
+            if(self%mark(row)/=1) cycle
+            tail=tail+1
+            self%stack(tail)=row
+        end do
+        head=1
+        done=0
+        do while(head<=tail)
+            row=self%stack(head)
+            head=head+1
+            if(self%pinv(row)/=0) cycle
+            if(self%mark(row)/=1) cycle
+            col=self%edge(row)
+            done=done+1
+            self%q(done)=col
+            self%p(done)=row
+            self%up(col)=1
+            self%pinv(row)=-1
+            do e=col_ptr(col),col_ptr(col+1)-1
+                if(values(e)==(0.0_dp,0.0_dp)) cycle
+                child=row_idx(e)
+                if(self%pinv(child)/=0) cycle
+                self%mark(child)=self%mark(child)-1
+                self%edge(child)=ieor(self%edge(child),col)
+                if(self%mark(child)/=1) cycle
+                tail=tail+1
+                self%stack(tail)=child
+            end do
+        end do
+        do j=1,self%n
+            col=self%reach(j)
+            if(self%up(col)/=0) cycle
+            done=done+1
+            self%q(done)=col
+        end do
+    end subroutine order_row_singletons
 
     ! Iterative DFS gives postorder of the current L graph in original row
     ! identities. Each visited numerical workspace entry is cleared once.

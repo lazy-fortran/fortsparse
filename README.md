@@ -6,6 +6,10 @@ library that does the factorization. Factor a matrix once, solve any number of
 right-hand sides against that factorization, then free it. The backend is an
 integer tag on the solver; switching it never changes the calling code.
 
+Native general LU prefixes structural row singletons to the requested column
+order. The untouched core keeps that relative order (natural for DEFAULT) and
+uses threshold partial pivoting; unrefined solves retain explicit failure status.
+
 A small [native C/C++ API](docs/native-c-api.md) exposes owned general-LU
 contexts with real/complex N/T/H block solves and explicit failure status.
 
