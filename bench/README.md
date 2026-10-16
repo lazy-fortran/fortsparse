@@ -158,6 +158,35 @@ universal claim about AUTO/default performance. Plots show `Native CPU (ND)`
 as a separate marker in the CPU family color, including CPU/CUDA comparisons;
 they do not silently combine ordering variants.
 
+`report_spd.py` combines raw run JSONs into a reviewable admission JSON, a
+per-case CSV and a configuration/scaling CSV. It reuses the strict admission
+logic; selected native and comparator rows include elapsed phase, parent RSS,
+whole-workflow CPU ranges, requested/actual teams and source/binary identities.
+Supply files oldest first. A newer executable or changed declared environment
+replaces the backend's entire thread series for that case/workload/variant.
+The same executable/settings may supply disjoint thread counts, while a newer
+overlapping configuration replaces its previous trials instead of pooling
+them. Failed newer configurations stay authoritative. Input hashes, original
+status counts and source/build provenance retain the superseded history.
+
+```sh
+python3 bench/report_spd.py /var/tmp/fortsparse-mvp/external-final.json \
+  /var/tmp/fortsparse-mvp/bcsstk09-external.json \
+  /var/tmp/fortsparse-mvp/native-final.json \
+  /var/tmp/fortsparse-mvp/native-heldout.json \
+  --output /var/tmp/fortsparse-mvp/final-report.json
+```
+
+Defaults declare all 11 frozen synthetic cases plus HB/bcsstk09, five workloads,
+both native CPU ordering configurations, four external backends, five trials
+and 1/2/4/8/16 threads. Held-out variants apply to synthetic cases only. State
+a narrower intended corpus explicitly with `--cases`, `--workloads`,
+`--variants`, `--backends`, `--threads` and `--trials`; missing cases, thread
+counts and trial counts remain visible in coverage. Incomplete declared
+evidence makes `scope_admission_status` indeterminate, even if the measured
+subset passes. Failures are recorded independently of coverage. The report
+does not turn empirical performance admission into a complete MVP claim.
+
 For CPU stack profiling, replay complete solver operations for about 0.2 s:
 
 ```sh
