@@ -201,3 +201,15 @@ and four-comparator selections keep their original historical scope; they do
 not silently acquire the new baseline. Such selections now need explicit
 `--diagnostic` use until a complete five-comparator calibration is collected.
 No ordinary measurements or calibration were performed for this source change.
+
+The scalar/indexed diagnostic has a separate recipe that keeps the revision
+label in every group and pairs matching trial IDs before forming speedups:
+
+```sh
+python3 bench/native_families/report_ab.py \
+  /home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-ab \
+  --output /external/indexed-ab-analysis --plots
+```
+
+This recipe verifies frozen binary hashes, records complete wait4 CPU and retains
+all medians/ranges without treating this native-only comparison as admission.

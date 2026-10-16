@@ -42,3 +42,9 @@ must not be converted to a zero-valued measurement. Timed factor, analysis,
 numeric, solve, refactor, prime-factor and main-workflow phases are distinct from
 complete subprocess wall. Parent cumulative pre-CSV CPU, main-entry interval,
 helper CPU and completed workflow CPU have separate columns.
+
+`indexed-ab/` retains the subsequent interleaved scalar/generated-indexed native
+LU diagnostic: 80 completed trials, five pairs per workload/variant, one actual
+factor thread and the same AMD ordering/fill. It adds no external-frontier claim
+and preserves the original four-external size-selection scope. Its standalone
+recipe records both frozen source/binary identities and paired ratio ranges.

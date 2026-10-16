@@ -8,6 +8,27 @@ import sys
 import unittest
 from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, binary_name
 from report import summarize
+from report_ab import aggregates
+
+
+class RevisionPairs(unittest.TestCase):
+    def test_revision_groups_and_trial_pairing_are_preserved(self):
+        point = dict(family="drift-real", backend="native-amd", level=128,
+                     threads=1, workload="rhs8", variant="training", operation="N")
+        attempts = [dict(point, revision_label=label, trial=trial, status="ok",
+                         returncode=0, process_wall_s=wall, process_tree_cpu_s=wall,
+                         record=dict(process_wall_s=wall, process_tree_cpu_s=wall))
+                    for label, trial, wall in [('scalar', 0, 4), ('indexed', 0, 2),
+                                               ('indexed', 1, 1), ('scalar', 1, 4)]]
+        rows, ratios = aggregates(attempts)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual([r['attempts'] for r in rows], [2, 2])
+        self.assertEqual(ratios[0]['pairs'], 2)
+        self.assertEqual(ratios[0]['process_wall_s_scalar_over_indexed_median'], 3)
+        with self.assertRaisesRegex(ValueError, 'incomplete'):
+            aggregates(attempts[:-1])
+        with self.assertRaisesRegex(ValueError, 'duplicate'):
+            aggregates(attempts+[attempts[0]])
 
 
 class ReceiptSummary(unittest.TestCase):
