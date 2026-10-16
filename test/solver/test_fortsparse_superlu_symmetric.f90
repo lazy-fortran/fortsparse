@@ -11,12 +11,28 @@ program test_fortsparse_superlu_symmetric
         sparse_solver_t, sparse_factor, sparse_solve, sparse_free, &
         fortsparse_status_t, status_ok, FORTSPARSE_SYM_GENERAL, &
         FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
-        FORTSPARSE_BACKEND_SUPERLU
+        FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UNAVAILABLE
     implicit none
 
     integer, parameter :: m = 12, n = m*m + 1
     real(dp), parameter :: pi = acos(-1.0_dp)
     integer :: nfail
+    block
+        type(csc_t) :: probe_matrix
+        type(sparse_solver_t) :: probe_solver
+        type(fortsparse_status_t) :: probe_status
+        call csc_from_triplet(1, 1, [1], [1], [1.0_dp], &
+            probe_matrix, probe_status)
+        if (probe_status%code /= 0) error stop "backend probe matrix failed"
+        probe_solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
+        call sparse_factor(probe_solver, probe_matrix, probe_status)
+        call sparse_free(probe_solver)
+        if (probe_status%code == FORTSPARSE_BACKEND_UNAVAILABLE) then
+            write (*, '(a)') 'SKIP: SuperLU backend is not configured'
+            stop 0
+        end if
+        if (probe_status%code /= 0) error stop "configured SuperLU probe failed"
+    end block
     nfail = 0
 
     call run_real(FORTSPARSE_SYM_GENERAL, 'real_general', nfail)

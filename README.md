@@ -93,8 +93,8 @@ depend on another BLAS: inspect `ldd` on the final executable and rebuild that
 solver against the selected BLAS, or use the default fetched dependencies, to
 avoid mixing implementations. For pthread OpenBLAS with OpenMP MUMPS, set
 `OPENBLAS_NUM_THREADS=1` and control sparse parallelism with `OMP_NUM_THREADS`;
-this prevents nested BLAS teams. The fpm path uses the BLAS already linked by
-system SuperLU and cannot change its compiled dependencies.
+this prevents nested BLAS teams. The fpm path links the system dense BLAS/LAPACK directly; their compiled
+threading configuration remains a property of those libraries.
 
 ```
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -134,10 +134,17 @@ The `test_fortsparse_native_only_build` check (label `build`) separately checks
 configuration, compilation, real/complex native AUTO solves, caps and linked
 runtime dependencies. Its build time is not an ordinary numerical-test timing.
 
-An `fpm.toml` lets `fo` and `fpm` build the library too. That build sees only
-`src/`, so it links SuperLU alone and never compiles the helper. Selecting the
-UMFPACK backend with no helper present returns `FORTSPARSE_BACKEND_UNAVAILABLE`,
-the documented fallback, not a crash.
+An `fpm.toml` lets `fo` and `fpm` build the native CPU library too. It links
+system dense BLAS/LAPACK, without SuperLU, MUMPS, AMD/METIS or a UMFPACK helper.
+AUTO therefore selects the native CPU backend. Select optional external sparse
+backends, ordering libraries and CUDA through CMake. An explicitly requested
+unconfigured backend returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
+
+The fpm test inventory remains enabled. Its three dedicated SuperLU programs
+check the unavailable-backend status and report a skip when SuperLU is absent;
+the enabled CMake configuration runs their complete numerical and status tests.
+Standalone C test mains live under `cmake/tests` because fpm treats C sources
+under `test` as shared support objects for each Fortran test executable.
 
 ```
 fo

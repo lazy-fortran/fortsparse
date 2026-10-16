@@ -11,13 +11,33 @@ program test_fortsparse_superlu_status
         sparse_factor, sparse_free, fortsparse_status_t, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_INTERNAL_ERROR, &
-        FORTSPARSE_BACKEND_SUPERLU
+        FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UNAVAILABLE
+#ifdef FORTSPARSE_HAVE_SUPERLU
     use fortsparse_superlu, only: slu_map_factor_status
+#endif
     implicit none
 
     integer :: nfail
+    block
+        type(csc_t) :: probe_matrix
+        type(sparse_solver_t) :: probe_solver
+        type(fortsparse_status_t) :: probe_status
+        call csc_from_triplet(1, 1, [1], [1], [1.0_dp], &
+            probe_matrix, probe_status)
+        if (probe_status%code /= 0) error stop "backend probe matrix failed"
+        probe_solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
+        call sparse_factor(probe_solver, probe_matrix, probe_status)
+        call sparse_free(probe_solver)
+        if (probe_status%code == FORTSPARSE_BACKEND_UNAVAILABLE) then
+            write (*, '(a)') 'SKIP: SuperLU backend is not configured'
+            stop 0
+        end if
+        if (probe_status%code /= 0) error stop "configured SuperLU probe failed"
+    end block
     nfail = 0
+#ifdef FORTSPARSE_HAVE_SUPERLU
     call test_mapping(nfail)
+#endif
     call test_real_allocation_failure(nfail)
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -27,6 +47,7 @@ program test_fortsparse_superlu_status
 
 contains
 
+#ifdef FORTSPARSE_HAVE_SUPERLU
     subroutine expect(label, info, code, nfail)
         character(*), intent(in)    :: label
         integer(c_int), intent(in)  :: info
@@ -54,6 +75,8 @@ contains
         call expect("internal", -1_c_int, FORTSPARSE_INTERNAL_ERROR, nfail)
         call expect("unknown_pos", 77_c_int, FORTSPARSE_INTERNAL_ERROR, nfail)
     end subroutine test_mapping
+
+#endif
 
     subroutine test_real_allocation_failure(nfail)
         integer, intent(inout) :: nfail

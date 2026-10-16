@@ -72,11 +72,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
 endif()
 set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
     test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 1)
-add_executable(test_native_symbolic solver/test_native_symbolic.c)
+add_executable(test_native_symbolic
+    ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_symbolic.c)
 target_link_libraries(test_native_symbolic PRIVATE fortsparse)
 add_test(NAME test_native_symbolic COMMAND test_native_symbolic)
 set_tests_properties(test_native_symbolic PROPERTIES LABELS "native;fast" TIMEOUT 1)
-add_executable(test_native_symbolic_portable solver/test_native_symbolic.c
+add_executable(test_native_symbolic_portable
+    ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_symbolic.c
     ../src/native/fsparse_native_symbolic.c)
 target_compile_definitions(test_native_symbolic_portable PRIVATE FORTSPARSE_SYMBOLIC_MALLOC_ONLY)
 add_test(NAME test_native_symbolic_portable COMMAND test_native_symbolic_portable)
@@ -90,14 +92,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     add_test(NAME test_native_symbolic_failure COMMAND test_native_symbolic_failure)
     set_tests_properties(test_native_symbolic_failure PROPERTIES LABELS "native;fast" TIMEOUT 1)
 endif()
-add_executable(test_native_order solver/test_native_order.c)
+add_executable(test_native_order
+    ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order.c)
 target_link_libraries(test_native_order PRIVATE fortsparse)
 if(FORTSPARSE_NATIVE_METIS_FOUND)
     target_compile_definitions(test_native_order PRIVATE FORTSPARSE_TEST_METIS)
 endif()
 add_test(NAME test_native_order COMMAND test_native_order)
 set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 1)
-add_executable(test_native_order_amd solver/test_native_order_amd.c)
+add_executable(test_native_order_amd
+    ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order_amd.c)
 target_link_libraries(test_native_order_amd PRIVATE fortsparse)
 if(FORTSPARSE_NATIVE_AMD_FOUND)
     target_compile_definitions(test_native_order_amd PRIVATE FORTSPARSE_TEST_AMD)
@@ -177,7 +181,9 @@ if(FORTSPARSE_ENABLE_SUPERLU)
     fortsparse_add_test(test_fortsparse_errors solver/test_fortsparse_errors.f90)
     # Forces a real SuperLU allocation failure under an address-space limit.
     fortsparse_add_test(test_fortsparse_superlu_status
-        solver/test_fortsparse_superlu_status.f90)
+        solver/test_fortsparse_superlu_status.F90)
+    target_compile_definitions(test_fortsparse_superlu_status PRIVATE
+        FORTSPARSE_HAVE_SUPERLU)
     if(TARGET test_fortsparse_superlu_status AND UNIX AND FORTSPARSE_TEST_OOM)
         # Opt-in (-DFORTSPARSE_TEST_OOM=ON): the window of working address
         # limits is toolchain dependent and SuperLU can abort uncatchably just

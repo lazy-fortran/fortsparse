@@ -4,6 +4,8 @@
  * original CSC SuperMatrix) is held in an opaque handle so repeated solves
  * reuse it. License of this file: MIT (our code). It links only SuperLU. */
 
+#ifdef FORTSPARSE_HAVE_SUPERLU
+
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
@@ -357,3 +359,5 @@ void fsparse_slu_free_z(void *handle)
     free(h->aval);
     free(h);
 }
+
+#endif /* FORTSPARSE_HAVE_SUPERLU */
