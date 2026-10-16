@@ -50,7 +50,7 @@ def summarize(attempts):
     return rows
 
 
-def render(rows, out, timeout, cpu_model):
+def render(rows, out, timeout, cpu_model, front_note='no frontier admission'):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -91,8 +91,10 @@ def render(rows, out, timeout, cpu_model):
                 ax.set_xscale('log', base=2)
                 ax.set_xticks([1, 2, 4, 8, 16], ['1', '2', '4', '8', '16'])
                 ax.grid(alpha=0.25)
-                ax.set_title((family+' (n=5)' if family == 'neo2-mini5'
-                              else family+' (n=16384)') if rowindex == 0 else workload)
+                sizes = sorted({int(r['n_median']) for r in rows
+                                if r['family'] == family and r.get('n_count', 0)})
+                size_label = ','.join(map(str, sizes)) or 'unknown'
+                ax.set_title(f'{family} (n={size_label})' if rowindex == 0 else workload)
                 ax.set_xlabel('Requested thread budget')
                 if col == 0:
                     ax.set_ylabel(ylabel)
@@ -105,7 +107,7 @@ def render(rows, out, timeout, cpu_model):
                     labels.append(label)
         fig.legend(handles, labels, ncol=len(available), loc='lower center')
         fig.suptitle(title)
-        fig.tight_layout(rect=(0, 0.06, 1, 0.94))
+        fig.tight_layout(rect=(0, 0.06, 1, 0.94), w_pad=2)
         fig.savefig(out/name, dpi=150)
         plt.close(fig)
 
@@ -165,19 +167,20 @@ def render(rows, out, timeout, cpu_model):
                                       [r['parent_rss_kib_max']/1024-y]],
                                 color=COLORS[index], marker=MARKERS[index], ms=5,
                                 capsize=2, alpha=0.8)
-                    ax.set_title(f'{family}, {workload}: 1/2/4/8/16 requested threads')
+                    sizes = sorted({int(r['n_median']) for r in rows
+                                    if r['family'] == family and r.get('n_count', 0)})
+                    ax.set_title(f'{family}, n={",".join(map(str, sizes))}, {workload}')
                     ax.set_xlabel('Complete subprocess wall (ms)')
                     ax.set_ylabel('Single-process VmHWM peak (MiB)')
                     ax.grid(alpha=0.25)
-                    ax.text(0.98, 0.98, 'UMFPACK aggregate RSS unknown: no point shown',
-                            transform=ax.transAxes, va='top', ha='right', fontsize=9)
             handles = [Line2D([], [], color=COLORS[BACKENDS.index(b)],
                              marker=MARKERS[BACKENDS.index(b)], ls='', label=b)
                        for b in available if b != 'umfpack']
             fig.legend(handles=handles, loc='lower center', ncol=len(handles))
-            fig.suptitle(f'{variant}: time/RSS diagnostic; no frontier admission; '
-                         'native factor team=1, external teams unknown')
-            fig.tight_layout(rect=(0, 0.05, 1, 0.95))
+            fig.suptitle(f'{variant}: time/RSS diagnostic; {front_note}\n'
+                         'Native factor team=1; external teams unknown; '
+                         'UMFPACK IPC aggregate RSS unknown: no point shown')
+            fig.tight_layout(rect=(0, 0.05, 1, 0.93))
             fig.savefig(out/f'time-rss-{variant}.png', dpi=150)
             plt.close(fig)
 

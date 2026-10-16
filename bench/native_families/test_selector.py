@@ -9,6 +9,30 @@ import unittest
 from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, binary_name
 from report import summarize
 from report_ab import aggregates
+from report_front import assess
+
+
+class ObservedFront(unittest.TestCase):
+    def point(self, backend, time_lo, time_hi, rss_lo, rss_hi):
+        return dict(backend=backend, threads=1, process_wall_s_min=time_lo,
+                    process_wall_s_max=time_hi, parent_rss_kib_min=rss_lo,
+                    parent_rss_kib_max=rss_hi)
+
+    def test_unknown_ipc_memory_does_not_become_a_known_dominator(self):
+        native = self.point('native', 2, 3, 10, 11)
+        ipc = self.point('umfpack', .5, 1, 1, 2)
+        self.assertEqual(assess(native, [ipc], 'process_wall_s')['status'], 'indeterminate')
+        direct = dict(ipc, backend='umfpack-direct')
+        self.assertEqual(assess(native, [direct], 'process_wall_s')['status'], 'dominated')
+
+    def test_strict_time_or_safe_parent_lower_bound_excludes_possible_dominators(self):
+        native = self.point('native', 1, 2, 10, 11)
+        slower = self.point('superlu', 3, 4, 1, 2)
+        larger_parent = self.point('umfpack', .5, 1, 12, 13)
+        self.assertEqual(assess(native, [slower, larger_parent],
+                                'process_wall_s')['status'], 'robust_nondominated')
+        boundary = dict(larger_parent, parent_rss_kib_min=11)
+        self.assertEqual(assess(native, [boundary], 'process_wall_s')['status'], 'indeterminate')
 
 
 class RevisionPairs(unittest.TestCase):

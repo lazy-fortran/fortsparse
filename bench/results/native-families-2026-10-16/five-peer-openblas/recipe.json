@@ -1,0 +1,52 @@
+{
+  "inputs": [
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-drifts",
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-chains"
+  ],
+  "calibration": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json",
+  "calibration_attempts": 2052,
+  "calibration_rejections": [
+    {
+      "family": "drift-complex",
+      "backend": "umfpack",
+      "level": 128,
+      "threads": 4,
+      "trial": 0,
+      "status": "ok",
+      "process_wall_s": 0.74711566203041
+    }
+  ],
+  "files": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-drifts/attempts.jsonl",
+      "sha256": "48fba272d2509e4fde40b5ce78fd4f6855f022ac61a237038fea9adcee911fe4"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-drifts/provenance.json",
+      "sha256": "4e1fbfc6db46165878d52a6cc3fbe08259e9debb38645cd764a6c2579501f62b"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-chains/attempts.jsonl",
+      "sha256": "d3d4bf3f169a5dd38a946898f20a7d04cde2bddaef2a147bc377b334d3ea6572"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-chains/provenance.json",
+      "sha256": "04ab96e30d0ddd3cf6d21317894cc7a87d1692ee9e07941417f98d30e0431b82"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json",
+      "sha256": "cb39c751f3832a279e3e378ef33b47fc3cf9c714ee5128e3aedf380e790a42dc"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/attempts.jsonl",
+      "sha256": "d9b52abee2ff57191e39ebc27344fe5c0744639f9ec83c5c26c8bf6b4bd26056"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/provenance.json",
+      "sha256": "ff60cf6de625ff8e00d5c33bd51071ae9b99ba3009f9c1bd3d2a22d86085ff87"
+    }
+  ],
+  "cpu_scope": "completed wait4 workflow, no helper double counting",
+  "memory_scope": "single-process VmHWM; IPC unknown aggregate, parent-only safe lower bound",
+  "assessment": "all 25 external configs; strict min/max time OR memory exclusion"
+}

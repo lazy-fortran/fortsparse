@@ -213,3 +213,9 @@ python3 bench/native_families/report_ab.py \
 
 This recipe verifies frozen binary hashes, records complete wait4 CPU and retains
 all medians/ranges without treating this native-only comparison as admission.
+
+`report_front.py` combines the completed five-peer drift/chain receipts, validates
+all five external peer/thread configurations and separates robust observed-range
+nondominance, known domination and indeterminate comparisons. It reads actual
+matrix dimensions from the numeric records. Its retained checkpoint and recipe
+are in `bench/results/native-families-2026-10-16/five-peer-openblas`.
