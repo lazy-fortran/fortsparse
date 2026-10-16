@@ -62,3 +62,5 @@ if(FORTSPARSE_BENCH_MKL_ROOT)
     target_link_libraries(bench_spd_pardiso PRIVATE fortsparse_spd_fixtures
         "${FORTSPARSE_BENCH_MKL_RT}" ${CMAKE_DL_LIBS} Threads::Threads m)
 endif()
+
+add_subdirectory(native_families)
