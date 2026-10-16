@@ -125,7 +125,7 @@ def main():
                         default="prepare")
     parser.add_argument("--backend", choices=NATIVE)
     parser.add_argument("--native-host-limit-bytes", type=positive_i8,
-                        help="required positive i8 cap for native-amd-capped")
+                        help="positive i8 cap; required for native-amd-capped, optional for native-amd-low")
     parser.add_argument("--qualification", type=Path, nargs="+")
     parser.add_argument("--backends", default=",".join(EXTERNAL),
                         help="external qualification subset; native admission requires all declared")

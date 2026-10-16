@@ -73,15 +73,24 @@ their work is integrated and their owned processes have stopped.
   RSS, sampled/PSS measurements and attributed storage/workspace bytes.
   Report UMFPACK parent/helper memory separately; summing RSS double-counts
   shared mappings. Unknown or incomparable memory is not evidence of a win.
+  A helper's own post-exec Linux VmHWM is a safe individual-process lower
+  bound for the process-tree resident union peak. Inherited child ru_maxrss
+  is unsuitable. Validate the requested diagnostic and each lifetime; malformed,
+  missing or ambiguous receipts stay unavailable. Never call a sum or maximum
+  of separate process peaks the aggregate peak.
 - Measure repeated factor/free lifetimes as well as retained-factor reuse. Lower
   live allocation bytes do not establish lower RSS: inspect allocator caching
   and validate actual page release with context-local workspace ownership.
+  Distinguish cumulative allocation/copy traffic from peak live storage.
+  A lower payload cap or fewer live bytes does not guarantee a smaller process.
 - Use five fresh-process timing trials by default; retain raw numeric evidence,
   medians/ranges, commands, source/binary identities, hardware and tool/library
   versions. Keep large traces and datasets outside source history, retaining
   compact results and reproduction recipes in the repository.
 - Compare each declared case against the best measured external time/memory
-  frontier at matched accuracy, using each solver's tuned workflow. Provide
+  frontier at matched accuracy, using each solver's tuned workflow. Retain
+  default and accuracy-qualified tuned controls as distinct configurations
+  (including UMFPACK refinement steps); record runtime controls and ABI. Provide
   common-ordering diagnostics where supported and label their limits.
   Match-or-beat requires time and memory against the SAME frontier comparator;
   overlap within observed variability is indeterminate. Unknown-memory solvers

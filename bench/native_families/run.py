@@ -301,7 +301,7 @@ def main():
     parser.add_argument("--backends", default="native,"+",".join(EXTERNAL))
     parser.add_argument("--cases", default="")
     parser.add_argument("--native-host-limit-bytes", type=positive_i8,
-                        help="required positive i8 cap for native-amd-capped only")
+                        help="positive i8 cap; required for native-amd-capped, optional for native-amd-low")
     parser.add_argument("--threads", default="1,2,4,8,16")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--timeout", type=float, default=0.9)
