@@ -118,6 +118,7 @@ Matching, ordering, LU and plumbing
   - `supernode_rows(...)`.
   - `schedule_t` holding `colnode`, `incoming_*`, `group_*`, `tokens`, `rowmap`, `update_work`, thread fit and ledger charging.
   - `supernodes_t` (SPD) is re-based on `schedule_t`. Both families then share the same partition, maps and OpenMP groups.
+  - Landed (stage 2) as `supernode_schedule_t`, composed privately in `supernodes_t`. The structural record `supernode_t(first,width,m,rows)` is the parent of the SPD `panel_t`. `supernode_gather_rows` forms sorted row unions from a column structure. The mapped scatter is re-exported as `supernode_scatter_mapped_update` (a use-rename of the generated SPD leaf, so nothing is regenerated). Test: `test_fortsparse_supernode_partition`.
 - `src/native/fortsparse_native_slu.F90`: `module fortsparse_native_slu`, type `slu_factor_t`.
   - Public fields: `n, node_count, factor_nnz (padded L+U), symbolic_nnz, flops, perturbed_pivots, block_swaps, active_threads, peak_memory_bytes, failed_required_bytes, failed_available_bytes, max_growth, min_pivot`.
   - Private fields: `schedule_t`, `slu_panel_t(:)` (`first,width,m,offset_l,offset_u,rows(:)`, `ipiv(:)`), `host_values(:)` (one owning allocation), `cmatch(n)`, `dr(n)`, `dc(n)`, `perm(n)`, `inverse(n)`, `anorm_scaled`, `tau`.
