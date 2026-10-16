@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "frozen_date": "2026-10-16",
+  "baseline_source_revision": "a3bd4a2",
+  "fixture_source_sha256": "6c65d873c5c55eb95b51114364b46b68f70b09b1638cfb5d7b031ccda3ce70a4",
+  "performance_admission": "unknown",
+  "performance_levels": null,
+  "cases": {
+    "neo2-mini5": {
+      "matrix_class": "real general unsymmetric",
+      "smoke_level": 5,
+      "calibration_candidates": [
+        5
+      ]
+    },
+    "drift-real": {
+      "matrix_class": "real general unsymmetric",
+      "smoke_level": 3,
+      "calibration_candidates": [
+        3,
+        5,
+        7,
+        9
+      ]
+    },
+    "drift-complex": {
+      "matrix_class": "complex general unsymmetric",
+      "smoke_level": 3,
+      "calibration_candidates": [
+        3,
+        5,
+        7,
+        9
+      ]
+    },
+    "hpd-chain": {
+      "matrix_class": "complex Hermitian positive definite",
+      "smoke_level": 3,
+      "calibration_candidates": [
+        3,
+        8,
+        16,
+        32
+      ]
+    },
+    "ldlt-chain": {
+      "matrix_class": "real symmetric indefinite with paired zero-diagonal pivots",
+      "smoke_level": 3,
+      "calibration_candidates": [
+        3,
+        8,
+        16,
+        32
+      ]
+    }
+  },
+  "workloads": [
+    "rhs1",
+    "rhs8",
+    "refactor",
+    "warm"
+  ],
+  "operations": [
+    "N",
+    "T",
+    "H"
+  ],
+  "thread_sweep": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "fresh_process_trials": 5,
+  "process_timeout_s": 0.9,
+  "scaling_size_rule": "Initial provisional levels admitted only after normal cold factor+RHS8 passes every external backend/thread configuration in five interleaved trials below 0.5 seconds process wall; native timings do not select size. Larger candidate levels retained for later external-only scaling calibration.",
+  "mini5_provenance": "../fixtures/neo2-mini5/provenance.json",
+  "oracle": {
+    "backward_error_lt": 1e-12,
+    "known_solution_relative_error_lt": 1e-10,
+    "source": "known x and independent original-CSC action; training mini5 reproduces retained all-ones RHS"
+  },
+  "mkl": {
+    "product": "Intel oneMKL PARDISO; not Panua",
+    "sdk_root": "/opt/intel/oneapi/mkl/2026.0",
+    "mtypes": {
+      "real_lu": 11,
+      "complex_lu": 13,
+      "complex_hpd": 4,
+      "real_ldlt": -2
+    },
+    "transpose_iparm12": {
+      "N": 0,
+      "H": 1,
+      "T": 2
+    },
+    "official_reference": "https://cdrdv2-public.intel.com/834389/onemkl_developer-reference-fortran_2025.0-766686-834389.pdf",
+    "reference_sections": "PARDISO mtype table printed p2653; iparm(12) transpose table; CSR upper-triangle storage",
+    "source_card": "/home/ert/code/sparse-dev/library_cards/pardiso/pardiso-intel-onemkl-fortran-2025.0-reference.md",
+    "sdk_headers": {
+      "mkl_pardiso.h": "a9678faea12b04685b96b7f0ee22db28b16a3c788d0522e007c348922071b695",
+      "mkl_service.h": "02ff230034b626727576886decbdce2a01b76728e59b9d708e884d5bd153e2c7"
+    },
+    "panua_status": "not available in this driver; distinct licensed comparator remains a gap"
+  },
+  "memory": {
+    "process": "process_metrics.c VmHWM/rusage peak; parent/helper separate; do not sum RSS",
+    "owned": "library host_current_bytes/host_peak_bytes when reported; negative means unavailable",
+    "pardiso": "iparm memory is vendor-reported; owned payload and actual active factor teams unavailable"
+  },
+  "native": {
+    "factor_team": "serial reference family is reported explicitly; requested threads are not active threads",
+    "claims": "No tiny-case throughput, scaling or Pareto claim"
+  },
+  "mini5_matrix_sha256": "35ffecb5c9c11451c5bf20e8c606a9f941f5e3600d815abd3bc7170acfe29d64",
+  "initial_calibration_levels": {
+    "neo2-mini5": 5,
+    "drift-real": 3,
+    "drift-complex": 3,
+    "hpd-chain": 3,
+    "ldlt-chain": 3
+  }
+}
