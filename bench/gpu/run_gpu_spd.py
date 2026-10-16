@@ -79,6 +79,10 @@ def sample(args, cpus, backend, family, level, thread, workload, io_mode, orderi
                   threads=thread, workload=workload, variant=args.variant, trial=trial,
                   requested_device=device, io_mode=io_mode, ordering=ordering,
                   repeats=repeats, command=command)
+    record["pool_budget_bytes"] = int(os.environ.get(
+        "CHOLMOD_GPU_POOL_BYTES" if backend == "cholmod" else
+        "FSBENCH_CUDSS_POOL_LIMIT_BYTES", "268435456")) if backend in (
+            "cholmod", "cudss") else 0
     reason = unavailable(backend, io_mode, ordering)
     if reason or not Path(command[3]).is_file():
         return dict(record, status="unavailable", reason=reason or "executable missing")

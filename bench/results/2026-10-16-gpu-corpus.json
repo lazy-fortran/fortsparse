@@ -1,0 +1,1002 @@
+{
+  "schema": "fortsparse-gpu-corpus-v1",
+  "selection_basis": "External libraries only; no native GPU performance informed selection. Largest predeclared level with five successful fresh-process warm trials below 1 s per external solver in at least one tested pool configuration.",
+  "measurement_class": "diagnostic-shared; size/configuration calibration only, no performance admission",
+  "sources": [
+    {
+      "name": "calibration-256m.json",
+      "sha256": "334b896684ac75762617e17f230eaa55a7601d05994d1b84a85800dea2b560e2",
+      "measurement_class": "diagnostic-shared",
+      "revision": "c8154dfc54f00c89bad2b12d04f5a01770e78128"
+    },
+    {
+      "name": "calibration-64m.json",
+      "sha256": "72d5188ed44e8902fec0b66e51176efa8f7ce065230fed54a6a20171ff1b1c78",
+      "measurement_class": "diagnostic-shared",
+      "revision": "c8154dfc54f00c89bad2b12d04f5a01770e78128"
+    },
+    {
+      "name": "calibration-128m.json",
+      "sha256": "2b00a910673a974bd3b790391ebb3bed6b89dd9efb40f850f843d0184ab495d0",
+      "measurement_class": "diagnostic-shared",
+      "revision": "c8154dfc54f00c89bad2b12d04f5a01770e78128"
+    }
+  ],
+  "selected_scaling_cases": [
+    {
+      "family": "grid2",
+      "level": 9,
+      "side": 256
+    },
+    {
+      "family": "grid3",
+      "level": 8,
+      "side": 28
+    }
+  ],
+  "initial_comparator_pool_bytes": {
+    "cudss": 134217728,
+    "cholmod": 67108864
+  },
+  "latency_cases": [
+    "band:1",
+    "band:2",
+    "band:3",
+    "grid2:1",
+    "grid2:2",
+    "grid2:3",
+    "grid3:1",
+    "grid3:2",
+    "grid3:3"
+  ],
+  "public_cases": [
+    "HB/bcsstk09"
+  ],
+  "heldout": "Same synthetic graphs, deterministic held-out edge coefficients; do not shrink on native failure.",
+  "limits": [
+    "Shared occupied GPU; controlled remeasurement required.",
+    "3D side28 has little process-time headroom; subsequent timeouts remain failures.",
+    "Offload traces must accompany comparison cohorts; memory samples are lower-bound observations, not total peaks.",
+    "HB/bcsstk17 download unavailable (retained HTTP403/reset receipts), not admitted."
+  ],
+  "calibration": [
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7253806299995631,
+      "primary_phase_s": {
+        "minimum": 0.02006350492592901,
+        "median": 0.020476013014558703,
+        "maximum": 0.02258699300000444
+      },
+      "parent_cpu_s": {
+        "minimum": 0.48247799999999996,
+        "median": 0.48667099999999996,
+        "maximum": 0.5178959999999999
+      },
+      "parent_rss_kib": {
+        "minimum": 816596.0,
+        "median": 818648.0,
+        "maximum": 818672.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 408944640.0,
+        "median": 408944640.0,
+        "maximum": 408944640.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7420544070191681,
+      "primary_phase_s": {
+        "minimum": 0.04432857100619003,
+        "median": 0.04534988495288417,
+        "maximum": 0.06069119099993259
+      },
+      "parent_cpu_s": {
+        "minimum": 0.530737,
+        "median": 0.545337,
+        "maximum": 0.56294
+      },
+      "parent_rss_kib": {
+        "minimum": 832836.0,
+        "median": 834840.0,
+        "maximum": 834848.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 408944640.0,
+        "median": 408944640.0,
+        "maximum": 408944640.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.9296326150069945,
+      "primary_phase_s": {
+        "minimum": 0.08515652298228815,
+        "median": 0.08791459200438112,
+        "maximum": 0.09650046599563211
+      },
+      "parent_cpu_s": {
+        "minimum": 0.678917,
+        "median": 0.695841,
+        "maximum": 0.697921
+      },
+      "parent_rss_kib": {
+        "minimum": 997132.0,
+        "median": 999168.0,
+        "maximum": 999184.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 408944640.0,
+        "median": 408944640.0,
+        "maximum": 408944640.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 10,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1276698549627326,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 11,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1494085470330901,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.9078486550133675,
+      "primary_phase_s": {
+        "minimum": 0.09048756101401523,
+        "median": 0.09598567400826141,
+        "maximum": 0.09861282701604068
+      },
+      "parent_cpu_s": {
+        "minimum": 0.6664939999999999,
+        "median": 0.6906319999999999,
+        "maximum": 0.716597
+      },
+      "parent_rss_kib": {
+        "minimum": 1005104.0,
+        "median": 1005220.0,
+        "maximum": 1009200.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 408944640.0,
+        "median": 408944640.0,
+        "maximum": 408944640.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 1,
+      "statuses": {
+        "timeout": 4,
+        "ok": 1
+      },
+      "max_process_wall_s": 1.0520899900002405,
+      "primary_phase_s": {
+        "minimum": 0.1690258301096037,
+        "median": 0.1690258301096037,
+        "maximum": 0.1690258301096037
+      },
+      "parent_cpu_s": {
+        "minimum": 0.8188059999999999,
+        "median": 0.8188059999999999,
+        "maximum": 0.8188059999999999
+      },
+      "parent_rss_kib": {
+        "minimum": 1029524.0,
+        "median": 1029524.0,
+        "maximum": 1029524.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 408944640.0,
+        "median": 408944640.0,
+        "maximum": 408944640.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1939493470126763,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 10,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1751277910079807,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 11,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1172967699822038,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.4905714710475877,
+      "primary_phase_s": {
+        "minimum": 0.05697479593800381,
+        "median": 0.05905026796972379,
+        "maximum": 0.059438611031509936
+      },
+      "parent_cpu_s": {
+        "minimum": 0.317963,
+        "median": 0.32883599999999996,
+        "maximum": 0.347169
+      },
+      "parent_rss_kib": {
+        "minimum": 496340.0,
+        "median": 498276.0,
+        "maximum": 498628.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 239075328.0,
+        "median": 239075328.0,
+        "maximum": 239075328.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.6416613860055804,
+      "primary_phase_s": {
+        "minimum": 0.10812557593453676,
+        "median": 0.10910207504639402,
+        "maximum": 0.11027652898337692
+      },
+      "parent_cpu_s": {
+        "minimum": 0.421702,
+        "median": 0.43074899999999994,
+        "maximum": 0.452252
+      },
+      "parent_rss_kib": {
+        "minimum": 512532.0,
+        "median": 514536.0,
+        "maximum": 514684.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 272629760.0,
+        "median": 272629760.0,
+        "maximum": 272629760.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7789380250032991,
+      "primary_phase_s": {
+        "minimum": 0.1851298029650934,
+        "median": 0.18825788894901052,
+        "maximum": 0.1912449200754054
+      },
+      "parent_cpu_s": {
+        "minimum": 0.584299,
+        "median": 0.5899639999999999,
+        "maximum": 0.599392
+      },
+      "parent_rss_kib": {
+        "minimum": 534472.0,
+        "median": 534544.0,
+        "maximum": 537752.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 306184192.0,
+        "median": 306184192.0,
+        "maximum": 306184192.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 10,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.0684756549890153,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 11,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.0701493499800563,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.6551617889781483,
+      "primary_phase_s": {
+        "minimum": 0.12733719497919083,
+        "median": 0.12962149095255882,
+        "maximum": 0.15002080996055156
+      },
+      "parent_cpu_s": {
+        "minimum": 0.42281399999999997,
+        "median": 0.43052799999999997,
+        "maximum": 0.461651
+      },
+      "parent_rss_kib": {
+        "minimum": 562388.0,
+        "median": 564436.0,
+        "maximum": 564688.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 272629760.0,
+        "median": 272629760.0,
+        "maximum": 272629760.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.6972159929573536,
+      "primary_phase_s": {
+        "minimum": 0.17947247001575306,
+        "median": 0.17989595799008384,
+        "maximum": 0.1851318470435217
+      },
+      "parent_cpu_s": {
+        "minimum": 0.5183309999999999,
+        "median": 0.5236059999999999,
+        "maximum": 0.548048
+      },
+      "parent_rss_kib": {
+        "minimum": 565660.0,
+        "median": 567888.0,
+        "maximum": 567976.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 306184192.0,
+        "median": 306184192.0,
+        "maximum": 306184192.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.9828909530187957,
+      "primary_phase_s": {
+        "minimum": 0.23996465501841158,
+        "median": 0.26651090098312125,
+        "maximum": 0.311089341994375
+      },
+      "parent_cpu_s": {
+        "minimum": 0.646037,
+        "median": 0.7153499999999999,
+        "maximum": 0.779025
+      },
+      "parent_rss_kib": {
+        "minimum": 570484.0,
+        "median": 570984.0,
+        "maximum": 572856.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 339738624.0,
+        "median": 339738624.0,
+        "maximum": 339738624.0
+      }
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 10,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.0961914919898845,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-256m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 11,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.0746582460124046,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.715169585950207,
+      "primary_phase_s": {
+        "minimum": 0.08119475498097017,
+        "median": 0.0860086380271241,
+        "maximum": 0.09382929798448458
+      },
+      "parent_cpu_s": {
+        "minimum": 0.5076309999999999,
+        "median": 0.524486,
+        "maximum": 0.533717
+      },
+      "parent_rss_kib": {
+        "minimum": 734992.0,
+        "median": 737028.0,
+        "maximum": 737060.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 207618048.0,
+        "median": 207618048.0,
+        "maximum": 207618048.0
+      }
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7795418840250932,
+      "primary_phase_s": {
+        "minimum": 0.09308582806261256,
+        "median": 0.09499474597396329,
+        "maximum": 0.09688188193831593
+      },
+      "parent_cpu_s": {
+        "minimum": 0.522661,
+        "median": 0.5308039999999999,
+        "maximum": 0.5566629999999999
+      },
+      "parent_rss_kib": {
+        "minimum": 721452.0,
+        "median": 721528.0,
+        "maximum": 721592.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 207618048.0,
+        "median": 207618048.0,
+        "maximum": 207618048.0
+      }
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.9389973339857534,
+      "primary_phase_s": {
+        "minimum": 0.16089286794885993,
+        "median": 0.16545969794970006,
+        "maximum": 0.19911025103647262
+      },
+      "parent_cpu_s": {
+        "minimum": 0.655949,
+        "median": 0.675132,
+        "maximum": 0.719792
+      },
+      "parent_rss_kib": {
+        "minimum": 739164.0,
+        "median": 739280.0,
+        "maximum": 741320.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 207618048.0,
+        "median": 207618048.0,
+        "maximum": 207618048.0
+      }
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.0961842790129595,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "failed": 5
+      },
+      "max_process_wall_s": 0.5333543719607405,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.6283563009928912,
+      "primary_phase_s": {
+        "minimum": 0.13054879696574062,
+        "median": 0.13603701099054888,
+        "maximum": 0.1550490049412474
+      },
+      "parent_cpu_s": {
+        "minimum": 0.42865699999999995,
+        "median": 0.45280999999999993,
+        "maximum": 0.48724799999999996
+      },
+      "parent_rss_kib": {
+        "minimum": 562328.0,
+        "median": 564364.0,
+        "maximum": 564620.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 272629760.0,
+        "median": 272629760.0,
+        "maximum": 272629760.0
+      }
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "failed": 5
+      },
+      "max_process_wall_s": 0.46606358204735443,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-64m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "failed": 5
+      },
+      "max_process_wall_s": 0.5684530459693633,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cholmod",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.8247674169833772,
+      "primary_phase_s": {
+        "minimum": 0.08208415395347401,
+        "median": 0.08990705001633614,
+        "maximum": 0.11721460899570957
+      },
+      "parent_cpu_s": {
+        "minimum": 0.5606659999999999,
+        "median": 0.5936560000000001,
+        "maximum": 0.615267
+      },
+      "parent_rss_kib": {
+        "minimum": 823452.0,
+        "median": 823460.0,
+        "maximum": 825508.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 274726912.0,
+        "median": 274726912.0,
+        "maximum": 274726912.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.8258326110080816,
+      "primary_phase_s": {
+        "minimum": 0.09349523903802037,
+        "median": 0.10068392101675272,
+        "maximum": 0.10220678796758875
+      },
+      "parent_cpu_s": {
+        "minimum": 0.600206,
+        "median": 0.606035,
+        "maximum": 0.636775
+      },
+      "parent_rss_kib": {
+        "minimum": 831036.0,
+        "median": 834912.0,
+        "maximum": 835092.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 274726912.0,
+        "median": 274726912.0,
+        "maximum": 274726912.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.9834213459980674,
+      "primary_phase_s": {
+        "minimum": 0.15893754904391244,
+        "median": 0.16356964001897722,
+        "maximum": 0.16799978906055912
+      },
+      "parent_cpu_s": {
+        "minimum": 0.717512,
+        "median": 0.7421009999999999,
+        "maximum": 0.762742
+      },
+      "parent_rss_kib": {
+        "minimum": 852620.0,
+        "median": 854692.0,
+        "maximum": 854760.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 274726912.0,
+        "median": 274726912.0,
+        "maximum": 274726912.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cholmod",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 0,
+      "statuses": {
+        "timeout": 5
+      },
+      "max_process_wall_s": 1.1210733950138092,
+      "primary_phase_s": null,
+      "parent_cpu_s": null,
+      "parent_rss_kib": null,
+      "device_process_sampled_max_bytes": null
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cudss",
+      "family": "grid2",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7990805290173739,
+      "primary_phase_s": {
+        "minimum": 0.18428929400397465,
+        "median": 0.1868547560297884,
+        "maximum": 0.20263311499729753
+      },
+      "parent_cpu_s": {
+        "minimum": 0.5930329999999999,
+        "median": 0.597865,
+        "maximum": 0.6074849999999999
+      },
+      "parent_rss_kib": {
+        "minimum": 536540.0,
+        "median": 536632.0,
+        "maximum": 537192.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 306184192.0,
+        "median": 306184192.0,
+        "maximum": 306184192.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 7,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.6530361329787411,
+      "primary_phase_s": {
+        "minimum": 0.1279882340459153,
+        "median": 0.13842564000515267,
+        "maximum": 0.1444116790080443
+      },
+      "parent_cpu_s": {
+        "minimum": 0.440365,
+        "median": 0.45453499999999997,
+        "maximum": 0.473062
+      },
+      "parent_rss_kib": {
+        "minimum": 562260.0,
+        "median": 564392.0,
+        "maximum": 564536.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 272629760.0,
+        "median": 272629760.0,
+        "maximum": 272629760.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 8,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.7946229189983569,
+      "primary_phase_s": {
+        "minimum": 0.1819278480252251,
+        "median": 0.18812823994085193,
+        "maximum": 0.19629492901731282
+      },
+      "parent_cpu_s": {
+        "minimum": 0.5435899999999999,
+        "median": 0.560819,
+        "maximum": 0.6413319999999999
+      },
+      "parent_rss_kib": {
+        "minimum": 565820.0,
+        "median": 567896.0,
+        "maximum": 568036.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 306184192.0,
+        "median": 306184192.0,
+        "maximum": 306184192.0
+      }
+    },
+    {
+      "source": "calibration-128m.json",
+      "backend": "cudss",
+      "family": "grid3",
+      "level": 9,
+      "trials": 5,
+      "successes": 5,
+      "statuses": {
+        "ok": 5
+      },
+      "max_process_wall_s": 0.8865696029970422,
+      "primary_phase_s": {
+        "minimum": 0.2401573270908557,
+        "median": 0.25368096004240215,
+        "maximum": 0.26032793207559735
+      },
+      "parent_cpu_s": {
+        "minimum": 0.672839,
+        "median": 0.688247,
+        "maximum": 0.692756
+      },
+      "parent_rss_kib": {
+        "minimum": 570372.0,
+        "median": 570892.0,
+        "maximum": 573088.0
+      },
+      "device_process_sampled_max_bytes": {
+        "minimum": 339738624.0,
+        "median": 339738624.0,
+        "maximum": 339738624.0
+      }
+    }
+  ],
+  "warm_lifecycle_recheck": {
+    "source": "cudss-warm-reuse-diagnostic.json",
+    "sha256": "67eb02916d5699e6c21c918c1533d80a891433909dcbdf518b21b820820fa141",
+    "vendor_source_commit": "d76b078",
+    "trials": 10,
+    "successes": 10,
+    "max_process_wall_s": 0.8105316009605303,
+    "scope": "Selected cases only, new warm retained-runtime/fresh-data adapter; historical calibration times remain separate."
+  }
+}
