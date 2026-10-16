@@ -139,8 +139,98 @@ program test_fortsparse_native
     call sparse_solve(other, 2*exact, x, status)
     call close(x, exact, 'disconnected diagonal blocks')
     call sparse_destroy(other)
+    call blocked_ordering_regression()
     print '(a)', 'native real SPD value, reuse, block, derivative and failure tests PASS'
 contains
+    subroutine blocked_ordering_regression()
+        ! The bandwidth-16 graph contains a 17-clique, so every ordering has
+        ! a column with more than 12 factor entries. With n >= 64 this uses
+        ! blocked panels, including the original-CSC permutation loader.
+        integer, parameter :: nb = 96, band = 16
+        type(csc_t) :: matrix, tangent, scaled
+        type(sparse_solver_t) :: ordered_solver
+        type(sparse_factor_stats_t) :: ordered_stats
+        integer :: ii, jj, nz, order, rr(nb*nb), cc(nb*nb), block
+        real(dp) :: dd(nb,nb), vv(nb*nb), weight, solution(nb), rhs0(nb)
+        real(dp) :: result(nb), rhs_block(nb,4), result_block(nb,4)
+        real(dp) :: direction(nb), cotangent(nb), rhs_cotangent(nb), zeros(nb)
+        real(dp), allocatable :: matrix_cotangent(:)
+        logical :: analysis_reused
+
+        dd = 0.0_dp
+        do ii = 1, nb
+            dd(ii,ii) = 1.0_dp
+        end do
+        do jj = 1, nb
+            do ii = jj + 1, min(nb,jj + band)
+                weight = 0.01_dp*real(1 + mod(ii + 3*jj,7),dp)
+                dd(ii,jj) = -weight
+                dd(jj,ii) = -weight
+                dd(ii,ii) = dd(ii,ii) + weight
+                dd(jj,jj) = dd(jj,jj) + weight
+            end do
+        end do
+        nz = 0
+        do jj = 1, nb
+            do ii = 1, nb
+                if (dd(ii,jj) == 0.0_dp) cycle
+                nz = nz + 1
+                rr(nz) = ii
+                cc(nz) = jj
+                vv(nz) = dd(ii,jj)
+            end do
+        end do
+        call csc_from_triplet(nb, nb, rr(:nz), cc(:nz), vv(:nz), matrix, status)
+        call require(status_ok(status), 'blocked ordering construct')
+        solution = [(sin(real(ii,dp)/7.0_dp), ii=1,nb)]
+        rhs0 = matmul(dd, solution)
+        tangent = matrix
+        tangent%val = 0.125_dp*matrix%val
+        scaled = matrix
+        zeros = 0.0_dp
+        cotangent = [(cos(real(ii,dp)/9.0_dp), ii=1,nb)]
+        allocate (matrix_cotangent(matrix%nnz))
+        ordered_solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        ordered_solver%options%symmetry = FORTSPARSE_SYM_SPD
+        do order = FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+            ordered_solver%options%ordering = order
+            call sparse_factor(ordered_solver, matrix, status)
+            if (status%code == FORTSPARSE_BACKEND_UNAVAILABLE) cycle
+            call require(status_ok(status), 'blocked ordered factor')
+            call sparse_factor_stats(ordered_solver, ordered_stats, status)
+            call require(status_ok(status), 'blocked ordered stats')
+            call require(ordered_stats%ordering_used == order, 'blocked ordering reported')
+            call sparse_solve(ordered_solver, rhs0, result, status)
+            call require(status_ok(status), 'blocked ordered solve')
+            call close(result, solution, 'blocked ordered independent solution')
+            do block = 1, 4
+                rhs_block(:,block) = block*rhs0
+            end do
+            call sparse_solve_block(ordered_solver, rhs_block, result_block, status)
+            call require(status_ok(status), 'blocked ordered block solve')
+            do block = 1, 4
+                call close(result_block(:,block), block*solution, 'blocked ordered block values')
+            end do
+            call sparse_solve_jvp(ordered_solver, tangent, result, zeros, direction, status)
+            call require(status_ok(status), 'blocked ordered JVP')
+            call close(direction, -0.125_dp*solution, 'blocked ordered analytic tangent')
+            call sparse_solve_vjp(ordered_solver, matrix, result, cotangent, &
+                rhs_cotangent, matrix_cotangent, status)
+            call require(status_ok(status), 'blocked ordered VJP')
+            call require(abs(dot_product(cotangent,direction) - &
+                dot_product(matrix_cotangent,tangent%val)) < 2.0e-12_dp, &
+                'blocked ordered tangent/adjoint pairing')
+            do block = 1, 2
+                scaled%val = real(block + 1,dp)*matrix%val
+                call sparse_refactor(ordered_solver, scaled, status, analysis_reused)
+                call require(status_ok(status) .and. analysis_reused, 'blocked ordered refactor')
+                call sparse_solve(ordered_solver, real(block + 1,dp)*rhs0, result, status)
+                call require(status_ok(status), 'blocked ordered refactor solve')
+                call close(result, solution, 'blocked ordered refactor values')
+            end do
+        end do
+        call sparse_destroy(ordered_solver)
+    end subroutine blocked_ordering_regression
     subroutine edge(a, b, weight)
         integer, intent(in) :: a, b
         real(dp), intent(in) :: weight
