@@ -17,6 +17,10 @@ struct DeviceTask {
 struct Batch {
     size_t first, count, block_first, blocks;
 };
+struct Level {
+    size_t panel_first = 0, panel_count = 0;
+    Batch updates = {};
+};
 struct Context {
     int device;
     size_t capacity;
@@ -31,6 +35,11 @@ struct Context {
     DeviceTask *tasks = nullptr;
     size_t task_count = 0;
     std::vector<Batch> batches;
+    fsparse_spd_cuda_level_panel *level_panels = nullptr;
+    size_t level_panel_count = 0;
+    DeviceTask *level_tasks = nullptr;
+    size_t level_task_count = 0;
+    std::vector<Level> levels;
 };
 
 int activate(Context *ctx)
@@ -115,12 +124,62 @@ __global__ void schur_batch(double *arena, const int *maps,
         maps+t.row_map_offset, maps+t.column_map_offset, index);
 }
 
-void clear_plan(Context *ctx)
+// A global failure can change while other CTAs execute. Each CTA snapshots it
+// once into shared storage, then all threads take identical barrier branches.
+__global__ void factor_level(double *arena,
+    const fsparse_spd_cuda_level_panel *panels, size_t first, int *info)
+{
+    __shared__ int local_info;
+    if (threadIdx.x == 0) local_info = atomicAdd(info, 0);
+    __syncthreads();
+    const auto &p = panels[first+blockIdx.x];
+    spd_factor_panel_schedule(arena+p.offset, p.width, p.rows, p.lda,
+                              &local_info, true);
+    if (threadIdx.x == 0 && local_info != 0) atomicCAS(info, 0, local_info);
+}
+
+__global__ void update_level(double *arena, const int *maps,
+                             const DeviceTask *tasks, Batch batch, const int *info)
+{
+    if (*info != 0) return;
+    const size_t block = batch.block_first+blockIdx.x;
+    size_t lo = batch.first, hi = batch.first+batch.count;
+    while (lo < hi) {
+        const size_t middle = lo+(hi-lo)/2;
+        if (tasks[middle].block_end <= block) lo = middle+1;
+        else hi = middle;
+    }
+    const auto &item = tasks[lo];
+    const auto &t = item.task;
+    const size_t begin = lo == 0 ? 0 : tasks[lo-1].block_end;
+    spd_schur_scatter_entry(arena+t.left_offset, t.ldl,
+        arena+t.right_offset, t.ldr, t.m, t.n, t.k,
+        arena+t.destination_offset, t.destination_rows, t.destination_columns,
+        maps+t.row_map_offset, maps+t.column_map_offset,
+        (block-begin)*blockDim.x+threadIdx.x, true);
+}
+
+void clear_levels(Context *ctx)
+{
+    if (ctx->level_panels) cudaFree(ctx->level_panels);
+    if (ctx->level_tasks) cudaFree(ctx->level_tasks);
+    ctx->level_panels = nullptr;
+    ctx->level_tasks = nullptr;
+    ctx->level_panel_count = ctx->level_task_count = 0;
+    std::vector<Level>().swap(ctx->levels);
+}
+
+void clear_schur(Context *ctx)
 {
     if (ctx->tasks) cudaFree(ctx->tasks);
     ctx->tasks = nullptr;
     ctx->task_count = 0;
     std::vector<Batch>().swap(ctx->batches);
+}
+void clear_plan(Context *ctx)
+{
+    clear_schur(ctx);
+    clear_levels(ctx);
 }
 } // namespace
 
@@ -417,7 +476,7 @@ extern "C" int fsparse_spd_cuda_set_schur_batches(void *context,
         }
         if (!result) result = cudaStreamSynchronize(ctx->stream);
         if (result) { if (uploaded) cudaFree(uploaded); return result; }
-        clear_plan(ctx);
+        clear_schur(ctx);
         ctx->tasks = uploaded;
         ctx->task_count = task_count;
         ctx->batches = std::move(batches);
@@ -440,10 +499,145 @@ extern "C" int fsparse_spd_cuda_schur_batch(void *context, size_t batch)
     return cudaGetLastError();
 }
 
+extern "C" int fsparse_spd_cuda_set_levels(void *context,
+    const fsparse_spd_cuda_level_panel *panels, size_t panel_count,
+    const fsparse_spd_cuda_level_task *tasks, size_t task_count, size_t level_count)
+{
+    auto *ctx = static_cast<Context*>(context);
+    const size_t limit = std::numeric_limits<size_t>::max();
+    if (!ctx || ctx->factor_batch || (panel_count && !panels) ||
+        (task_count && !tasks) || level_count > INT_MAX || panel_count > INT_MAX ||
+        (panel_count && !level_count) || (!panel_count && (level_count || task_count)) ||
+        panel_count > limit/sizeof(*panels) || task_count > limit/sizeof(DeviceTask) ||
+        level_count > limit/sizeof(Level) || level_count+1 > limit/sizeof(size_t))
+        return -1;
+    try {
+        std::vector<Level> levels(level_count);
+        std::vector<size_t> panel_ptr(level_count+1,0), task_ptr(level_count+1,0);
+        size_t previous_end = 0, thin_count = 0;
+        for (size_t i = 0; i < panel_count; ++i) {
+            const auto &p = panels[i];
+            if (p.width < 0 || p.rows < p.width || p.level < 0 ||
+                size_t(p.level) >= level_count ||
+                !matrix_fits(ctx,p.offset,p.lda,p.rows,p.width) ||
+                size_t(p.width) > limit/size_t(p.lda) ||
+                !fits(ctx,p.offset,size_t(p.lda)*p.width) || p.offset < previous_end)
+                return -1;
+            previous_end = p.offset+size_t(p.lda)*p.width;
+            if (p.width <= 8 && p.width) { ++panel_ptr[p.level+1]; ++thin_count; }
+        }
+        for (size_t i = 0; i < task_count; ++i) {
+            const auto &item = tasks[i];
+            const auto &t = item.task;
+            if (item.source >= panel_count || item.destination >= panel_count ||
+                item.destination <= item.source) return -1;
+            const auto &s = panels[item.source], &d = panels[item.destination];
+            if (s.width <= 0 || s.width > 8 || s.level >= d.level ||
+                t.k != s.width || t.ldl != s.lda || t.ldr != s.lda ||
+                t.m < 0 || t.n < 0 ||
+                !matrix_fits(ctx,t.left_offset,t.ldl,t.m,t.k) ||
+                !matrix_fits(ctx,t.right_offset,t.ldr,t.n,t.k) ||
+                t.left_offset < s.offset || t.right_offset < s.offset ||
+                t.left_offset-s.offset > size_t(s.rows) ||
+                t.right_offset-s.offset > size_t(s.rows) ||
+                size_t(t.m) > size_t(s.rows)-(t.left_offset-s.offset) ||
+                size_t(t.n) > size_t(s.rows)-(t.right_offset-s.offset) ||
+                t.destination_offset != d.offset || t.destination_rows != d.lda ||
+                t.destination_columns != d.width ||
+                t.row_map_offset > ctx->map_count || t.column_map_offset > ctx->map_count ||
+                size_t(t.m) > ctx->map_count-t.row_map_offset ||
+                size_t(t.n) > ctx->map_count-t.column_map_offset ||
+                (t.n && size_t(t.m) > limit/size_t(t.n))) return -1;
+            ++task_ptr[s.level+1];
+        }
+        for (size_t l = 0; l < level_count; ++l) {
+            panel_ptr[l+1] += panel_ptr[l]; task_ptr[l+1] += task_ptr[l];
+            levels[l].panel_first = panel_ptr[l];
+            levels[l].panel_count = panel_ptr[l+1]-panel_ptr[l];
+        }
+        std::vector<fsparse_spd_cuda_level_panel> device_panels(thin_count);
+        std::vector<DeviceTask> device_tasks(task_count);
+        auto panel_next = panel_ptr, task_next = task_ptr;
+        for (size_t i = 0; i < panel_count; ++i)
+            if (panels[i].width <= 8 && panels[i].width)
+                device_panels[panel_next[panels[i].level]++] = panels[i];
+        for (size_t i = 0; i < task_count; ++i)
+            device_tasks[task_next[panels[tasks[i].source].level]++] = {tasks[i].task,0};
+        size_t blocks = 0;
+        for (size_t l = 0; l < level_count; ++l) {
+            auto &batch = levels[l].updates;
+            batch = {task_ptr[l],task_ptr[l+1]-task_ptr[l],blocks,0};
+            for (size_t i = task_ptr[l]; i < task_ptr[l+1]; ++i) {
+                const auto &t = device_tasks[i].task;
+                const size_t entries = size_t(t.m)*t.n;
+                const size_t added = entries/256+(entries%256 != 0);
+                if (added > limit-blocks) return -1;
+                blocks += added;
+                if (blocks-batch.block_first > INT_MAX) return -1;
+                device_tasks[i].block_end = blocks;
+            }
+            batch.blocks = blocks-batch.block_first;
+        }
+        int result = activate(ctx);
+        fsparse_spd_cuda_level_panel *uploaded_panels = nullptr;
+        DeviceTask *uploaded_tasks = nullptr;
+        if (!result && thin_count)
+            result = cudaMalloc(&uploaded_panels,thin_count*sizeof(*uploaded_panels));
+        if (!result && thin_count) result = cudaMemcpyAsync(uploaded_panels,
+            device_panels.data(),thin_count*sizeof(*uploaded_panels),
+            cudaMemcpyHostToDevice,ctx->stream);
+        if (!result && task_count)
+            result = cudaMalloc(&uploaded_tasks,task_count*sizeof(*uploaded_tasks));
+        if (!result && task_count) result = cudaMemcpyAsync(uploaded_tasks,
+            device_tasks.data(),task_count*sizeof(*uploaded_tasks),
+            cudaMemcpyHostToDevice,ctx->stream);
+        if (!result) result = cudaStreamSynchronize(ctx->stream);
+        if (result) {
+            if (uploaded_panels) cudaFree(uploaded_panels);
+            if (uploaded_tasks) cudaFree(uploaded_tasks);
+            return result;
+        }
+        clear_levels(ctx);
+        ctx->level_panels = uploaded_panels; ctx->level_panel_count = thin_count;
+        ctx->level_tasks = uploaded_tasks; ctx->level_task_count = task_count;
+        ctx->levels = std::move(levels);
+        return 0;
+    } catch (const std::bad_alloc &) {
+        return static_cast<int>(cudaErrorMemoryAllocation);
+    }
+}
+
+extern "C" int fsparse_spd_cuda_factor_level(void *context, size_t level)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (!ctx || !ctx->factor_batch || level >= ctx->levels.size()) return -1;
+    const auto &item = ctx->levels[level];
+    if (!item.panel_count) return 0;
+    int result = activate(ctx);
+    if (result) return result;
+    factor_level<<<static_cast<unsigned>(item.panel_count),256,0,ctx->stream>>>(
+        ctx->arena,ctx->level_panels,item.panel_first,ctx->info);
+    return cudaGetLastError();
+}
+
+extern "C" int fsparse_spd_cuda_update_level(void *context, size_t level)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (!ctx || !ctx->factor_batch || level >= ctx->levels.size()) return -1;
+    const auto &item = ctx->levels[level].updates;
+    if (!item.blocks) return 0;
+    int result = activate(ctx);
+    if (result) return result;
+    update_level<<<static_cast<unsigned>(item.blocks),256,0,ctx->stream>>>(
+        ctx->arena,ctx->maps,ctx->level_tasks,item,ctx->info);
+    return cudaGetLastError();
+}
+
 extern "C" size_t fsparse_spd_cuda_host_plan_bytes(void *context)
 {
     auto *ctx = static_cast<Context*>(context);
-    return ctx ? sizeof(Context)+ctx->batches.capacity()*sizeof(Batch) : 0;
+    return ctx ? sizeof(Context)+ctx->batches.capacity()*sizeof(Batch)
+                 +ctx->levels.capacity()*sizeof(Level) : 0;
 }
 
 extern "C" int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset,
@@ -504,5 +698,7 @@ extern "C" size_t fsparse_spd_cuda_allocated_bytes(void *context)
     auto *ctx = static_cast<Context*>(context);
     return ctx ? ctx->capacity*sizeof(double)+sizeof(int)
                  +(ctx->workspace ? workspace_bytes : 0)
-                 +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask) : 0;
+                 +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask)
+                 +ctx->level_task_count*sizeof(DeviceTask)
+                 +ctx->level_panel_count*sizeof(fsparse_spd_cuda_level_panel) : 0;
 }

@@ -63,6 +63,25 @@ int fsparse_spd_cuda_set_schur_batches(void *context,
     const fsparse_spd_cuda_schur_task *tasks, size_t task_count,
     const size_t *batch_ptr, size_t batch_count);
 int fsparse_spd_cuda_schur_batch(void *context, size_t batch);
+/* Setup-only DAG schedule. Panels have stable zero-based IDs, disjoint ordered
+ * storage, and levels in [0,level_count). Every update references a thin source
+ * and a destination in a strictly later level. Maps retain schur_scatter's unique
+ * positive-entry contract. Level updates use FP64 atomic addition: independent
+ * source contributions may accumulate in hardware-dependent order. No hot
+ * allocation; set_maps invalidates both plans. Failed factors are discarded. */
+typedef struct fsparse_spd_cuda_level_panel {
+    size_t offset;
+    int width, rows, lda, level;
+} fsparse_spd_cuda_level_panel;
+typedef struct fsparse_spd_cuda_level_task {
+    fsparse_spd_cuda_schur_task task;
+    size_t source, destination;
+} fsparse_spd_cuda_level_task;
+int fsparse_spd_cuda_set_levels(void *context,
+    const fsparse_spd_cuda_level_panel *panels, size_t panel_count,
+    const fsparse_spd_cuda_level_task *tasks, size_t task_count, size_t level_count);
+int fsparse_spd_cuda_factor_level(void *context, size_t level);
+int fsparse_spd_cuda_update_level(void *context, size_t level);
 /* Retained host context and launch metadata, separate from device bytes. */
 size_t fsparse_spd_cuda_host_plan_bytes(void *context);
 int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset, int n, int ldl,
