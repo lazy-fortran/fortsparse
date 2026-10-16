@@ -154,6 +154,8 @@ never present separate process peaks as aggregate workflow memory.
    For masked panels, retain active-lane histograms weighted by row entries
    and arithmetic, not only call counts. Check packed instructions in the
    compiled release kernel; a SIMD directive does not establish vectorization.
+   Distinguish inlined DWARF frames from actual calls: inspect disassembly
+   before attributing a sampled symbolic leaf to per-entry call overhead.
 5. Make one bounded change addressing measured evidence. Generate a bounded
    ahead-of-time variant set for tiles/layouts/unrolling/fusion where justified.
    Fewer symbolic operations do not imply lower elapsed time. Avoid unbounded
