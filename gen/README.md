@@ -8,7 +8,9 @@ inputs for the square root and nonzero denominators for division; matrix and
 pivot validation belong to the calling solver.
 
 `spd_schedule.f90.inc` retains allocation-free CPU panel factorization,
-right-side triangular solve and rectangular Schur-update schedules. The solver
+right-side triangular solve and rectangular Schur-update schedules. The panel triangular solve accepts an optional `use_blas` schedule flag
+(default true). Strict-budget supernodes pass false to keep even wide panels
+on generated arithmetic and avoid opaque vendor workspace. The solver
 owns task parallelism; the panel schedules use SIMD without nested teams.
 Large contractions may use BLAS rather than these reference schedules.
 The Schur schedule accepts an optional first-row index (default one), allowing

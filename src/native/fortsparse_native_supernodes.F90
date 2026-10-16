@@ -631,7 +631,7 @@ contains
             self%failures(s) = NOT_SPD
             return
         end if
-        if (m > w) call spd_panel_solve(values, w, m, tail, m-w, m)
+        if (m > w) call spd_panel_solve(values, w, m, tail, m-w, m, self%use_blas)
         if (.not. all(ieee_is_finite(self%panels(s)%values))) self%failures(s) = NOT_SPD
     end subroutine factor_panel
 
