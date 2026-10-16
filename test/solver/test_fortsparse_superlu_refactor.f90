@@ -8,7 +8,7 @@ program test_fortsparse_superlu_refactor
     use fortsparse, only: dp, csc_t, csc_from_triplet, csc_matvec, &
         sparse_solver_t, sparse_factor, sparse_refactor, sparse_solve, &
         sparse_free, fortsparse_status_t, status_ok, FORTSPARSE_SYM_GENERAL, &
-        FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_BACKEND_SUPERLU
+        FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UNAVAILABLE
     implicit none
 
     integer, parameter :: m = 10, n = m*m
@@ -19,6 +19,22 @@ program test_fortsparse_superlu_refactor
     real(dp) :: xe(n), b(n), x(n), xf(n)
     logical :: reused
 
+    block
+        type(csc_t) :: probe_matrix
+        type(sparse_solver_t) :: probe_solver
+        type(fortsparse_status_t) :: probe_status
+        call csc_from_triplet(1, 1, [1], [1], [1.0_dp], &
+            probe_matrix, probe_status)
+        if (probe_status%code /= 0) error stop "backend probe matrix failed"
+        probe_solver%backend_id = FORTSPARSE_BACKEND_SUPERLU
+        call sparse_factor(probe_solver, probe_matrix, probe_status)
+        call sparse_free(probe_solver)
+        if (probe_status%code == FORTSPARSE_BACKEND_UNAVAILABLE) then
+            write (*, '(a)') 'SKIP: SuperLU backend is not configured'
+            stop 0
+        end if
+        if (probe_status%code /= 0) error stop "configured SuperLU probe failed"
+    end block
     nfail = 0
     xe = [(sin(0.37_dp*i) + 0.5_dp, i = 1, n)]
     call laplacian(1.3_dp, 0.0_dp, .false., A1)

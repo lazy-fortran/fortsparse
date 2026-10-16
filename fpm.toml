@@ -8,15 +8,9 @@ copyright = "Copyright 2025, lazy-fortran"
 
 [build]
 auto-tests = true
-# SuperLU (BSD) is the default in-process direct-solver backend, bound through
-# the MIT C shim under src/superlu. The library links only permissive code;
-# UMFPACK (GPL) is reached out-of-process via a separate helper binary.
-#
-# fpm links the system SuperLU; it cannot orchestrate fetching and building C
-# numerical libraries from source. The zero-system-dependency build (fetch and
-# build reference BLAS/LAPACK, SuperLU and the SuiteSparse/UMFPACK chain) is the
-# CMake path: configure with -DFORTSPARSE_USE_SYSTEM_DEPS=OFF.
-link = ["superlu", "blas"]
+# fpm builds the project-owned CPU solvers with system dense BLAS/LAPACK.
+# Optional external sparse backends and GPU support use CMake.
+link = ["lapack", "blas"]
 
 [library]
 source-dir = "src"
@@ -26,9 +20,6 @@ include-dir = ["include"]
 implicit-typing = false
 source-form = "free"
 
-# fpm always compiles src/ and links SuperLU, so the SuperLU backend is always
-# present under fpm. Define FORTSPARSE_HAVE_SUPERLU for the preprocessed solver
-# source to keep the fpm build consistent with that.
+# Preprocess the solver factory and conditional backend tests.
 [preprocess]
 [preprocess.cpp]
-macros = ["FORTSPARSE_HAVE_SUPERLU"]
