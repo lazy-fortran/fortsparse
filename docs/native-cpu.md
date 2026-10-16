@@ -12,6 +12,17 @@ existing Cholesky engine and other classes to the following new CPU references:
 | Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
 | Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
 
+Real symmetric-indefinite CSC factors accept explicit AMD ordering. The initial
+symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
+retained for same-pattern refactors; each refactor chooses its pivots afresh.
+Natural DEFAULT and NATIVE_REFERENCE behavior is preserved; explicit AMD is
+unavailable for NATIVE_REFERENCE. The common audited AMD 3.3.4 caller-workspace
+path supports host caps and LOW_MEMORY. Its permutation input, retained initial
+order (`4*n` bytes), graph workspace, factor growth, retained factors and optional
+original-matrix refinement storage are all charged. Opaque uncapped AMD reports
+complete peak memory as unknown. Ordered pre-factor planning remains unavailable.
+Complex structured AMD remains unavailable.
+
 These are usable native reference families, not production performance admission.
 The previous real-SPD CPU frontier results do not extend to these classes.
 HPD Cholesky and complex LDLH validate full conjugate symmetry. Real and complex

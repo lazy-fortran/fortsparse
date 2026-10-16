@@ -17,7 +17,7 @@ module fortsparse_native_ldlt
                                       ldlt_update_value
     implicit none
     private
-    public :: native_ldlt_t
+    public :: native_ldlt_t, ldlt_check_matrix
     integer(i8), parameter :: ib = storage_size(0)/8, rb = storage_size(0.0_dp)/8
     real(dp), parameter :: alpha = (1.0_dp + sqrt(17.0_dp))/8.0_dp
 
@@ -33,7 +33,7 @@ module fortsparse_native_ldlt
         logical :: ready = .false., low_memory = .false.
         integer(i8) :: limit = 0_i8, bytes = 0_i8, peak = 0_i8
         integer(i8) :: required = 0_i8
-        integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:)
+        integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:), initial_order(:)
         real(dp), allocatable :: diagonal(:), offdiagonal(:), u(:), v(:), work(:)
         type(sparse_row_t), allocatable :: schur(:), lower(:)
     contains
@@ -49,37 +49,40 @@ module fortsparse_native_ldlt
         procedure :: available_bytes => ldlt_available
         procedure :: factor_nnz => ldlt_nnz
         procedure :: permutation => ldlt_permutation
+        procedure :: copy_column_order => ldlt_copy_column_order
         final :: ldlt_finalize
     end type native_ldlt_t
 contains
-    subroutine ldlt_factor(self, a, status, host_limit_bytes, low_memory)
+    subroutine ldlt_factor(self, a, status, host_limit_bytes, low_memory, column_permutation)
         class(native_ldlt_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer(i8), intent(in), optional :: host_limit_bytes
         logical, intent(in), optional :: low_memory
+        integer, intent(in), optional :: column_permutation(:)
         call self%free()
         if (present(host_limit_bytes)) self%limit = host_limit_bytes
         if (present(low_memory)) self%low_memory = low_memory
-        call validate(a, status)
+        call ldlt_check_matrix(a, status)
         if (.not. status_ok(status)) return
         if (self%limit < 0_i8) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: negative cap')
             return
         end if
-        call initialize(self, a, status)
+        call initialize(self, a, status, column_permutation)
         if (.not. status_ok(status)) return
         call numeric(self, status)
     end subroutine ldlt_factor
 
-    subroutine ldlt_refactor(self, a, status, host_limit_bytes, low_memory)
+    subroutine ldlt_refactor(self, a, status, host_limit_bytes, low_memory, column_permutation)
         class(native_ldlt_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer(i8), intent(in), optional :: host_limit_bytes
         logical, intent(in), optional :: low_memory
+        integer, intent(in), optional :: column_permutation(:)
         integer :: i
-        call validate(a, status)
+        call ldlt_check_matrix(a, status)
         if (.not. status_ok(status)) return
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: pattern changed')
         if (.not. allocated(self%ap)) return
@@ -92,6 +95,15 @@ contains
         do i = 1, a%nnz
             if (a%row_idx(i) /= self%ai(i)) return
         end do
+        ! The final pivot permutation is value-dependent; reuse only the same
+        ! immutable initial order, then choose numerical pivots afresh.
+        if (present(column_permutation)) then
+            if (.not. allocated(self%initial_order)) return
+            if (size(column_permutation) /= self%n) return
+            if (any(column_permutation /= self%initial_order)) return
+        else
+            if (allocated(self%initial_order)) return
+        end if
         if (present(host_limit_bytes)) then
             if (host_limit_bytes < 0_i8) return
             self%limit = host_limit_bytes
@@ -107,7 +119,7 @@ contains
         call numeric(self, status)
     end subroutine ldlt_refactor
 
-    subroutine validate(a, status)
+    subroutine ldlt_check_matrix(a, status)
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer :: j, p, i, previous
@@ -137,7 +149,7 @@ contains
             end do
         end do
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine validate
+    end subroutine ldlt_check_matrix
 
     pure real(dp) function csc_get(a, row, column) result(value)
         type(csc_t), intent(in) :: a
@@ -159,10 +171,11 @@ contains
         end do
     end function csc_get
 
-    subroutine initialize(self, a, status)
+    subroutine initialize(self, a, status, column_permutation)
         class(native_ldlt_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
+        integer, intent(in), optional :: column_permutation(:)
         integer :: n, ierr, j, count, p
         integer(i8) :: request
         n = a%ncol
@@ -193,9 +206,34 @@ contains
             call self%free()
             return
         end if
+        if (present(column_permutation)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: invalid initial order')
+            if (size(column_permutation) /= n) return
+            self%pos = 0
+            do j = 1, n
+                p = column_permutation(j)
+                if (p < 1 .or. p > n) return
+                if (self%pos(p) /= 0) return
+                self%pos(p) = j
+            end do
+            if (.not. allocated(self%initial_order)) then
+                call admit(self, ib*int(n,i8), status)
+                if (.not. status_ok(status)) return
+                allocate(self%initial_order(n), stat=ierr)
+                if (ierr /= 0) then
+                    call allocation_error(status)
+                    call self%free()
+                    return
+                end if
+                self%initial_order = column_permutation
+            end if
+        end if
         do j = 1, n
             self%perm(j) = j
-            self%pos(j) = j
+            if (allocated(self%initial_order)) self%perm(j) = self%initial_order(j)
+            self%pos(self%perm(j)) = j
+        end do
+        do j = 1, n
             count = a%col_ptr(j + 1) - a%col_ptr(j)
             call reserve_row(self%schur(j), count, .true., self%limit, &
                              self%bytes, self%peak, self%required, status)
@@ -732,6 +770,8 @@ contains
         self%bytes = 0_i8
         if (allocated(self%ap)) self%bytes = ib*size(self%ap, kind=i8)
         if (allocated(self%ai)) self%bytes = self%bytes + ib*size(self%ai, kind=i8)
+        if (allocated(self%initial_order)) &
+            self%bytes = self%bytes + ib*size(self%initial_order, kind=i8)
     end subroutine clear_numeric
 
     subroutine ldlt_free(self)
@@ -739,6 +779,7 @@ contains
         call clear_numeric(self)
         if (allocated(self%ap)) deallocate (self%ap)
         if (allocated(self%ai)) deallocate (self%ai)
+        if (allocated(self%initial_order)) deallocate (self%initial_order)
         self%n = 0
         self%bytes = 0_i8
         self%peak = 0_i8
@@ -751,6 +792,22 @@ contains
         type(native_ldlt_t), intent(inout) :: self
         call self%free()
     end subroutine ldlt_finalize
+
+    subroutine ldlt_copy_column_order(self, n, ptr, rows, order, matched)
+        class(native_ldlt_t), intent(in) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        integer, intent(out) :: order(:)
+        logical, intent(out) :: matched
+        matched = .false.
+        if (.not. self%ready .or. n /= self%n) return
+        if (.not. allocated(self%initial_order)) return
+        if (.not. allocated(self%ap) .or. .not. allocated(self%ai)) return
+        if (size(ptr) /= size(self%ap) .or. size(rows) /= size(self%ai)) return
+        if (size(order) /= n) return
+        if (any(ptr /= self%ap) .or. any(rows /= self%ai)) return
+        order = self%initial_order
+        matched = .true.
+    end subroutine ldlt_copy_column_order
 
     pure integer(i8) function ldlt_bytes(self) result(bytes)
         class(native_ldlt_t), intent(in) :: self
