@@ -119,6 +119,14 @@ def build_report(summaries, sources, scope, backends, threads, trials):
         key = tuple(selected[k] for k in CASE_KEYS)
         row = {k: selected[k] for k in CASE_KEYS}
         row.update(status=selected["status"], alternatives=selected["alternatives"])
+        front = next(r for r in admission["front_membership"]["best_native_by_case"]
+                     if tuple(r[k] for k in CASE_KEYS) == key)
+        row["front_membership_status"] = front["status"]
+        front_choice = front["selected"]["native"] if front["selected"] else None
+        front_match = next((r for r in summaries if tuple(r[k] for k in CASE_KEYS) == key
+                           and front_choice and r["backend"] == front_choice["backend"]
+                           and r["threads"] == front_choice["threads"]), None)
+        row["front_member_native"] = describe(front_match) if front_match else None
         for field, role in (("selected_native", "native"), ("matched_comparator", "comparator")):
             choice = selected[field]
             match = next((r for r in summaries if tuple(r[k] for k in CASE_KEYS) == key
@@ -136,6 +144,9 @@ def build_report(summaries, sources, scope, backends, threads, trials):
                 interpretation=admission["interpretation"],
                 native_selection_policy=admission["native_selection_policy"],
                 scope_admission_status=(admission["best_native_overall"] if
+                    completeness["complete"] else "indeterminate_incomplete_evidence"),
+                scope_front_membership_status=(
+                    admission["front_membership"]["best_native_overall"] if
                     completeness["complete"] else "indeterminate_incomplete_evidence"),
                 coverage=completeness, sources=sources,
                 out_of_scope_case_groups=[dict(zip(CASE_KEYS, case)) for case in sorted({
