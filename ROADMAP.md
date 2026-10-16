@@ -152,11 +152,13 @@ Report current/peak attributed storage separately from process RSS and runtime
 cost; provide cluster-sizing guidance with explicit headroom and uncertainty.
 Reuse keys cover every structural and scheduling assumption.
 
-The first implemented hard-cap slice is natural-order CPU real-SPD simplicial
-execution, with exact payload planning, capped graph scratch and retained
-workspace for solves/JVP. See [memory contracts](docs/memory.md). Production
-supernode/ordering and CUDA caps remain unimplemented; their strict requests
-fail explicitly. This does not complete M6.1 or confer performance admission.
+Implemented host caps cover natural-order CPU SPD compact and blocked execution,
+and the new CPU factor references. Bounded panels count descriptors, graph/task
+scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
+workspace. Compact SPD has exact payload planning. Ordering/CUDA caps and wider
+production planning remain unimplemented; strict unsupported requests fail
+explicitly. See [memory contracts](docs/memory.md). This does not complete M6.1
+or confer performance admission.
 
 ## Benchmark and admission rules
 

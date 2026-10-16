@@ -13,7 +13,8 @@ module fortsparse_native
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
-        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
+        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
+        FORTSPARSE_RESOURCE_LIMIT
     use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
         plan_natural_spd_memory
     use fortsparse_native_supernodes, only: supernodes_t
@@ -55,6 +56,7 @@ module fortsparse_native
     type, extends(sparse_backend_t) :: native_backend_t
         integer :: n = 0
         logical :: reference_only = .false., bounded_memory = .false.
+        logical :: bounded_blocked = .false.
         integer(i8) :: analyzed_host_limit = 0_i8, analyzed_device_limit = 0_i8
         integer :: analyzed_memory_policy = 0
         type(memory_budget_t) :: host_budget
@@ -107,7 +109,11 @@ contains
         self%analyzed_host_limit = self%options%host_memory_limit_bytes
         self%analyzed_device_limit = self%options%device_memory_limit_bytes
         self%analyzed_memory_policy = self%options%memory_policy
-        if (self%bounded_memory) then
+        self%bounded_blocked = self%bounded_memory .and. &
+            self%options%memory_policy /= FORTSPARSE_MEMORY_LOW .and. &
+            .not. self%reference_only
+        if (self%bounded_memory) self%host_budget%limit = self%options%host_memory_limit_bytes
+        if (self%bounded_memory .and. .not. self%bounded_blocked) then
             self%host_budget%limit = self%options%host_memory_limit_bytes
             call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
             call update_budget_stats(self)
@@ -127,8 +133,8 @@ contains
         else
             call analyze(self, A, status)
         end if
-        if (.not. status_ok(status)) return
         if (self%bounded_memory) call update_budget_stats(self)
+        if (.not. status_ok(status)) return
         if (self%blocked) then
             if (allocated(self%perm)) then
                 ! Panels assemble directly from the caller's canonical CSC.
@@ -257,6 +263,11 @@ contains
 
         start = wall_time()
         self%n = A%ncol
+        if (self%bounded_blocked) then
+            call self%host_budget%reserve(32_i8*self%n+4_i8, &
+                status,'native SPD graph and numeric work')
+            if (.not. status_ok(status)) return
+        end if
         allocate (self%parent(self%n), self%lp(self%n + 1), self%count(self%n), &
             self%mark(self%n), self%reach(self%n), self%path(self%n), &
             self%work(self%n), stat=ierr)
@@ -264,6 +275,11 @@ contains
             call self%free()
             call memory_error(status)
             return
+        end if
+        if (self%bounded_blocked) then
+            call self%host_budget%reserve(4_i8*(self%n+1_i8+A%nnz), &
+                status,'native SPD retained CSC pattern')
+            if (.not. status_ok(status)) return
         end if
         if (allocated(self%perm)) then
             ! The retained original pattern and permuted CSC already own
@@ -324,6 +340,11 @@ contains
             return
         end if
         self%li_bytes = int(nz, c_size_t)*c_sizeof(0_c_int32_t)
+        if (self%bounded_blocked) then
+            call self%host_budget%reserve(int(self%li_bytes,i8), &
+                status,'native SPD symbolic row indices')
+            if (.not. status_ok(status)) return
+        end if
         self%li_owner = symbolic_alloc(self%li_bytes)
         if (.not. c_associated(self%li_owner)) then
             call self%free()
@@ -343,14 +364,26 @@ contains
                 self%count(i) = self%count(i) + 1
             end do
         end do
-        self%blocked = .not. self%reference_only .and. .not. self%bounded_memory .and. &
+        self%blocked = .not. self%reference_only .and. &
+            (.not. self%bounded_memory .or. self%bounded_blocked) .and. &
             ((self%n >= 64 .and. maxval(self%count) > 12) .or. &
             self%options%device >= 0)
         if (self%blocked) then
-            call self%panels%build(self%n, self%lp, self%li, &
-                self%options%nthreads, status, self%options%device)
-            if (.not. status_ok(status)) return
-        else
+            if (self%bounded_blocked) then
+                call self%panels%build(self%n, self%lp, self%li, &
+                    self%options%nthreads,status,self%options%device,self%host_budget)
+                if (status%code == FORTSPARSE_RESOURCE_LIMIT) self%blocked = .false.
+            else
+                call self%panels%build(self%n, self%lp, self%li, &
+                    self%options%nthreads, status, self%options%device)
+            end if
+            if (self%blocked .and. .not. status_ok(status)) return
+        end if
+        if (.not. self%blocked) then
+            if (self%bounded_blocked) then
+                call self%host_budget%reserve(8_i8*nz,status,'native SPD compact factor values')
+                if (.not. status_ok(status)) return
+            end if
             allocate (self%lv(int(nz)), stat=ierr)
             if (ierr /= 0) then
                 call memory_error(status)
@@ -376,6 +409,10 @@ contains
                 8_i8*self%n
             ! Panel row/index structures now own the analysis result. Release
             ! the temporary simplicial structure before touching numeric pages.
+            if (self%bounded_blocked) then
+                call self%host_budget%release(int(self%li_bytes,i8)+24_i8*self%n+4_i8,status)
+                if (.not. status_ok(status)) return
+            end if
             call release_symbolic_rows(self)
             deallocate (self%lp, self%parent, self%count, self%mark, &
                 self%reach, self%path)
@@ -504,7 +541,9 @@ contains
         self%ready = .false.
         self%stats%device_bytes = 0_i8
         self%stats%active_device = -1
+        self%stats%native_factor_family = 'CHOLESKY_SIMPLE'
         if (self%blocked) then
+            self%stats%native_factor_family = 'CHOLESKY_BLOCK'
             if (allocated(self%perm)) then
                 call self%panels%factor(A, status, self%perm, self%inverse)
             else
@@ -520,6 +559,7 @@ contains
             return
         end if
         self%stats%active_threads = 1
+        self%stats%nthreads = self%options%nthreads
         self%work = 0.0_dp
         self%mark = 0
         self%count = 1
@@ -800,6 +840,8 @@ contains
         self%stats%budget_required_bytes = self%host_budget%failed_required
         self%stats%budget_available_bytes = self%host_budget%failed_available
         self%stats%strict_memory_supported = .true.
+        self%stats%compact_memory_used = .not. self%blocked
+        self%stats%budget_reduced_threads = self%panels%budget_reduced_threads
     end subroutine update_budget_stats
 
     subroutine release_symbolic_rows(self)
@@ -839,6 +881,7 @@ contains
         self%n = 0
         self%ready = .false.
         self%bounded_memory = .false.
+        self%bounded_blocked = .false.
         self%host_budget = memory_budget_t()
         self%memory_plan = sparse_memory_plan_t()
         self%stats = sparse_factor_stats_t()
