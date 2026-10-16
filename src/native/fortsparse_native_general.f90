@@ -12,7 +12,7 @@ module fortsparse_native_general
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_lu_leaves, only: lu_z_update
     use fortsparse_native_hpd, only: native_hpd_t
-    use fortsparse_native_ldlt, only: native_ldlt_t
+    use fortsparse_native_ldlt, only: native_ldlt_t, ldlt_check_matrix
     use fortsparse_native_ldlt_z, only: native_ldlt_z_t
     use fortsparse_native_lu, only: lu_factor_t
     use fortsparse_native_lu_z, only: lu_factor_z_t
@@ -130,6 +130,8 @@ contains
         if (self%same_ordering_strategy) then
             if (is_complex) then
                 call self%complex_factor%copy_column_order(n,ptr,rows,order,matched)
+            else if (self%mode == 3) then
+                call self%ldlt_factor%copy_column_order(n,ptr,rows,order,matched)
             else
                 call self%real_factor%copy_column_order(n,ptr,rows,order,matched)
             end if
@@ -224,9 +226,11 @@ contains
         self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self)+bytes)
     end subroutine record_order_peak
 
-    subroutine prepare(self, refine, cap, status)
+    subroutine prepare(self, refine, cap, status, real_structured)
         class(native_general_backend_t), intent(inout) :: self
         logical, intent(in) :: refine
+        logical, intent(in), optional :: real_structured
+        logical :: supported_structure
         integer(i8), intent(out) :: cap
         type(fortsparse_status_t), intent(out) :: status
         self%ready = .false.
@@ -253,7 +257,13 @@ contains
             self%options%symmetry > FORTSPARSE_SYM_HERMITIAN) return
         if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
             if (self%options%ordering /= FORTSPARSE_ORDER_AMD) return
-            if (self%options%symmetry /= FORTSPARSE_SYM_GENERAL) return
+            supported_structure = self%options%symmetry == FORTSPARSE_SYM_GENERAL
+            if (present(real_structured)) then
+                if (real_structured) supported_structure = supported_structure .or. &
+                    self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
+                    self%options%symmetry == FORTSPARSE_SYM_HERMITIAN
+            end if
+            if (.not. supported_structure) return
             if (self%reference_only) return
             if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
                 if (bounded_amd_available()/=1) then
@@ -288,7 +298,7 @@ contains
         integer(i8) :: cap
         integer, allocatable :: order(:)
         real(dp) :: threshold, started
-        call prepare(self,refine,cap,status)
+        call prepare(self,refine,cap,status,real_structured=.true.)
         if (.not. status_ok(status)) return
         if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
             .not.allocated(A%val)) then
@@ -309,12 +319,22 @@ contains
             call self%real_factor%free()
             call self%hpd_factor%free()
             self%mode = 3
+            ! Validate numerical symmetry before constructing an ordering graph.
+            call ldlt_check_matrix(A,status)
+            if (.not.status_ok(status)) return
             call reserve_original(self,A%ncol,A%nnz,refine,.false.,cap,status)
             if (.not.status_ok(status)) return
+            call column_order(self,A%ncol,A%col_ptr,A%row_idx,.false.,order,cap,status)
+            if (.not.status_ok(status)) return
+            self%factor_invoked=.true.
+            self%retained_order=-1
             call self%ldlt_factor%factor(A,status,host_limit_bytes=cap, &
-                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
+                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW, &
+                column_permutation=order)
+            if (allocated(order)) deallocate(order)
             self%stats%factor_s = seconds()-started
             self%ready = status_ok(status)
+            if (self%ready) self%retained_order=self%selected_order
             if (self%ready) call retain_real(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
             self%ready = status_ok(status)
             call update_stats(self)
@@ -351,6 +371,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
         integer(i8) :: cap
+        integer, allocatable :: order(:)
         real(dp) :: started
         integer(i8) :: attempt_peak
         attempt_peak=0_i8
@@ -358,16 +379,29 @@ contains
             (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
              self%options%symmetry == FORTSPARSE_SYM_HERMITIAN)) then
             reused = .false.
-            call prepare(self,refine,cap,status)
+            call prepare(self,refine,cap,status,real_structured=.true.)
             if (.not. status_ok(status)) return
+            if (.not.self%same_ordering_strategy) then
+                call self%factor_real(A,refine,status)
+                return
+            end if
+            call ldlt_check_matrix(A,status)
+            if (.not.status_ok(status)) return
             started = seconds()
             call reserve_original(self,A%ncol,A%nnz,refine,.false.,cap,status)
             if (.not.status_ok(status)) return
+            call column_order(self,A%ncol,A%col_ptr,A%row_idx,.false.,order,cap,status)
+            if (.not.status_ok(status)) return
+            self%factor_invoked=.true.
+            self%retained_order=-1
             call self%ldlt_factor%refactor(A,status,host_limit_bytes=cap, &
-                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
+                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW, &
+                column_permutation=order)
+            if (allocated(order)) deallocate(order)
             if (status%code /= FORTSPARSE_INVALID_MATRIX) then
                 self%stats%factor_s = seconds()-started
                 self%ready = status_ok(status)
+                if (self%ready) self%retained_order=self%selected_order
                 if (self%ready) call retain_real(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
                 self%ready = status_ok(status)
                 reused = self%ready
@@ -377,7 +411,7 @@ contains
             attempt_peak=self%stats%host_peak_bytes
         end if
         call self%factor_real(A,refine,status)
-        if (self%selected_order /= FORTSPARSE_ORDER_AMD) then
+        if (self%selected_order /= FORTSPARSE_ORDER_AMD .or. self%bounded_amd) then
             self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,attempt_peak)
         end if
         reused = .false.
