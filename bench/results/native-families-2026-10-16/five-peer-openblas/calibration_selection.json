@@ -1,0 +1,186 @@
+{
+  "mode": "external_only",
+  "fixture_source_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
+  "levels": {
+    "neo2-mini5": 5,
+    "drift-real": 128,
+    "drift-complex": 64,
+    "hpd-chain": 8192,
+    "ldlt-chain": 8192
+  },
+  "backends": [
+    "superlu",
+    "umfpack",
+    "umfpack-direct",
+    "mumps",
+    "intel-pardiso"
+  ],
+  "threads": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "trials": 5,
+  "candidate_outcomes": {
+    "neo2-mini5": [
+      {
+        "level": 5,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      }
+    ],
+    "drift-real": [
+      {
+        "level": 16,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 32,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 64,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 128,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      }
+    ],
+    "drift-complex": [
+      {
+        "level": 16,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 32,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 64,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 128,
+        "status": "wall_gate_exceeded",
+        "attempts": 52,
+        "expected_attempts": 125,
+        "complete": false,
+        "rejected_attempts": 1
+      }
+    ],
+    "hpd-chain": [
+      {
+        "level": 128,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 512,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 2048,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 8192,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      }
+    ],
+    "ldlt-chain": [
+      {
+        "level": 128,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 512,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 2048,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      },
+      {
+        "level": 8192,
+        "status": "pass",
+        "attempts": 125,
+        "expected_attempts": 125,
+        "complete": true,
+        "rejected_attempts": 0
+      }
+    ]
+  },
+  "declared_external_backends": [
+    "superlu",
+    "umfpack",
+    "umfpack-direct",
+    "mumps",
+    "intel-pardiso"
+  ],
+  "calibration_scope": "complete_declared_baselines",
+  "scan_scope": "largest passing scanned prefix; larger levels after failure unmeasured",
+  "attempts_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/attempts.jsonl",
+  "attempts_sha256": "d9b52abee2ff57191e39ebc27344fe5c0744639f9ec83c5c26c8bf6b4bd26056",
+  "admission": "unknown; calibration establishes size only"
+}

@@ -48,3 +48,22 @@ LU diagnostic: 80 completed trials, five pairs per workload/variant, one actual
 factor thread and the same AMD ordering/fill. It adds no external-frontier claim
 and preserves the original four-external size-selection scope. Its standalone
 recipe records both frozen source/binary identities and paired ratio ranges.
+
+`five-peer-openblas/` retains the completed five-external comparison including
+standalone UMFPACK with the local LP64 OpenBLAS provision: 2,400 trials, 480
+configuration groups. Its 2,052-trial external-only calibration selects complex
+drift n=4,096 after an IPC wall-gate rejection at n=16,384; real drift and both
+chains remain n=16,384. Earlier larger diagnostics remain available. All eight
+chain workload/variant groups have at least one robust observed-range native
+point for wall/RSS and completed CPU/RSS; none of the eight drift groups does.
+This bounded chain result is separate from general matrix-class admission.
+
+Regenerate its report and diagnostic plots outside Git:
+
+```sh
+python3 bench/native_families/report_front.py \
+  /home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-drifts \
+  /home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-chains \
+  --calibration /home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json \
+  --output /tmp/fortsparse-five-peer-report --plots
+```

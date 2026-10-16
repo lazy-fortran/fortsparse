@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""Combine completed five-peer checkpoints and assess observed time/RSS ranges."""
+import argparse
+import collections
+import csv
+import hashlib
+import json
+from pathlib import Path
+
+from report import summarize, render
+
+PEERS = ('superlu', 'umfpack', 'umfpack-direct', 'mumps', 'intel-pardiso')
+MATCH = ('family', 'level', 'workload', 'variant', 'operation')
+
+
+def assess(candidate, peers, metric):
+    """Exclude every possible dominator by strict time OR safe RSS separation."""
+    unresolved, dominated, by_time, by_memory = [], [], [], []
+    for peer in peers:
+        label = f'{peer["backend"]}:{peer["threads"]}'
+        if candidate[metric+'_max'] < peer[metric+'_min']:
+            by_time.append(label)
+        elif candidate['parent_rss_kib_max'] < peer['parent_rss_kib_min']:
+            # For IPC this uses only a valid parent peak lower bound.
+            by_memory.append(label)
+        else:
+            unresolved.append(label)
+        if (peer['backend'] != 'umfpack' and
+                peer[metric+'_max'] < candidate[metric+'_min'] and
+                peer['parent_rss_kib_max'] < candidate['parent_rss_kib_min']):
+            dominated.append(label)
+    status = ('dominated' if dominated else 'robust_nondominated' if not unresolved
+              else 'indeterminate')
+    return dict(status=status, excluded_by_time=';'.join(by_time),
+                excluded_by_memory=';'.join(by_memory), possible_dominators=';'.join(unresolved),
+                definite_dominators=';'.join(dominated))
+
+
+def frontier(rows):
+    result = []
+    for candidate in rows:
+        if not candidate['backend'].startswith('native'):
+            continue
+        peers = [r for r in rows if r['backend'] in PEERS and
+                 all(r[k] == candidate[k] for k in MATCH)]
+        if {(r['backend'], r['threads']) for r in peers} != {
+                (peer, nt) for peer in PEERS for nt in (1, 2, 4, 8, 16)}:
+            raise ValueError('incomplete five-peer/thread evidence')
+        for metric in ('process_wall_s', 'process_tree_cpu_s'):
+            result.append(dict((k, candidate[k]) for k in (*MATCH, 'backend', 'threads')) |
+                          dict(metric=metric, **assess(candidate, peers, metric)))
+    return result
+
+
+def digest(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def describe(attempts, rows, fronts, calibration, inputs):
+    text = ['# Five-peer completed CPU/RSS checkpoint', '',
+        f'{len(attempts)} completed attempts; {len(rows)} five-trial configuration groups. '
+        'Source c6fa39b; native indexed AMD LU for drift, native HPD/LDLT references for chains. '
+        'All process CPU uses completed wait4 user+system counters including reaped helpers.', '',
+        'Five external peers: SuperLU, UMFPACK IPC, standalone direct UMFPACK, MUMPS '
+        'and Intel oneMKL PARDISO. Requested physical thread budgets are 1/2/4/8/16. '
+        'Native active factor team is one; external active teams remain unknown.', '',
+        'External-only calibration retained 2,052 successful attempts. Complex drift '
+        'level128 was rejected by the strict <0.5s process-wall gate (UMFPACK IPC '
+        'approximately 0.747s), not a numerical failure. Candidate scan stopped at '
+        'rejection; higher or remaining configurations were not inferred to pass. '
+        'The frozen selected complex fixture is n=4,096; other three families are '
+        'n=16,384. Earlier 16k complex diagnostics remain separate.', '',
+        'The following counts compare each of five native requested-thread configurations '
+        'with all 25 external peer/thread configurations at the same family, actual size, '
+        'workload, variant and operation:', '',
+        '| Family | Workload | Variant | Wall: robust / indeterminate / dominated | CPU: robust / indeterminate / dominated |',
+        '|---|---|---|---:|---:|']
+    groups = sorted({(r['family'], r['workload'], r['variant']) for r in fronts})
+    for family, workload, variant in groups:
+        entries = []
+        for metric in ('process_wall_s', 'process_tree_cpu_s'):
+            c = collections.Counter(r['status'] for r in fronts if r['family'] == family
+                                    and r['workload'] == workload and r['variant'] == variant
+                                    and r['metric'] == metric)
+            entries.append(' / '.join(str(c[k]) for k in ('robust_nondominated', 'indeterminate', 'dominated')))
+        text.append(f'| {family} | {workload} | {variant} | {entries[0]} | {entries[1]} |')
+    text += ['', 'Actual measured sizes: '+', '.join(
+        f'{family} n={int(next(r["n_median"] for r in rows if r["family"] == family))}'
+        for family in sorted({r['family'] for r in rows}))+'.',
+        '', 'Assessment rule and limits:', '',
+        '- Robust observed-range nondominance excludes every external configuration '
+        'by native maximum time < external minimum time OR native maximum process RSS '
+        '< external minimum process RSS. Strict inequality treats observed overlap as '
+        'indeterminate. These trial ranges are descriptive, not confidence intervals.',
+        '- IPC aggregate RSS is unknown. Only its parent VmHWM is used as a safe lower '
+        'bound for excluding a potential dominator. Helper ru_maxrss can retain inherited '
+        'highwater; no sum or maximum of parent/helper is an aggregate peak. IPC cannot '
+        'be declared a definite dominator with these memory diagnostics.',
+        '- A definite dominator has strictly lower maximum time and process RSS than '
+        'the native minimum values. Such a result requires known single-process RSS.',
+        '- Nondominance is a time/memory tradeoff, distinct from matching or beating '
+        'the same best comparator on both axes. This report does not promote a library '
+        'default or claim broad production/frontier completion. It covers four structural '
+        'fixtures, normal solves, cold RHS8 and same-pattern refactor workflows only.',
+        '- CPU and elapsed front assessments are separate. The refactor workflow includes '
+        'prime factorization. The numeric CSV separates timed analysis, factor, numeric, '
+        'solve and refactor calls from complete subprocess wall and CPU.',
+        '- Native attributed peak bytes remain unavailable for AMD LU; process VmHWM '
+        'is valid RSS evidence and must not be called attributed factor memory. Unknown '
+        'numeric summaries have count zero and must not be plotted as zero.',
+        '- Five-peer selection differs from the older four-peer diagnostic. No '
+        'cross-checkpoint speedup at different sizes or host loads is inferred.']
+    loads = [a['background_load_before'][0] for a in attempts]
+    text += [f'- Pre-launch one-minute host load: {min(loads):.3f}–{max(loads):.3f}. '
+             'Affinity and controller quiescence retain ordinary resident services; '
+             'this is not an exclusive host.', '', 'Reproduction and provenance:', '']
+    text += [f'- `{path}`: raw SHA256 `{digest(path/"attempts.jsonl")}`.' for path in inputs]
+    text += [f'- Calibration selection SHA256 `{digest(calibration)}`; all rejected '
+             'observations remain in its sibling `attempts.jsonl`.']
+    return '\n'.join(text)+'\n'
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('inputs', nargs='+', type=Path)
+    parser.add_argument('--calibration', required=True, type=Path)
+    parser.add_argument('--output', required=True, type=Path)
+    parser.add_argument('--plots', action='store_true')
+    args = parser.parse_args()
+    attempts, provenance = [], []
+    for path in args.inputs:
+        attempts += [json.loads(l) for l in (path/'attempts.jsonl').read_text().splitlines() if l]
+        provenance.append(json.loads((path/'provenance.json').read_text()))
+    if any(a['status'] != 'ok' or a['returncode'] != 0 or
+           a.get('process_tree_cpu_s', -1) < 0 for a in attempts):
+        parser.error('completed successful wait4 receipts required')
+    if len({p['source_revision'] for p in provenance}) != 1:
+        parser.error('combined inputs must share a frozen source revision')
+    selection = json.loads(args.calibration.read_text())
+    if set(selection['backends']) != set(PEERS):
+        parser.error('five-peer selection required')
+    if any(a['level'] != selection['levels'][a['family']] for a in attempts):
+        parser.error('actual level differs from frozen external-only selection')
+    rows = summarize(attempts)
+    if any(r['ok'] != 5 or r['attempts'] != 5 or r['n_min'] != r['n_max']
+           or r['parent_rss_kib_count'] != 5 or r['process_tree_cpu_s_count'] != 5
+           for r in rows):
+        parser.error('five successful trials per group required')
+    fronts = frontier(rows)
+    args.output.mkdir(parents=True, exist_ok=True)
+    for filename, data in [('summary.csv', rows), ('fronts.csv', fronts)]:
+        with (args.output/filename).open('w') as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(data[0]))
+            writer.writeheader()
+            writer.writerows(data)
+    (args.output/'report.md').write_text(describe(attempts, rows, fronts, args.calibration, args.inputs))
+    (args.output/'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n')
+    (args.output/'calibration_selection.json').write_text(json.dumps(selection, indent=2)+'\n')
+    receipts = [p/name for p in args.inputs for name in ('attempts.jsonl', 'provenance.json')]
+    receipts += [args.calibration, args.calibration.parent/'attempts.jsonl',
+                 args.calibration.parent/'provenance.json']
+    calibration_attempts = [json.loads(l) for l in
+        (args.calibration.parent/'attempts.jsonl').read_text().splitlines() if l]
+    rejections = [{k: a[k] for k in ('family', 'backend', 'level', 'threads',
+                                    'trial', 'status', 'process_wall_s')}
+                  for a in calibration_attempts if a['status'] != 'ok'
+                  or a['returncode'] != 0 or a['process_wall_s'] >= .5]
+    recipe = dict(inputs=[str(p) for p in args.inputs], calibration=str(args.calibration),
+        calibration_attempts=len(calibration_attempts), calibration_rejections=rejections,
+        files=[dict(path=str(p), sha256=digest(p)) for p in receipts],
+        cpu_scope='completed wait4 workflow, no helper double counting',
+        memory_scope='single-process VmHWM; IPC unknown aggregate, parent-only safe lower bound',
+        assessment='all 25 external configs; strict min/max time OR memory exclusion')
+    (args.output/'recipe.json').write_text(json.dumps(recipe, indent=2)+'\n')
+    if args.plots:
+        render(rows, args.output, .9, 'completed',
+               'see range assessments; no global admission')
+    print(json.dumps(dict(attempts=len(attempts), groups=len(rows),
+                         assessments=collections.Counter(r['status'] for r in fronts))))
+
+
+if __name__ == '__main__':
+    main()
