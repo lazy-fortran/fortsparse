@@ -278,19 +278,32 @@ mathematical implementations.
   [failed attempt and reproduction data](bench/results/2026-10-16-kin6d-nonnested/README.md).
   A generated real width-eight rolling target-panel prototype is available
   only through low-level opt-in. Independent closure/pivot/derivative and exact
-  payload/fault-recovery tests pass; bounded performance evidence is pending.
+  payload/fault-recovery tests pass; two bounded A/B cohorts pass their residual gates but do not establish a
+  reproducible workflow gain over scalar execution. Full-active generated SIMD
+  is implemented; the remaining losses are being profiled.
   No public default or family admission follows from this prototype.
   Generated compensated triangular solves improve the NEO-2 final
   transport comparison while retaining allocation-free solves and capped
   correction storage; intermediate application checks remain open.
-- [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
-  explicit real-pairing derivatives; retain separate complex-class evidence.
+- [ ] **M6.3: complex unsymmetric LU.** The serial native reference already
+  supports normal/transpose/adjoint retained solves, real-pairing implicit
+  derivatives, refinement, AMD/ND and bounded natural/AMD execution. Generated
+  compensated triangular accumulation is implemented. Production blocking,
+  parallel factorization and separate complex consumer frontier admission remain
+  open; the real panel prototype does not extend to complex factors.
 - [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex
-  leaves, correct conjugation, bounded-memory CPU schedules and admission.
-- [ ] **M6.5: indefinite native factors.** Separately admit pivoted real
-  symmetric, complex Hermitian and complex transpose-symmetric factorizations;
-  stable 1x1/2x2 pivots, delayed-pivot dependencies, growth caps and adversarial
-  stability tests. Do not substitute unpivoted LDL for robust indefinite solves.
+  leaves, conjugation checks, retained operations/refinement and bounded-memory
+  natural simplicial execution are implemented. Structured complex ordering,
+  production blocking/parallel schedules, pre-factor plans and admission remain
+  open.
+- [ ] **M6.5: indefinite native factors.** Sparse Bunch--Kaufman references for
+  real symmetric, complex Hermitian and complex transpose-symmetric matrices
+  already implement unrestricted 1x1/2x2 pivots, retained operations/refinement
+  and growth caps. Real symmetric AMD is implemented; complex structured
+  ordering, parallel blocked schedules, pre-factor plans and representative
+  adversarial/consumer performance admission remain open. Do not substitute
+  unpivoted LDL for robust indefinite solves. Exact current class contracts are
+  retained in [native CPU support](docs/native-cpu.md).
 - [ ] **M6.6: consumer integration and CPU independence.** Consumer-required
   sparse preconditioners (Krylov remains in FortNum), native configuration tests
   without external sparse solvers, representative/held-out admission evidence,
