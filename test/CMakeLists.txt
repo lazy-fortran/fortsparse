@@ -250,6 +250,15 @@ if(TARGET fortsparse_umfpack_helper AND
         "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:fortsparse_umfpack_helper>")
 endif()
 
+# External context copies keep options but never factors or handles.
+fortsparse_add_test(test_fortsparse_external_copy ipc/test_fortsparse_external_copy.f90)
+set_tests_properties(test_fortsparse_external_copy PROPERTIES
+    LABELS "external;fast" TIMEOUT 1)
+if(TARGET fortsparse_umfpack_helper)
+    set_tests_properties(test_fortsparse_external_copy PROPERTIES ENVIRONMENT
+        "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:fortsparse_umfpack_helper>")
+endif()
+
 # Explicit pivot control and a pre-numeric symbolic-memory estimate gate.
 if(TARGET fortsparse_umfpack_helper)
     add_executable(test_fortsparse_umfpack_controls
@@ -364,6 +373,11 @@ set_tests_properties(test_fortsparse_native_ldlt PROPERTIES
 fortsparse_add_test(test_fortsparse_native_general_api solver/test_fortsparse_native_general_api.f90)
 set_tests_properties(test_fortsparse_native_general_api PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1 WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+
+fortsparse_add_test(test_fortsparse_context_copy
+    solver/test_fortsparse_context_copy.f90)
+set_tests_properties(test_fortsparse_context_copy PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
 
 fortsparse_add_test(test_fortsparse_native_ldlt_z
     solver/test_fortsparse_native_ldlt_z.f90)

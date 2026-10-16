@@ -85,6 +85,8 @@ module fortsparse_native_supernodes
         procedure :: solve_block
         procedure :: free => supernodes_free
         procedure :: memory_bytes
+        procedure :: has_device_context
+        procedure :: finish_copy
         final :: finalize_supernodes
     end type supernodes_t
 
@@ -937,6 +939,55 @@ contains
         self%owned_budget_bytes = 0_i8
         self%build_ledger = memory_budget_t()
     end subroutine supernodes_free
+
+    logical function has_device_context(self)
+        class(supernodes_t), intent(in) :: self
+        has_device_context = c_associated(self%cuda)
+    end function has_device_context
+
+    subroutine finish_copy(self, src, status)
+        ! Call immediately after the intrinsic assignment self = src. It drops
+        ! the aliased host/device ownership before any fallible step, then
+        ! gives self its own host panel storage. Device contexts are never
+        ! copied: self is then released and reported unfactored.
+        class(supernodes_t), intent(inout) :: self
+        type(supernodes_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: s, ierr
+        integer(c_size_t) :: offset
+
+        nullify(self%host_values)
+        self%cuda = c_null_ptr
+        if (allocated(self%panels)) then
+            do s = 1, size(self%panels)
+                nullify(self%panels(s)%values)
+            end do
+        end if
+        call status_set(status, FORTSPARSE_OK, '')
+        if (c_associated(src%cuda)) then
+            call self%free()
+            call status_set(status, FORTSPARSE_NOT_FACTORED, &
+                'native copy: CUDA device factors are not copied; ' // &
+                'destination is unfactored')
+            return
+        end if
+        if (.not. associated(src%host_values)) return
+        allocate(self%host_values(size(src%host_values, kind=i8)), stat=ierr)
+        if (ierr /= 0) then
+            call self%free()
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                'native copy: panel value allocation failed')
+            return
+        end if
+        self%host_values = src%host_values
+        do s = 1, self%node_count
+            if (.not. associated(src%panels(s)%values)) cycle
+            offset = self%panels(s)%offset
+            self%panels(s)%values(1:self%panels(s)%m, 1:self%panels(s)%width) => &
+                self%host_values(offset+1:offset+int(self%panels(s)%m,i8)* &
+                self%panels(s)%width)
+        end do
+    end subroutine finish_copy
 
     subroutine finalize_supernodes(self)
         type(supernodes_t), intent(inout) :: self

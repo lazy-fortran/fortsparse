@@ -1,9 +1,11 @@
 module fortsparse_native_general
     ! Native general sparse factors; orchestration only, arithmetic is generated.
     use fortsparse_kinds, only: dp, i8
-    use fortsparse_memory, only: refinement_payload_bytes, memory_checked_add, memory_checked_mul
+    use fortsparse_memory, only: refinement_payload_bytes, memory_checked_add, &
+        memory_checked_mul, memory_budget_t
     use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
+        sparse_options_t, &
         backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
         backend_factor_complex_raw_budgeted, backend_refactor_complex_raw_budgeted, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
@@ -96,6 +98,7 @@ module fortsparse_native_general
         procedure :: factor_stats => general_stats
         procedure :: vector => general_vector
         procedure :: free => general_free
+        procedure :: copy_from => general_copy_from
         final :: general_finalize
     end type native_general_backend_t
 contains
@@ -1360,6 +1363,54 @@ contains
         self%ready = .false.
         self%stats = sparse_factor_stats_t()
     end subroutine general_free
+
+    subroutine general_copy_from(self,src,status)
+        ! Deep context copy: all factor families, ordering, matching and
+        ! refinement state are allocatable; user vectors are not copied.
+        class(native_general_backend_t), intent(inout) :: self
+        class(sparse_backend_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+        select type (src)
+        type is (native_general_backend_t)
+            select type (self)
+            type is (native_general_backend_t)
+                call copy_general(self,src,status)
+            class default
+                call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                    'native copy: destination type differs from source')
+            end select
+        class default
+            call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                'native copy: source type differs from destination')
+        end select
+    end subroutine general_copy_from
+
+    subroutine copy_general(self,src,status)
+        type(native_general_backend_t), intent(inout) :: self
+        type(native_general_backend_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+        type(sparse_options_t) :: options
+        type(memory_budget_t) :: budget
+        integer(i8) :: bytes
+        options=src%options
+        options%host_memory_limit_bytes=self%options%host_memory_limit_bytes
+        call self%free()
+        self%options=options
+        self%reference_only=src%reference_only
+        bytes=current_bytes(src)
+        if (associated(src%user_vector)) bytes=bytes-8_i8*size(src%user_vector,kind=i8)
+        budget%limit=options%host_memory_limit_bytes
+        call budget%reserve(max(0_i8,bytes),status,'native context copy')
+        if (.not.status_ok(status)) then
+            self%failed_required=budget%failed_required
+            self%failed_available=budget%failed_available
+            return
+        end if
+        self=src
+        nullify(self%user_vector)
+        self%options=options
+        call status_set(status,FORTSPARSE_OK,'')
+    end subroutine copy_general
 
     subroutine general_finalize(self)
         type(native_general_backend_t), intent(inout) :: self

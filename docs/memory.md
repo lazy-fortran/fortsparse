@@ -181,6 +181,14 @@ toward the cap. OS page rounding can add less than one system page for that
 mapping and requires separate process headroom, just like heap rounding.
 The symbolic count routine uses ordinary heap arrays with no private mapping.
 
+A context copy (`sparse_copy` or `dst = src`) charges the source's retained
+native payload, excluding `sparse_vector` slots, against the destination's own
+`host_memory_limit_bytes`, which the copy keeps. A copy that does not fit
+returns RESOURCE_LIMIT with required/available statistics and leaves the
+destination unfactored. The copy is built before the destination's previous
+factors are released, so both coexist transiently; destroy the destination
+first when that overlap matters. The source and copy are separate handles.
+
 ## Cluster-node sizing
 
 Add the solver peak to the application's other simultaneous memory: matrix
