@@ -1,7 +1,8 @@
 module fortsparse_csc
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_value, ieee_positive_inf
     use fortsparse_kinds, only: dp
     use fortsparse_status, only: fortsparse_status_t, status_set, &
-        FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX
+        FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_INDEX_OVERFLOW
     !$ use omp_lib, only: omp_get_thread_num, omp_get_max_threads, omp_get_num_threads
     implicit none
     private
@@ -33,6 +34,7 @@ module fortsparse_csc
         complex(dp), allocatable :: val(:)
     end type csc_z_t
 
+    public :: csc_normalize_symmetric_raw
     public :: csc_from_triplet
     public :: csc_is_valid
     public :: csc_matvec
@@ -69,6 +71,121 @@ module fortsparse_csc
     end interface csc_is_valid
 
 contains
+
+    subroutine csc_normalize_symmetric_raw(n, col_ptr, row_idx, values, rtol, &
+                                           max_entry_correction, status)
+        ! Explicit caller-owned projection, never an implicit factor tolerance.
+        ! Full, sorted, unique square CSC is checked before the first store.
+        integer, intent(in) :: n, col_ptr(:), row_idx(:)
+        real(dp), intent(inout) :: values(:)
+        real(dp), intent(in) :: rtol
+        real(dp), intent(out) :: max_entry_correction
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: nz, column, entry, row, previous, reflected
+        real(dp) :: scale, tolerance, correction
+        max_entry_correction = 0.0_dp
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                        'symmetric normalization: invalid tolerance or CSC')
+        if (.not. ieee_is_finite(rtol)) return
+        if (rtol < 0.0_dp .or. rtol > 1.0_dp .or. n < 0) return
+        if (n == huge(n) .or. size(values) == huge(n)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                            'symmetric normalization: pointer extent overflow')
+            return
+        end if
+        nz = size(values)
+        if (size(col_ptr) /= n + 1 .or. size(row_idx) /= nz) return
+        if (col_ptr(1) /= 1 .or. col_ptr(n + 1) /= nz + 1) return
+        ! Validate every pointer before using any pointer as an array bound.
+        do column = 1, n
+            if (col_ptr(column) < 1 .or. col_ptr(column) > nz + 1) return
+            if (col_ptr(column + 1) < col_ptr(column)) return
+        end do
+        scale = 0.0_dp
+        do column = 1, n
+            previous = 0
+            do entry = col_ptr(column), col_ptr(column + 1) - 1
+                row = row_idx(entry)
+                if (row <= previous .or. row > n) return
+                if (.not. ieee_is_finite(values(entry))) return
+                previous = row
+                scale = max(scale, abs(values(entry)))
+            end do
+        end do
+        tolerance = rtol*scale
+        do column = 1, n
+            do entry = col_ptr(column), col_ptr(column + 1) - 1
+                row = row_idx(entry)
+                if (row == column) cycle
+                reflected = find_entry(column, row)
+                if (reflected == 0) return
+                correction = difference_bound(values(entry), values(reflected))
+                max_entry_correction = max(max_entry_correction, correction)
+            end do
+        end do
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                        'symmetric normalization: asymmetry exceeds tolerance')
+        if (max_entry_correction > tolerance) return
+        ! Only lower entries are sources, so a store never changes a later source.
+        do column = 1, n
+            do entry = col_ptr(column), col_ptr(column + 1) - 1
+                row = row_idx(entry)
+                if (row <= column) cycle
+                reflected = find_entry(column, row)
+                values(reflected) = values(entry)
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, '')
+    contains
+        integer function find_entry(wanted_row, wanted_column) result(found)
+            integer, intent(in) :: wanted_row, wanted_column
+            integer :: lo, hi, mid
+            found = 0
+            lo = col_ptr(wanted_column)
+            hi = col_ptr(wanted_column + 1) - 1
+            do while (lo <= hi)
+                mid = lo + (hi - lo)/2
+                if (row_idx(mid) == wanted_row) then
+                    found = mid
+                    return
+                else if (row_idx(mid) < wanted_row) then
+                    lo = mid + 1
+                else
+                    hi = mid - 1
+                end if
+            end do
+        end function find_entry
+
+        real(dp) function difference_bound(a, b) result(bound)
+            ! Outward one-ulp bound on subtraction of finite binary64 inputs.
+            ! Opposite signs may have an unrepresentable difference; create its
+            ! diagnostic infinity without performing an overflowing operation.
+            real(dp), intent(in) :: a, b
+            real(dp) :: aa, bb, delta
+            logical :: opposite
+            if (a == b) then
+                bound = 0.0_dp
+                return
+            end if
+            aa = abs(a)
+            bb = abs(b)
+            opposite = (a > 0.0_dp .and. b < 0.0_dp) .or. &
+                       (a < 0.0_dp .and. b > 0.0_dp)
+            if (opposite) then
+                if (aa > huge(a) - bb) then
+                    bound = ieee_value(a, ieee_positive_inf)
+                    return
+                end if
+            end if
+            delta = abs(a - b)
+            if (delta == huge(a)) then
+                bound = delta
+                if (opposite) bound = ieee_value(a, ieee_positive_inf)
+            else
+                bound = nearest(delta, 1.0_dp)
+            end if
+        end function difference_bound
+    end subroutine csc_normalize_symmetric_raw
 
     subroutine csc_conjugate_transpose(A, adjoint_A, status)
         type(csc_z_t), intent(in) :: A
