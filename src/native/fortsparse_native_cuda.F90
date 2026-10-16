@@ -2,7 +2,7 @@
 ! This module compiles without CUDA: the build capability remains available
 ! while C bindings are exposed only when their implementation is linked.
 module fortsparse_native_cuda
-    use, intrinsic :: iso_c_binding, only: c_ptr, c_int, c_size_t
+    use, intrinsic :: iso_c_binding, only: c_ptr, c_int, c_size_t, c_int64_t
     implicit none
     private
     public :: native_cuda_available
@@ -12,6 +12,11 @@ module fortsparse_native_cuda
     public :: spd_cuda_synchronize, spd_cuda_panel_factor, spd_cuda_factor_info
     public :: spd_cuda_panel_solve, spd_cuda_schur_update, spd_cuda_schur_product
     public :: spd_cuda_allocated_bytes
+    public :: spd_cuda_memory, spd_cuda_memory_stats, spd_cuda_create_deferred_limited
+    type, bind(C) :: spd_cuda_memory
+        integer(c_int64_t) :: current_bytes = 0, peak_bytes = 0
+        integer(c_int64_t) :: required_bytes = 0, available_bytes = 0
+    end type spd_cuda_memory
     public :: spd_cuda_set_maps, spd_cuda_begin_factor, spd_cuda_scatter_update
     public :: spd_cuda_schur_scatter
     public :: spd_cuda_set_solve_plan, spd_cuda_solve
@@ -36,6 +41,22 @@ module fortsparse_native_cuda
     public :: spd_cuda_create_deferred, spd_cuda_prepare_blas, spd_cuda_front_factor
 
     interface
+        integer(c_int) function spd_cuda_create_deferred_limited(context, device, &
+            capacity, limit, report) &
+            bind(C, name='fsparse_spd_cuda_create_deferred_limited')
+            import :: c_ptr, c_int, c_size_t, spd_cuda_memory
+            type(c_ptr), intent(out) :: context
+            integer(c_int), value :: device
+            integer(c_size_t), value :: capacity, limit
+            type(spd_cuda_memory), intent(out) :: report
+        end function spd_cuda_create_deferred_limited
+
+        integer(c_int) function spd_cuda_memory_stats(context, report) &
+            bind(C, name='fsparse_spd_cuda_memory_stats')
+            import :: c_ptr, c_int, spd_cuda_memory
+            type(c_ptr), value :: context
+            type(spd_cuda_memory), intent(out) :: report
+        end function spd_cuda_memory_stats
         integer(c_int) function spd_cuda_set_levels(context, panels, panel_count, &
             tasks, task_count, level_count) bind(C, name='fsparse_spd_cuda_set_levels')
             import :: c_ptr, c_int, c_size_t

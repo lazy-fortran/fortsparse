@@ -175,8 +175,12 @@ Bounded panels count descriptors, graph/task
 scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
 workspace. Compact natural SPD and explicit-AMD LOW_MEMORY SPD have exact
 payload planning, including ordering and symbolic-count phase peaks. Blocked
-planning, ND/CUDA caps and wider production planning remain unimplemented; strict unsupported requests fail
-explicitly. See [memory contracts](docs/memory.md). This does not complete M6.1
+planning, SPD ND host caps and wider production planning remain unimplemented.
+CUDA real SPD now enforces a separate explicit device-allocation payload cap,
+including plan-replacement overlap and failure diagnostics. CUDA host caps and
+LOW_MEMORY remain unsupported; opaque runtime/driver usage stays outside the
+owned payload scope. Strict unsupported requests fail explicitly. See
+[memory contracts](docs/memory.md). This does not complete M6.1
 or confer performance admission.
 
 ## Benchmark and admission rules

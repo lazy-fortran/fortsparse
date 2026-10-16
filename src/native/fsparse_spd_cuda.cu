@@ -30,6 +30,8 @@ struct SolveLevel { size_t first, count; };
 struct Context {
     int device;
     size_t capacity;
+    size_t device_limit = 0;
+    fsparse_spd_cuda_memory memory = {};
     double *arena = nullptr;
     int *info = nullptr;
     void *workspace = nullptr;
@@ -53,6 +55,43 @@ struct Context {
     size_t level_task_count = 0;
     std::vector<Level> levels;
 };
+
+int destroy_context(Context *ctx, fsparse_spd_cuda_memory *report);
+
+// All explicit device allocations share this per-context request-payload ledger.
+// No numerical hot-path allocation is introduced. Counters fit signed int64_t
+// as well as size_t, so the Fortran report never wraps on conversion.
+int device_allocate(Context *ctx, void **pointer, size_t bytes)
+{
+    *pointer = nullptr;
+    const size_t max_bytes = static_cast<size_t>(INT64_MAX);
+    if (bytes > max_bytes || bytes > max_bytes-size_t(ctx->memory.current_bytes))
+        return -3;
+    if (ctx->device_limit && bytes > ctx->device_limit-size_t(ctx->memory.current_bytes)) {
+        ctx->memory.required_bytes = bytes;
+        ctx->memory.available_bytes = ctx->device_limit-size_t(ctx->memory.current_bytes);
+        return -2;
+    }
+    int result = cudaMalloc(pointer,bytes);
+    if (!result) {
+        ctx->memory.current_bytes += bytes;
+        if (ctx->memory.current_bytes > ctx->memory.peak_bytes)
+            ctx->memory.peak_bytes = ctx->memory.current_bytes;
+    }
+    return result;
+}
+
+template<class T> int device_allocate(Context *ctx, T **pointer, size_t count)
+{
+    if (count > static_cast<size_t>(INT64_MAX)/sizeof(T) ||
+        count > std::numeric_limits<size_t>::max()/sizeof(T)) return -3;
+    return device_allocate(ctx,reinterpret_cast<void**>(pointer),count*sizeof(T));
+}
+
+template<class T> void device_release(Context *ctx, T *pointer, size_t bytes)
+{
+    if (pointer && cudaFree(pointer) == cudaSuccess) ctx->memory.current_bytes -= bytes;
+}
 
 int activate(Context *ctx)
 {
@@ -188,8 +227,9 @@ __global__ void solve_level(double *arena, const SolvePanel *panels, size_t firs
 
 void clear_solve(Context *ctx)
 {
-    if (ctx->solve_panels) cudaFree(ctx->solve_panels);
-    if (ctx->solve_rows) cudaFree(ctx->solve_rows);
+    if (ctx->solve_panels)
+        device_release(ctx,ctx->solve_panels,ctx->solve_panel_count*sizeof(SolvePanel));
+    if (ctx->solve_rows) device_release(ctx,ctx->solve_rows,ctx->solve_row_count*sizeof(int));
     ctx->solve_panels = nullptr;
     ctx->solve_rows = nullptr;
     ctx->solve_n = 0;
@@ -200,8 +240,10 @@ void clear_solve(Context *ctx)
 
 void clear_levels(Context *ctx)
 {
-    if (ctx->level_panels) cudaFree(ctx->level_panels);
-    if (ctx->level_tasks) cudaFree(ctx->level_tasks);
+    if (ctx->level_panels)
+        device_release(ctx,ctx->level_panels,ctx->level_panel_count*sizeof(fsparse_spd_cuda_level_panel));
+    if (ctx->level_tasks)
+        device_release(ctx,ctx->level_tasks,ctx->level_task_count*sizeof(DeviceTask));
     ctx->level_panels = nullptr;
     ctx->level_tasks = nullptr;
     ctx->level_panel_count = ctx->level_task_count = 0;
@@ -210,7 +252,7 @@ void clear_levels(Context *ctx)
 
 void clear_schur(Context *ctx)
 {
-    if (ctx->tasks) cudaFree(ctx->tasks);
+    if (ctx->tasks) device_release(ctx,ctx->tasks,ctx->task_count*sizeof(DeviceTask));
     ctx->tasks = nullptr;
     ctx->task_count = 0;
     std::vector<Batch>().swap(ctx->batches);
@@ -225,27 +267,38 @@ void clear_plan(Context *ctx)
 
 extern "C" int fsparse_spd_cuda_create_deferred(void **context, int device, size_t capacity)
 {
+    return fsparse_spd_cuda_create_deferred_limited(context,device,capacity,0,nullptr);
+}
+
+extern "C" int fsparse_spd_cuda_create_deferred_limited(void **context, int device,
+    size_t capacity, size_t limit, fsparse_spd_cuda_memory *report)
+{
+    if (report) *report = {};
     if (!context) return -1;
     *context = nullptr;
-    if (capacity == 0 || capacity > std::numeric_limits<size_t>::max()/sizeof(double))
+    if (limit > static_cast<size_t>(INT64_MAX) || capacity == 0 ||
+        capacity > static_cast<size_t>(INT64_MAX)/sizeof(double) ||
+        capacity > std::numeric_limits<size_t>::max()/sizeof(double))
         return -1;
     Context *ctx = new (std::nothrow) Context;
     if (!ctx) return static_cast<int>(cudaErrorMemoryAllocation);
     ctx->device = device;
     ctx->capacity = capacity;
+    ctx->device_limit = limit;
     int result = activate(ctx);
     if (result) {
         delete ctx;
         return result;
     }
     if (!result) result = cudaStreamCreateWithFlags(&ctx->stream, cudaStreamNonBlocking);
-    if (!result) result = cudaMalloc(&ctx->arena, capacity*sizeof(double));
-    if (!result) result = cudaMalloc(&ctx->info, sizeof(int));
+    if (!result) result = device_allocate(ctx,&ctx->arena,capacity);
+    if (!result) result = device_allocate(ctx,&ctx->info,size_t(1));
     if (!result) result = cudaMemsetAsync(ctx->info, 0, sizeof(int), ctx->stream);
     if (result) {
-        fsparse_spd_cuda_destroy(ctx);
+        destroy_context(ctx,report);
         return result;
     }
+    if (report) *report = ctx->memory;
     *context = ctx;
     return 0;
 }
@@ -258,7 +311,7 @@ extern "C" int fsparse_spd_cuda_prepare_blas(void *context)
     // This is setup, never a hidden allocation in a numerical factor batch.
     if (ctx->factor_batch) return -1;
     if (ctx->blas) return 0;
-    result = cudaMalloc(&ctx->workspace, workspace_bytes);
+    result = device_allocate(ctx,&ctx->workspace,workspace_bytes);
     if (result) return result;
     cublasStatus_t code = cublasCreate(&ctx->blas);
     if (code == CUBLAS_STATUS_SUCCESS) code = cublasSetStream(ctx->blas, ctx->stream);
@@ -267,7 +320,7 @@ extern "C" int fsparse_spd_cuda_prepare_blas(void *context)
     if (code == CUBLAS_STATUS_SUCCESS) return 0;
     if (ctx->blas) cublasDestroy(ctx->blas);
     ctx->blas = nullptr;
-    cudaFree(ctx->workspace);
+    device_release(ctx,ctx->workspace,workspace_bytes);
     ctx->workspace = nullptr;
     return 1000+code;
 }
@@ -283,22 +336,32 @@ extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capaci
     return result;
 }
 
-extern "C" int fsparse_spd_cuda_destroy(void *context)
+namespace {
+int destroy_context(Context *ctx, fsparse_spd_cuda_memory *report)
 {
-    auto *ctx = static_cast<Context*>(context);
     if (!ctx) return 0;
     int result = activate(ctx);
-    if (result) return result;
+    if (result) {
+        if (report) *report = ctx->memory;
+        return result;
+    }
     if (ctx->stream) result = cudaStreamSynchronize(ctx->stream);
     if (ctx->blas) cublasDestroy(ctx->blas);
     clear_plan(ctx);
-    if (ctx->maps) cudaFree(ctx->maps);
-    if (ctx->workspace) cudaFree(ctx->workspace);
-    if (ctx->info) cudaFree(ctx->info);
-    if (ctx->arena) cudaFree(ctx->arena);
+    if (ctx->maps) device_release(ctx,ctx->maps,ctx->map_count*sizeof(int));
+    if (ctx->workspace) device_release(ctx,ctx->workspace,workspace_bytes);
+    if (ctx->info) device_release(ctx,ctx->info,sizeof(int));
+    if (ctx->arena) device_release(ctx,ctx->arena,ctx->capacity*sizeof(double));
     if (ctx->stream) cudaStreamDestroy(ctx->stream);
+    if (report) *report = ctx->memory;
     delete ctx;
     return result;
+}
+} // namespace
+
+extern "C" int fsparse_spd_cuda_destroy(void *context)
+{
+    return destroy_context(static_cast<Context*>(context),nullptr);
 }
 
 extern "C" int fsparse_spd_cuda_upload(void *context, size_t offset,
@@ -382,11 +445,11 @@ extern "C" int fsparse_spd_cuda_set_maps(void *context, const int *maps, size_t 
     result = cudaStreamSynchronize(ctx->stream);
     if (result) return result;
     clear_plan(ctx);
-    if (ctx->maps) cudaFree(ctx->maps);
+    if (ctx->maps) device_release(ctx,ctx->maps,ctx->map_count*sizeof(int));
     ctx->maps = nullptr;
     ctx->map_count = 0;
     if (!count) return 0;
-    result = cudaMalloc(&ctx->maps, count*sizeof(int));
+    result = device_allocate(ctx,&ctx->maps,count);
     if (result) return result;
     ctx->map_count = count;
     result = cudaMemcpyAsync(ctx->maps, maps, count*sizeof(int),
@@ -515,12 +578,15 @@ extern "C" int fsparse_spd_cuda_set_schur_batches(void *context,
         if (result) return result;
         DeviceTask *uploaded = nullptr;
         if (task_count) {
-            result = cudaMalloc(&uploaded, task_count*sizeof(DeviceTask));
+            result = device_allocate(ctx,&uploaded,task_count);
             if (!result) result = cudaMemcpyAsync(uploaded, device_tasks.data(),
                 task_count*sizeof(DeviceTask), cudaMemcpyHostToDevice, ctx->stream);
         }
         if (!result) result = cudaStreamSynchronize(ctx->stream);
-        if (result) { if (uploaded) cudaFree(uploaded); return result; }
+        if (result) {
+            if (uploaded) device_release(ctx,uploaded,task_count*sizeof(DeviceTask));
+            return result;
+        }
         clear_schur(ctx);
         ctx->tasks = uploaded;
         ctx->task_count = task_count;
@@ -627,19 +693,21 @@ extern "C" int fsparse_spd_cuda_set_levels(void *context,
         fsparse_spd_cuda_level_panel *uploaded_panels = nullptr;
         DeviceTask *uploaded_tasks = nullptr;
         if (!result && thin_count)
-            result = cudaMalloc(&uploaded_panels,thin_count*sizeof(*uploaded_panels));
+            result = device_allocate(ctx,&uploaded_panels,thin_count);
         if (!result && thin_count) result = cudaMemcpyAsync(uploaded_panels,
             device_panels.data(),thin_count*sizeof(*uploaded_panels),
             cudaMemcpyHostToDevice,ctx->stream);
         if (!result && task_count)
-            result = cudaMalloc(&uploaded_tasks,task_count*sizeof(*uploaded_tasks));
+            result = device_allocate(ctx,&uploaded_tasks,task_count);
         if (!result && task_count) result = cudaMemcpyAsync(uploaded_tasks,
             device_tasks.data(),task_count*sizeof(*uploaded_tasks),
             cudaMemcpyHostToDevice,ctx->stream);
         if (!result) result = cudaStreamSynchronize(ctx->stream);
         if (result) {
-            if (uploaded_panels) cudaFree(uploaded_panels);
-            if (uploaded_tasks) cudaFree(uploaded_tasks);
+            if (uploaded_panels)
+                device_release(ctx,uploaded_panels,thin_count*sizeof(*uploaded_panels));
+            if (uploaded_tasks)
+                device_release(ctx,uploaded_tasks,task_count*sizeof(*uploaded_tasks));
             return result;
         }
         clear_levels(ctx);
@@ -738,16 +806,16 @@ extern "C" int fsparse_spd_cuda_set_solve_plan(void *context, int n,
         if (result) return result;
         SolvePanel *device_panels = nullptr;
         int *device_rows = nullptr;
-        result = cudaMalloc(&device_panels,panel_count*sizeof(SolvePanel));
-        if (!result && row_count) result = cudaMalloc(&device_rows,row_count*sizeof(int));
+        result = device_allocate(ctx,&device_panels,panel_count);
+        if (!result && row_count) result = device_allocate(ctx,&device_rows,row_count);
         if (!result) result = cudaMemcpyAsync(device_panels,upload.data(),
             panel_count*sizeof(SolvePanel),cudaMemcpyHostToDevice,ctx->stream);
         if (!result && row_count) result = cudaMemcpyAsync(device_rows,tail_rows,
             row_count*sizeof(int),cudaMemcpyHostToDevice,ctx->stream);
         if (!result) result = cudaStreamSynchronize(ctx->stream);
         if (result) {
-            if (device_panels) cudaFree(device_panels);
-            if (device_rows) cudaFree(device_rows);
+            if (device_panels) device_release(ctx,device_panels,panel_count*sizeof(SolvePanel));
+            if (device_rows) device_release(ctx,device_rows,row_count*sizeof(int));
             return result;
         }
         clear_solve(ctx);
@@ -837,13 +905,15 @@ extern "C" int fsparse_spd_cuda_schur_product(void *context, size_t c_offset,
                        right_offset, ldr, m, n, k, 0.0);
 }
 
+extern "C" int fsparse_spd_cuda_memory_stats(void *context, fsparse_spd_cuda_memory *report)
+{
+    if (!context || !report) return -1;
+    *report = static_cast<Context*>(context)->memory;
+    return 0;
+}
+
 extern "C" size_t fsparse_spd_cuda_allocated_bytes(void *context)
 {
     auto *ctx = static_cast<Context*>(context);
-    return ctx ? ctx->capacity*sizeof(double)+sizeof(int)
-                 +(ctx->workspace ? workspace_bytes : 0)
-                 +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask)
-                 +ctx->level_task_count*sizeof(DeviceTask)
-                 +ctx->level_panel_count*sizeof(fsparse_spd_cuda_level_panel)
-                 +ctx->solve_panel_count*sizeof(SolvePanel)+ctx->solve_row_count*sizeof(int) : 0;
+    return ctx ? size_t(ctx->memory.current_bytes) : 0;
 }

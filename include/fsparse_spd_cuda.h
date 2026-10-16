@@ -1,6 +1,7 @@
 #ifndef FSPARSE_SPD_CUDA_H
 #define FSPARSE_SPD_CUDA_H
 #include <stddef.h>
+#include <stdint.h>
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -16,6 +17,19 @@ int fsparse_spd_cuda_create(void **context, int device, size_t capacity);
  * BLAS operations require prepare_blas before begin_factor; they never allocate
  * it implicitly. Existing create retains its eager preparation semantics. */
 int fsparse_spd_cuda_create_deferred(void **context, int device, size_t capacity);
+/* Explicit cudaMalloc request payload only; CUDA/cuBLAS internals, driver
+ * pools, allocation rounding and all host memory are excluded. Zero limit is
+ * unlimited. -2 means payload cap refusal; -3 means byte-count overflow.
+ * Peak is successful live allocation high-water (including plan replacement).
+ * required/available describe the latest refused allocation increment.
+ * On create failure, context is null and report.current_bytes is zero after
+ * cleanup; report retains the successful peak and refusal diagnostics. */
+typedef struct fsparse_spd_cuda_memory {
+    int64_t current_bytes, peak_bytes, required_bytes, available_bytes;
+} fsparse_spd_cuda_memory;
+int fsparse_spd_cuda_create_deferred_limited(void **context, int device,
+    size_t capacity, size_t limit, fsparse_spd_cuda_memory *report);
+int fsparse_spd_cuda_memory_stats(void *context, fsparse_spd_cuda_memory *report);
 int fsparse_spd_cuda_prepare_blas(void *context);
 int fsparse_spd_cuda_destroy(void *context);
 int fsparse_spd_cuda_upload(void *context, size_t offset,

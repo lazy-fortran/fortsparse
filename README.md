@@ -25,7 +25,9 @@ Native CPU references and natural or explicit-AMD real-SPD execution support
 strict host payload caps; exact pre-factor planning covers compact natural SPD
 and explicit AMD with LOW_MEMORY.
 General LU and real SPD use audited caller-owned workspace for bounded AMD. See [memory limits and cluster sizing](docs/memory.md). Production
-blocked planning, GPU caps and broader performance admission remain planned.
+blocked planning and broader performance admission remain planned. Native real-SPD
+CUDA supports a device-owned payload cap; GPU host caps and LOW_MEMORY remain
+unsupported.
 Development continues on `main`; GPU usability precedes CPU coverage, with full GPU Pareto
 admission retained as a later gate. MPI and disk-backed factors are out of scope.
 
@@ -59,8 +61,9 @@ and Schur updates remain resident during factorization. Generated triangular
 solves reuse device factors, with RHS batches of eight and no mandatory factor
 download. Host-array interfaces transfer RHS and results; the context and
 factors are retained for solves and numeric refactorization. The default device is `-1` (CPU); a GPU request in a CPU build
-returns backend unavailable. Device statistics cover attributed allocations,
-excluding unreported driver/vendor internal pools. GPU correctness is tested
+returns backend unavailable. Device statistics cover explicit owned allocation
+requests and their high-water, with an optional device payload cap. They exclude driver/vendor internal pools
+and do not bound total GPU memory or host memory. GPU correctness is tested
 on real hardware; performance admission remains case dependent.
 
 Native CPU also provides real/complex general sparse LU, complex HPD Cholesky,
