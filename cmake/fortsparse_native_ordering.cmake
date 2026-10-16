@@ -28,6 +28,18 @@ function(fortsparse_configure_native_ordering target)
             set_target_properties(fortsparse_metis PROPERTIES
                 IMPORTED_LOCATION "${FORTSPARSE_METIS_LIBRARY}"
                 INTERFACE_INCLUDE_DIRECTORIES "${FORTSPARSE_METIS_INCLUDE_DIR}")
+            # Standalone static METIS may split GKlib into a sibling archive.
+            # Shared METIS must retain its own allocator implementation.
+            if(FORTSPARSE_METIS_LIBRARY MATCHES "[.]a$")
+                get_filename_component(_metis_libdir
+                    "${FORTSPARSE_METIS_LIBRARY}" DIRECTORY)
+                find_library(FORTSPARSE_GKLIB NAMES GKlib
+                    HINTS "${_metis_libdir}" NO_DEFAULT_PATH)
+                if(FORTSPARSE_GKLIB)
+                    set_property(TARGET fortsparse_metis APPEND PROPERTY
+                        INTERFACE_LINK_LIBRARIES "${FORTSPARSE_GKLIB}")
+                endif()
+            endif()
             set(_metis_target fortsparse_metis)
         endif()
     endif()
