@@ -28,9 +28,14 @@ vendor's iteration sequence or a rigorous forward-error certificate.
 ordering. `FS_NATIVE_ORDER_DEFAULT=0` stays the default; `AMD=1` uses only the
 optional BSD ordering library, with no external sparse factorization fallback.
 `ordering_available(order)` returns status 0 for supported, 3 for unavailable,
-and 2 for an invalid enum; it does not change any context diagnostic. ND=2 is
-recognized but currently unavailable for this general-LU boundary. The setter
-checks support before changing policy: invalid/unavailable requests preserve
+and 2 for an invalid enum; it does not change any context diagnostic.
+`FS_NATIVE_ORDER_ND=2` enables optional METIS nested dissection for real/complex
+general LU. Availability reports the graph library, independently of memory
+policy: ND factorization with a positive host cap or LOW fails closed before
+opaque METIS allocation. Uncapped AUTO ND reports its factorization peak as
+unknown (`-1`) and strict-memory support false through the C statistics API.
+ND also reports strict support false after a rejected capped/LOW operation.
+The setter checks support before changing policy: invalid/unavailable requests preserve
 policy and factors, successful changes invalidate factors, and successful
 same-policy calls retain them. A valid setter clears the previous diagnostic.
 This does not change refinement or memory policy.
@@ -117,3 +122,9 @@ N/T/H blocks. Tests also cover one-byte cap boundaries, zero/unlimited and tiny
 caps, unchanged failure output, independent handles and lifecycle recovery.
 These allocation fixtures establish payload accounting, not RSS predictability
 or performance admission.
+
+With METIS enabled, C API tests verify actual ND dispatch, retained real/complex
+N/T/H factors, refactor and same-policy behavior, unknown peak reporting, capped
+and LOW rejection before the ND helper, and recovery to DEFAULT. The same gates
+also run without the METIS feature macro and verify unavailable-setter factor
+preservation. No native general ND performance claim follows from these gates.

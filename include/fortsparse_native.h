@@ -29,13 +29,14 @@ enum fs_native_ordering {
     FS_NATIVE_ORDER_ND = 2
 };
 /* Returns status 0 supported, 3 unavailable, 2 invalid enum. No context/error
- * mutation. ND is recognized but unavailable for this general-LU API.
+ * mutation. ND requires optional METIS; AMD requires optional AMD.
  */
 int32_t fs_native_ordering_available(int32_t ordering);
 /* Default remains natural. Successful policy changes invalidate factors;
  * setting the same policy retains them. Invalid/unavailable requests preserve
  * policy and factors, and store the error; a valid setter clears that error.
- * AMD requires the optional ordering library, never an external factor backend.
+ * AMD/ND require their optional graph library, never an external factor backend.
+ * ND factorization rejects positive host caps/LOW before opaque METIS allocation.
  */
 int32_t fs_native_set_ordering(void *handle, int32_t ordering);
 enum fs_native_memory_policy {

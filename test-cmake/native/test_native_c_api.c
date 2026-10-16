@@ -33,7 +33,12 @@ static void ordering_policy(void) {
     double a[]={4,0,1,2,5,0,0,3,6},v[]={4,2,5,3,1,6},b[6],x[6];
     char msg[160];
     CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_DEFAULT)==0);
-    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==3);
+    int32_t nd=fs_native_ordering_available(FS_NATIVE_ORDER_ND);
+#ifdef FS_TEST_EXPECT_METIS
+    CHECK(nd==0);
+#else
+    CHECK(nd==3);
+#endif
     CHECK(fs_native_ordering_available(-1)==2);
 #ifdef FS_TEST_EXPECT_AMD
     CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_AMD)==0);
@@ -46,10 +51,12 @@ static void ordering_policy(void) {
     /* Invalid and unsupported requests retain usable factors and old policy. */
     CHECK(fs_native_set_ordering(h,99)==2);
     CHECK(fs_native_last_error(h,msg,sizeof msg)==2 && msg[0]!='\0');
-    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==3);
-    CHECK(fs_native_last_error(h,msg,sizeof msg)==3 && msg[0]!='\0');
+    if(nd==3) {
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==3);
+        CHECK(fs_native_last_error(h,msg,sizeof msg)==3 && msg[0]!='\0');
+    }
     CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_DEFAULT)==0);
-    CHECK(fs_native_last_error(h,msg,sizeof msg)==3); /* pure query */
+    CHECK(fs_native_last_error(h,msg,sizeof msg)==(nd==3?3:2)); /* pure query */
     CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
     CHECK(fs_native_last_error(h,msg,sizeof msg)==0 && msg[0]=='\0');
     real_rhs(a,0,b);
