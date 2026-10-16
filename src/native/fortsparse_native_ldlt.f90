@@ -32,6 +32,7 @@ module fortsparse_native_ldlt
         integer :: n = 0
         logical :: ready = .false., low_memory = .false.
         integer(i8) :: limit = 0_i8, bytes = 0_i8, peak = 0_i8
+        integer(i8) :: required = 0_i8
         integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:)
         real(dp), allocatable :: diagonal(:), offdiagonal(:), u(:), v(:), work(:)
         type(sparse_row_t), allocatable :: schur(:), lower(:)
@@ -39,10 +40,13 @@ module fortsparse_native_ldlt
         procedure :: factor => ldlt_factor
         procedure :: refactor => ldlt_refactor
         procedure :: solve => ldlt_solve
+        procedure :: solve_inplace => ldlt_solve_inplace
         procedure :: solve_block => ldlt_solve_block
         procedure :: free => ldlt_free
         procedure :: retained_bytes => ldlt_bytes
         procedure :: peak_bytes => ldlt_peak
+        procedure :: required_bytes => ldlt_required
+        procedure :: available_bytes => ldlt_available
         procedure :: factor_nnz => ldlt_nnz
         procedure :: permutation => ldlt_permutation
         final :: ldlt_finalize
@@ -97,6 +101,7 @@ contains
         ! new ones, retaining only the immutable pattern. No old/new overlap.
         call clear_numeric(self)
         self%peak = self%bytes
+        self%required = self%bytes
         call initialize(self, a, status)
         if (.not. status_ok(status)) return
         call numeric(self, status)
@@ -193,7 +198,7 @@ contains
             self%pos(j) = j
             count = a%col_ptr(j + 1) - a%col_ptr(j)
             call reserve_row(self%schur(j), count, .true., self%limit, &
-                             self%bytes, self%peak, status)
+                             self%bytes, self%peak, self%required, status)
             if (.not. status_ok(status)) return
             self%schur(j)%used = count
             do p = 1, count
@@ -276,7 +281,7 @@ contains
             end do
             do j = k, k + step - 1
                 call reserve_row(self%lower(j), m, .true., self%limit, &
-                                 self%bytes, self%peak, status)
+                                 self%bytes, self%peak, self%required, status)
                 if (.not. status_ok(status)) return
                 self%lower(j)%used = m
             end do
@@ -315,11 +320,11 @@ contains
                         return
                     end if
                     call row_put(self%schur(i), j, value, self%low_memory, &
-                                 self%limit, self%bytes, self%peak, status)
+                               self%limit, self%bytes, self%peak, self%required, status)
                     if (.not. status_ok(status)) return
                     if (i /= j) then
                         call row_put(self%schur(j), i, value, self%low_memory, &
-                                     self%limit, self%bytes, self%peak, status)
+                               self%limit, self%bytes, self%peak, self%required, status)
                         if (.not. status_ok(status)) return
                     end if
                 end do
@@ -397,21 +402,55 @@ contains
         real(dp), intent(out) :: x(:)
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(in), optional :: transpose
-        integer :: k, p, first, second, row
-        real(dp) :: a, c, off, scale, value, other
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'LDLT: no usable factors')
+        if (.not. self%ready) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: solution shape')
+        if (size(x) /= self%n) return
+        call prepare_rhs(self, b, status, transpose)
+        if (.not. status_ok(status)) return
+        call solve_workspace(self, status)
+        if (status_ok(status)) x = self%work
+    end subroutine ldlt_solve
+
+    subroutine ldlt_solve_inplace(self, b, status, transpose)
+        class(native_ldlt_t), intent(inout) :: self
+        real(dp), intent(inout) :: b(:)
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(in), optional :: transpose
+        call prepare_rhs(self, b, status, transpose)
+        if (.not. status_ok(status)) return
+        call solve_workspace(self, status)
+        if (status_ok(status)) b = self%work
+    end subroutine ldlt_solve_inplace
+
+    subroutine prepare_rhs(self, b, status, transpose)
+        class(native_ldlt_t), intent(inout) :: self
+        real(dp), intent(in) :: b(:)
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(in), optional :: transpose
+        integer :: p
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'LDLT: no usable factors')
         if (.not. self%ready) return
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: RHS shape/value')
-        if (size(b) /= self%n .or. size(x) /= self%n) return
+        if (present(transpose)) then
+            if (transpose) call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                                           'LDLT: transpose RHS shape/value')
+        end if
+        if (size(b) /= self%n) return
         do p = 1, self%n
             if (.not. ieee_is_finite(b(p))) return
         end do
+        ! Real symmetry makes normal/transpose solves identical. The input is
+        ! copied before output is touched, without passing aliasing dummies.
         self%work = b
-        ! Real symmetry makes normal/transpose identical. Preserve the explicit
-        ! argument so the frontend can express its equation-level adjoint.
-        if (present(transpose)) then
-            if (transpose) self%work = b
-        end if
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine prepare_rhs
+
+    subroutine solve_workspace(self, status)
+        class(native_ldlt_t), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: k, p, first, second, row
+        real(dp) :: a, c, off, scale, value, other
         do k = 1, self%n
             first = self%perm(k)
             do p = 1, self%lower(k)%used
@@ -455,9 +494,8 @@ contains
                 return
             end if
         end do
-        x = self%work
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine ldlt_solve
+    end subroutine solve_workspace
 
     subroutine ldlt_solve_block(self, b, x, status, transpose)
         class(native_ldlt_t), intent(inout) :: self
@@ -505,13 +543,13 @@ contains
         if (row%index(p) == column) value = row%value(p)
     end function row_get
 
-    subroutine row_put(row, column, value, low, limit, bytes, peak, status)
+    subroutine row_put(row, column, value, low, limit, bytes, peak, required, status)
         type(sparse_row_t), intent(inout) :: row
         integer, intent(in) :: column
         real(dp), intent(in) :: value
         logical, intent(in) :: low
         integer(i8), intent(in) :: limit
-        integer(i8), intent(inout) :: bytes, peak
+        integer(i8), intent(inout) :: bytes, peak, required
         type(fortsparse_status_t), intent(out) :: status
         integer :: p, q
         call status_set(status, FORTSPARSE_OK, '')
@@ -527,7 +565,7 @@ contains
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'LDLT: row too long')
             return
         end if
-        call reserve_row(row, row%used + 1, low, limit, bytes, peak, status)
+        call reserve_row(row, row%used + 1, low, limit, bytes, peak, required, status)
         if (.not. status_ok(status)) return
         do q = row%used, p, -1
             row%index(q + 1) = row%index(q)
@@ -552,12 +590,12 @@ contains
         row%used = row%used - 1
     end subroutine row_erase
 
-    subroutine reserve_row(row, need, low, limit, bytes, peak, status)
+    subroutine reserve_row(row, need, low, limit, bytes, peak, required, status)
         type(sparse_row_t), intent(inout) :: row
         integer, intent(in) :: need
         logical, intent(in) :: low
         integer(i8), intent(in) :: limit
-        integer(i8), intent(inout) :: bytes, peak
+        integer(i8), intent(inout) :: bytes, peak, required
         type(fortsparse_status_t), intent(out) :: status
         integer :: capacity, wanted, ierr
         integer(i8) :: new_capacity, request
@@ -573,7 +611,7 @@ contains
         wanted = int(new_capacity)
         request = (ib + rb)*new_capacity
         ! Account both old and new payloads while copying a growing sparse row.
-        call admit_bytes(request, limit, bytes, peak, status)
+        call admit_bytes(request, limit, bytes, peak, required, status)
         if (.not. status_ok(status)) return
         allocate (indices(wanted), values(wanted), stat=ierr)
         if (ierr /= 0) then
@@ -594,19 +632,28 @@ contains
         class(native_ldlt_t), intent(inout) :: self
         integer(i8), intent(in) :: request
         type(fortsparse_status_t), intent(out) :: status
-        call admit_bytes(request, self%limit, self%bytes, self%peak, status)
+        call admit_bytes(request, self%limit, self%bytes, self%peak, &
+            self%required, status)
     end subroutine admit
 
-    subroutine admit_bytes(request, limit, bytes, peak, status)
+    subroutine admit_bytes(request, limit, bytes, peak, required, status)
         integer(i8), intent(in) :: request, limit
-        integer(i8), intent(inout) :: bytes, peak
+        integer(i8), intent(inout) :: bytes, peak, required
         type(fortsparse_status_t), intent(out) :: status
         call status_set(status, FORTSPARSE_OK, '')
-        if (request < 0_i8 .or. bytes > huge(bytes) - request) then
+        if (request < 0_i8) then
+            required = huge(required)
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
                             'LDLT: allocation byte count overflow')
             return
         end if
+        if (bytes > huge(bytes) - request) then
+            required = huge(required)
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                            'LDLT: allocation byte count overflow')
+            return
+        end if
+        required = max(required, bytes + request)
         if (limit > 0_i8) then
             if (request > limit) then
                 call status_set(status, FORTSPARSE_RESOURCE_LIMIT, &
@@ -695,6 +742,7 @@ contains
         self%n = 0
         self%bytes = 0_i8
         self%peak = 0_i8
+        self%required = 0_i8
         self%limit = 0_i8
         self%low_memory = .false.
     end subroutine ldlt_free
@@ -713,6 +761,18 @@ contains
         class(native_ldlt_t), intent(in) :: self
         bytes = self%peak
     end function ldlt_peak
+
+    pure integer(i8) function ldlt_required(self) result(bytes)
+        class(native_ldlt_t), intent(in) :: self
+        ! Highest complete requested payload, including failed transient growth.
+        bytes = self%required
+    end function ldlt_required
+
+    pure integer(i8) function ldlt_available(self) result(bytes)
+        class(native_ldlt_t), intent(in) :: self
+        ! Configured attributed-payload budget. Zero means unlimited.
+        bytes = self%limit
+    end function ldlt_available
 
     pure integer(i8) function ldlt_nnz(self) result(nnz)
         class(native_ldlt_t), intent(in) :: self

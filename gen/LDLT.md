@@ -21,7 +21,8 @@ explicit failure; numerical singular-pivot status does not prove mathematical
 singularity of the exact input.
 
 The API is `native_ldlt_t` with `factor`, `refactor`, `solve`, `solve_block`,
-`free`, `permutation`, `retained_bytes`, `peak_bytes` and `factor_nnz` methods.
+`solve_inplace`, `free`, `permutation`, `retained_bytes`, `peak_bytes`,
+`required_bytes`, `available_bytes` and `factor_nnz` methods.
 `factor(A,status,host_limit_bytes,low_memory)` accepts an optional int64 cap;
 zero means unlimited. `refactor` checks the retained CSC pattern, drops the old
 numeric factors and repivots new values while keeping the pattern. Invalid
@@ -29,6 +30,12 @@ input/pattern is rejected before dropping good factors; a numerical/refactor
 failure leaves no usable factors. Recovery with the retained pattern is allowed.
 `solve` and `solve_block` accept optional logical `transpose`; RHS columns are
 processed using one retained workspace and allocate nothing.
+`solve_inplace(b,status,transpose)` uses the same private workspace solve core
+and copies its result back only on success, without aliasing input/output dummies.
+
+`required_bytes` reports the largest complete allocation request total, including
+a failed row-growth overlap. `available_bytes` reports the configured cap, with
+zero meaning unlimited. These are attributed payload quantities, not free RAM.
 
 The cap covers solver-owned dynamic array payload, including derived-type
 array descriptors, copied pattern, permutations, `D`, sparse Schur/factor row
