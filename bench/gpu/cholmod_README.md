@@ -50,6 +50,15 @@ cuBLAS and allocator internals may be unreported. Unknown allocator/process
 GPU peaks are `-1`; process RSS is measured by the common process-metrics helper.
 The refactor fixture temporary's full matrix allocation is reported separately.
 
+The shared NVML helper samples this process's current GPU bytes after context
+setup, analysis, numeric/refactor, each solve and cleanup, outside phase timers.
+`device_process_sampled_max_bytes` is the largest valid phase-boundary sample;
+`device_process_sample_count` counts valid samples. Neither claims a true peak
+or captures transient allocations between samples. Missing NVML support or
+unavailable samples retain `-1`. `memory_sampling_s` exposes sampler overhead:
+phase times exclude it, while whole-workflow `total_s` includes it.
+
+
 `factor_s` includes cold runtime setup, CSC conversion, analysis and synchronized
 numeric factorization. `cold_factor_s` preserves that first cost. For `warm`,
 `factor_s` measures the subsequent analysis/factorization with the CUDA runtime
