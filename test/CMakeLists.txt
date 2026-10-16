@@ -462,3 +462,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_general_amd_bounded PROPERTIES LABELS "native;lu;refinement;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_spd_panel_no_blas
+        ../test-cmake/native/test_spd_panel_no_blas.f90
+        ../test-cmake/native/count_spd_dtrsm.c)
+    target_link_libraries(test_spd_panel_no_blas PRIVATE fortsparse)
+    target_link_options(test_spd_panel_no_blas PRIVATE "LINKER:--wrap=dtrsm_")
+    add_test(NAME test_spd_panel_no_blas COMMAND test_spd_panel_no_blas)
+    set_tests_properties(test_spd_panel_no_blas PROPERTIES LABELS "native;memory;fast"
+        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

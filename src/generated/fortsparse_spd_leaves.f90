@@ -205,10 +205,12 @@ end subroutine spd_update_vjp
     end subroutine spd_panel_factor
 
     ! Right-side triangular solve B := B L^(-T), B is m by n.
-    subroutine spd_panel_solve(l, n, ldl, b, m, ldb)
+    subroutine spd_panel_solve(l, n, ldl, b, m, ldb, use_blas)
         integer, intent(in) :: n, ldl, m, ldb
         real(dp), intent(in) :: l(ldl, n)
         real(dp), intent(inout) :: b(ldb, n)
+        logical, optional, intent(in) :: use_blas
+        logical :: allow_blas
         integer :: i, j, k
         interface
             subroutine dtrsm(side, uplo, trans, diag, rows, cols, alpha, &
@@ -220,7 +222,9 @@ end subroutine spd_update_vjp
                 real(dp), intent(inout) :: values(ldv,*)
             end subroutine dtrsm
         end interface
-        if (n >= 96 .and. m >= 32) then
+        allow_blas = .true.
+        if (present(use_blas)) allow_blas = use_blas
+        if (allow_blas .and. n >= 96 .and. m >= 32) then
             call dtrsm('R', 'L', 'T', 'N', m, n, 1.0_dp, l, ldl, b, ldb)
             return
         end if
