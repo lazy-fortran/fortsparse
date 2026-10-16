@@ -24,6 +24,7 @@ module fortsparse_ipc_proto
     public :: shm_header_t
     public :: OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, &
         OP_SOLVE_COMPLEX, OP_FREE, OP_SHUTDOWN, OP_CAPABILITIES
+    public :: OP_SOLVE_REAL_T, OP_SOLVE_COMPLEX_T, OP_SOLVE_COMPLEX_H
     public :: ST_OK, ST_SINGULAR, ST_ERROR, ST_RESOURCE_LIMIT
     public :: find_helper
 
@@ -35,6 +36,9 @@ module fortsparse_ipc_proto
     integer(c_int32_t), parameter :: OP_FREE = 5
     integer(c_int32_t), parameter :: OP_SHUTDOWN = 6
     integer(c_int32_t), parameter :: OP_CAPABILITIES = 7
+    integer(c_int32_t), parameter :: OP_SOLVE_REAL_T = 8
+    integer(c_int32_t), parameter :: OP_SOLVE_COMPLEX_T = 9
+    integer(c_int32_t), parameter :: OP_SOLVE_COMPLEX_H = 10
     integer(c_int32_t), parameter :: ST_OK = 0
     integer(c_int32_t), parameter :: ST_SINGULAR = 1
     integer(c_int32_t), parameter :: ST_ERROR = 2

@@ -19,7 +19,8 @@ module fortsparse_mumps
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
-        FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+                  FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+                                  FORTSPARSE_OP_NORMAL
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
@@ -57,6 +58,7 @@ module fortsparse_mumps
         type(csc_t) :: a_real ! kept only when refinement is on
         ! Complex factorization: 0 general, 1 Hermitian, 2 complex symmetric.
         logical     :: is_complex = .false.
+        complex(dp), allocatable :: op_bz(:, :), op_xz(:, :)
         integer     :: zmode = 0
         type(csc_z_t) :: a_cplx ! full matrix; kept only when refinement is on
         ! Pattern and options of the analysed matrix, for refactor reuse.
@@ -77,6 +79,10 @@ module fortsparse_mumps
         procedure :: solve_complex_inplace => mumps_solve_complex_inplace
         procedure :: solve_real_block => mumps_solve_real_block
         procedure :: solve_complex_block => mumps_solve_complex_block
+        procedure :: solve_real_op => mumps_solve_real_op
+        procedure :: solve_complex_op => mumps_solve_complex_op
+        procedure :: solve_real_block_op => mumps_solve_real_block_op
+        procedure :: solve_complex_block_op => mumps_solve_complex_block_op
         procedure :: factor_stats => mumps_factor_stats
         procedure :: vector => mumps_vector
         procedure :: free => mumps_free
@@ -106,6 +112,17 @@ module fortsparse_mumps
             integer(c_long), value        :: ld
             integer(c_int),  intent(out)  :: info2
         end function fsparse_mumps_solve_d
+
+        integer(c_int) function fsparse_mumps_solve_op_d(h, nrhs, rhs, ld, op, info2) &
+            bind(c, name="fsparse_mumps_solve_op_d")
+            import :: c_ptr, c_int, c_long, c_double
+            type(c_ptr), value        :: h
+            integer(c_int), value        :: nrhs
+            real(c_double), intent(inout) :: rhs(*)
+            integer(c_int), value :: op
+            integer(c_long), value        :: ld
+            integer(c_int), intent(out)  :: info2
+        end function fsparse_mumps_solve_op_d
 
         subroutine fsparse_mumps_stats_d(h, istat, rstat) &
                 bind(c, name="fsparse_mumps_stats_d")
@@ -141,6 +158,17 @@ module fortsparse_mumps
             integer(c_long), value        :: ld
             integer(c_int),  intent(out)  :: info2
         end function fsparse_mumps_solve_z
+
+        integer(c_int) function fsparse_mumps_solve_op_z(h, nrhs, rhs, ld, op, info2) &
+            bind(c, name="fsparse_mumps_solve_op_z")
+            import :: c_ptr, c_int, c_long, c_double_complex
+            type(c_ptr), value        :: h
+            integer(c_int), value        :: nrhs
+            complex(c_double_complex), intent(inout) :: rhs(*)
+            integer(c_int), value :: op
+            integer(c_long), value        :: ld
+            integer(c_int), intent(out)  :: info2
+        end function fsparse_mumps_solve_op_z
 
         subroutine fsparse_mumps_stats_z(h, istat, rstat) &
                 bind(c, name="fsparse_mumps_stats_z")
@@ -593,18 +621,21 @@ contains
     end function inf_norm_z
 
     ! Complex counterpart of solve_block_inplace.
-    subroutine solve_block_inplace_z(self, X, B, status)
+    subroutine solve_block_inplace_z(self, X, B, status, operation)
         class(mumps_backend_t),    intent(inout) :: self
         complex(dp), contiguous,   intent(inout) :: X(:, :)
         complex(dp), contiguous,   intent(in)    :: B(:, :)
         type(fortsparse_status_t), intent(out)   :: status
+        integer, optional, intent(in) :: operation
 
         complex(dp), allocatable :: R(:, :)
         real(dp) :: berr
         integer(c_int) :: info1, info2
-        integer :: n, nrhs, j, step
+        integer :: n, nrhs, j, step, op
         character(80) :: msg
 
+        op = FORTSPARSE_OP_NORMAL
+        if (present(operation)) op = operation
         n = size(X, 1)
         nrhs = size(X, 2)
         if (.not. c_associated(self%h) .or. .not. self%is_complex) then
@@ -622,19 +653,19 @@ contains
             return
         end if
         X = B
-        info1 = fsparse_mumps_solve_z(self%h, int(nrhs, c_int), X, &
-            int(n, c_long), info2)
+        info1 = fsparse_mumps_solve_op_z(self%h, int(nrhs, c_int), X, &
+                                         int(n, c_long), int(op, c_int), info2)
         if (info1 /= 0) go to 900
         if (self%refine) then
             allocate (R(n, nrhs))
             do step = 1, REFINE_STEPS
                 berr = 0.0_dp
                 do j = 1, nrhs
-                    call residual_z(self, B(:, j), X(:, j), R(:, j), berr)
+                    call residual_z(self, B(:, j), X(:, j), R(:, j), berr, op)
                 end do
                 if (berr <= REFINE_TOL) exit
-                info1 = fsparse_mumps_solve_z(self%h, int(nrhs, c_int), R, &
-                    int(n, c_long), info2)
+                info1 = fsparse_mumps_solve_op_z(self%h, int(nrhs, c_int), R, &
+                                                 int(n, c_long), int(op, c_int), info2)
                 if (info1 /= 0) go to 900
                 X = X + R
             end do
@@ -651,17 +682,39 @@ contains
         end if
     end subroutine solve_block_inplace_z
 
-    subroutine residual_z(self, b, x, r, berr)
+    subroutine residual_z(self, b, x, r, berr, operation)
         class(mumps_backend_t), intent(in)    :: self
         complex(dp),            intent(in)    :: b(:), x(:)
         complex(dp),            intent(out)   :: r(:)
         real(dp),               intent(inout) :: berr
 
-        real(dp) :: scale
+        real(dp) :: scale, anorm
+        integer, optional, intent(in) :: operation
+        integer :: op, j, k
 
+        op = 0
+        if (present(operation)) op = operation
+        anorm = self%anorm
+        if (op == 0) then
         call apply_z(self, x, r)
         r = b - r
-        scale = self%anorm*maxval(abs(x)) + maxval(abs(b))
+        else
+            r = b
+            anorm = 0.0_dp
+            do j = 1, self%a_cplx%ncol
+                scale = 0.0_dp
+                do k = self%a_cplx%col_ptr(j), self%a_cplx%col_ptr(j + 1) - 1
+                    if (op == 2) then
+                       r(j) = r(j) - conjg(self%a_cplx%val(k))*x(self%a_cplx%row_idx(k))
+                    else
+                        r(j) = r(j) - self%a_cplx%val(k)*x(self%a_cplx%row_idx(k))
+                    end if
+                    scale = scale + abs(self%a_cplx%val(k))
+                end do
+                anorm = max(anorm, scale)
+            end do
+        end if
+        scale = anorm*maxval(abs(x)) + maxval(abs(b))
         if (scale > 0.0_dp) berr = max(berr, maxval(abs(r))/scale)
     end subroutine residual_z
 
@@ -701,18 +754,21 @@ contains
     end subroutine apply_z
 
     ! Solve for nrhs columns in place; refinement acts on every column.
-    subroutine solve_block_inplace(self, X, B, status)
+    subroutine solve_block_inplace(self, X, B, status, operation)
         class(mumps_backend_t),    intent(inout) :: self
         real(dp), contiguous,      intent(inout) :: X(:, :)
         real(dp), contiguous,      intent(in)    :: B(:, :)
         type(fortsparse_status_t), intent(out)   :: status
+        integer, optional, intent(in) :: operation
 
         real(dp), allocatable :: R(:, :)
         real(dp) :: berr
         integer(c_int) :: info1, info2
-        integer :: n, nrhs, j, step
+        integer :: n, nrhs, j, step, op
         character(80) :: msg
 
+        op = FORTSPARSE_OP_NORMAL
+        if (present(operation)) op = operation
         n = size(X, 1)
         nrhs = size(X, 2)
         if (.not. c_associated(self%h) .or. self%is_complex) then
@@ -730,19 +786,19 @@ contains
             return
         end if
         X = B
-        info1 = fsparse_mumps_solve_d(self%h, int(nrhs, c_int), X, &
-            int(n, c_long), info2)
+        info1 = fsparse_mumps_solve_op_d(self%h, int(nrhs, c_int), X, &
+                                         int(n, c_long), int(op, c_int), info2)
         if (info1 /= 0) go to 900
         if (self%refine) then
             allocate (R(n, nrhs))
             do step = 1, REFINE_STEPS
                 berr = 0.0_dp
                 do j = 1, nrhs
-                    call residual(self, B(:, j), X(:, j), R(:, j), berr)
+                    call residual(self, B(:, j), X(:, j), R(:, j), berr, op)
                 end do
                 if (berr <= REFINE_TOL) exit
-                info1 = fsparse_mumps_solve_d(self%h, int(nrhs, c_int), R, &
-                    int(n, c_long), info2)
+                info1 = fsparse_mumps_solve_op_d(self%h, int(nrhs, c_int), R, &
+                                                 int(n, c_long), int(op, c_int), info2)
                 if (info1 /= 0) go to 900
                 X = X + R
             end do
@@ -760,17 +816,35 @@ contains
     end subroutine solve_block_inplace
 
     ! r = b - A x and the scaled backward error max(berr, |r|/(|A||x|+|b|)).
-    subroutine residual(self, b, x, r, berr)
+    subroutine residual(self, b, x, r, berr, operation)
         class(mumps_backend_t), intent(in)    :: self
         real(dp),               intent(in)    :: b(:), x(:)
         real(dp),               intent(out)   :: r(:)
         real(dp),               intent(inout) :: berr
 
-        real(dp) :: scale
+        real(dp) :: scale, anorm
+        integer, optional, intent(in) :: operation
+        integer :: op, j, k
 
+        op = 0
+        if (present(operation)) op = operation
+        anorm = self%anorm
+        if (op == 0) then
         call apply(self, x, r)
         r = b - r
-        scale = self%anorm*maxval(abs(x)) + maxval(abs(b))
+        else
+            r = b
+            anorm = 0.0_dp
+            do j = 1, self%a_real%ncol
+                scale = 0.0_dp
+                do k = self%a_real%col_ptr(j), self%a_real%col_ptr(j + 1) - 1
+                    r(j) = r(j) - self%a_real%val(k)*x(self%a_real%row_idx(k))
+                    scale = scale + abs(self%a_real%val(k))
+                end do
+                anorm = max(anorm, scale)
+            end do
+        end if
+        scale = anorm*maxval(abs(x)) + maxval(abs(b))
         if (scale > 0.0_dp) berr = max(berr, maxval(abs(r))/scale)
     end subroutine residual
 
@@ -811,6 +885,51 @@ contains
         end do
         nrm = maxval(rs)
     end function inf_norm
+
+    subroutine mumps_solve_real_op(self, b, x, operation, status)
+        class(mumps_backend_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(in) :: b(:)
+        real(dp), target, contiguous, intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        real(dp), pointer :: b2(:, :), x2(:, :)
+        b2(1:size(b), 1:1) => b
+        x2(1:size(x), 1:1) => x
+        call solve_block_inplace(self, x2, b2, status, operation)
+    end subroutine mumps_solve_real_op
+
+    subroutine mumps_solve_real_block_op(self, B, X, operation, status)
+        class(mumps_backend_t), intent(inout) :: self
+        real(dp), contiguous, intent(in) :: B(:, :)
+        real(dp), contiguous, intent(out) :: X(:, :)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        call solve_block_inplace(self, X, B, status, operation)
+    end subroutine mumps_solve_real_block_op
+
+    subroutine mumps_solve_complex_op(self, b, x, operation, status)
+        class(mumps_backend_t), intent(inout) :: self
+        complex(dp), intent(in) :: b(:)
+        complex(dp), intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (allocated(self%op_bz)) then
+            if (size(self%op_bz, 1) /= size(b)) deallocate (self%op_bz, self%op_xz)
+        end if
+ if (.not. allocated(self%op_bz)) allocate(self%op_bz(size(b),1), self%op_xz(size(b),1))
+        self%op_bz(:, 1) = b
+        call solve_block_inplace_z(self, self%op_xz, self%op_bz, status, operation)
+        if (status%code == FORTSPARSE_OK) x = self%op_xz(:, 1)
+    end subroutine mumps_solve_complex_op
+
+    subroutine mumps_solve_complex_block_op(self, B, X, operation, status)
+        class(mumps_backend_t), intent(inout) :: self
+        complex(dp), contiguous, intent(in) :: B(:, :)
+        complex(dp), contiguous, intent(out) :: X(:, :)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        call solve_block_inplace_z(self, X, B, status, operation)
+    end subroutine mumps_solve_complex_block_op
 
     subroutine mumps_solve_real(self, b, x, status)
         class(mumps_backend_t),       intent(inout) :: self
@@ -937,6 +1056,7 @@ contains
         self%n = 0
         self%refine = .false.
         self%symmetric = .false.
+        if (allocated(self%op_bz)) deallocate (self%op_bz, self%op_xz)
         if (allocated(self%pat_ptr)) deallocate (self%pat_ptr)
         if (allocated(self%pat_idx)) deallocate (self%pat_idx)
         if (allocated(self%a_real%col_ptr)) deallocate (self%a_real%col_ptr)

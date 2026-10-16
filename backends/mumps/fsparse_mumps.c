@@ -305,8 +305,8 @@ mismatch:
 
 /* Solve with nrhs columns stored contiguously with leading dimension ld.
  * rhs holds the right-hand sides on entry and the solutions on return. */
-int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
-                          int *info2)
+int fsparse_mumps_solve_op_d(void *handle, int nrhs, double *rhs, long ld,
+                          int operation, int *info2)
 {
     fsparse_mumps_t *h = (fsparse_mumps_t *) handle;
 
@@ -314,12 +314,23 @@ int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
         *info2 = 0;
         return -1004;
     }
+    if (operation < 0 || operation > 2) { *info2 = 0; return -1005; }
     h->id.nrhs = nrhs;
     h->id.lrhs = (MUMPS_INT) ld;
     h->id.rhs = rhs;
+    /* MUMPS zsol_driver.F: ICNTL(9)=1 is A, other values are A^T.
+     * A^H x=b is conj(A^T\conj(b)); symmetric mode ignores ICNTL(9). */
+    h->id.ICN(9) = operation == 0 ? 1 : 0;
     mumps_call(h, 3);
+    h->id.ICN(9) = 1;
     *info2 = h->id.INFOG(2);
     return h->id.INFOG(1);
+}
+
+int fsparse_mumps_solve_d(void *handle, int nrhs, double *rhs, long ld,
+                          int *info2)
+{
+    return fsparse_mumps_solve_op_d(handle, nrhs, rhs, ld, 0, info2);
 }
 
 /* istat: [1] factor entries (effective), [2] peak factorization memory (MB,
