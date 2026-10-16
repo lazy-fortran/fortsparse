@@ -224,11 +224,25 @@ thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNOD
   requested and METIS is built; otherwise AMD. An explicit AMD or ND request
   wins. `ordering_used` reports the ordering actually used. `structural_matching` does not apply; the matching is always
   weighted (`matching_used=FORTSPARSE_MATCHING_WEIGHTED`).
-- Factor: serial left-looking panels, partial pivoting restricted to each
+- Factor: left-looking panels, partial pivoting restricted to each
   supernode diagonal block, and pivots below `pivot_perturbation*||A~||_inf`
   (default 1e-13) replaced by `sign(p)` times that threshold. Statistics report
   `perturbed_pivots`, `block_pivot_swaps`, `pivot_growth`, `min_pivot` and
   `scaling_log10_range`.
+- Threads: `nthreads` (0 = OpenMP default) runs one OpenMP task per
+  elimination-subtree group, depending on its predecessor groups, as the SPD
+  supernodal factor does. The team is one below 1e6 flops, at most a quarter
+  of the groups, halved under a host cap until the per-thread row map, update
+  scratch and statistics fit (`budget_reduced_threads`), and one under
+  LOW_MEMORY. `active_threads` reports the actual team. Each destination applies
+  its updates in a fixed order, so pivot counts and gate decisions do not depend
+  on the team. BLAS calls inside tasks use the BLAS library's own threading,
+  as for SPD: with an OpenMP BLAS from another runtime (Homebrew OpenBLAS uses
+  libomp) set `OMP_NUM_THREADS=1`/`OPENBLAS_NUM_THREADS=1` to avoid nested
+  oversubscription. The 64-wide panels at the top of the elimination tree form
+  a serial chain: on KIN6D the tree critical path bounds subtree-task speedup
+  at about 2.4 (ND), and 1.5-2.0 was measured
+  ([stage 7 notes](lu-supernodal.md#9-openmp-and-generated-kernels)).
 - Gates: a non-finite factor entry, more than `max(0,n/1000)` perturbed pivots
   or growth above `1/(64*sqrt(eps))` fall back to the scalar LU (threshold 0.1,
   structural matching, AMD unless ND was requested). With `verify_factor`
@@ -247,7 +261,7 @@ thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNOD
   failed gate repeats the full analysis. NORMAL, TRANSPOSE/ADJOINT and block solves,
   refinement, implicit JVP/VJP and context copies use the retained factors.
 - Unsupported: complex values (BACKEND_UNAVAILABLE), structured symmetries,
-  NATIVE_REFERENCE, devices and OpenMP execution (one active thread). ND is
+  NATIVE_REFERENCE and devices. ND is
   refused under a host cap or LOW_MEMORY. LOW_MEMORY currently changes only
   the matching cost cache and the AMD workspace.
 

@@ -1182,6 +1182,10 @@ contains
             self%stats%symbolic_nnz = self%slu_factor%symbolic_nnz
         end if
         self%stats%active_threads = 1
+        if (self%mode==6) then
+            self%stats%active_threads = self%slu_factor%active_threads
+            self%stats%budget_reduced_threads = self%slu_factor%budget_reduced_threads
+        end if
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
         if ((self%mode/=6 .and. (self%selected_order == FORTSPARSE_ORDER_ND .or. &
@@ -1573,7 +1577,8 @@ contains
             order=supernodal_order(self%options)
             call self%slu_factor%analyze(n,ptr,rows,values,status,ordering=order, &
                 low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW, &
-                pivot_perturbation=self%options%pivot_perturbation,budget=ledger)
+                pivot_perturbation=self%options%pivot_perturbation,budget=ledger, &
+                nthreads=self%options%nthreads)
             self%stats%analysis_s=self%slu_factor%analysis_s
             if (status%code==FORTSPARSE_SINGULAR) then
                 ! A structurally singular matching: the scalar LU reports it.
