@@ -10,6 +10,10 @@ if(FORTSPARSE_BUILD_TESTING)
             ${CMAKE_CURRENT_LIST_DIR}/test_analyze_gpu_spd.py)
         set_tests_properties(gpu_spd_front_analysis PROPERTIES
             LABELS "benchmark;fast" TIMEOUT 1)
+        add_test(NAME gpu_spd_offload_provenance COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_LIST_DIR}/test_offload_provenance.py)
+        set_tests_properties(gpu_spd_offload_provenance PROPERTIES
+            LABELS "benchmark;fast" TIMEOUT 1)
     endif()
     foreach(workload IN ITEMS rhs1 rhs8 warm refactor repeated-rhs)
         add_test(NAME gpu_contract_native_${workload}
