@@ -307,7 +307,10 @@ mathematical implementations.
 - [ ] **M6.6: consumer integration and CPU independence.** Consumer-required
   sparse preconditioners (Krylov remains in FortNum), native configuration tests
   without external sparse solvers, representative/held-out admission evidence,
-  cluster-memory predictions and migration documentation. Expand index width
+  cluster-memory predictions and migration documentation. Close the explicit
+  context-ownership/copy contract: intrinsic public solver assignment can alias
+  native user workspaces and opaque external handles; low-level allocatable
+  factor-copy tests do not establish safe whole-context copying. Expand index width
   when the consumer inventory demonstrates a requirement.
   Native real CSR [ILUTP](docs/ilutp.md) with explicit fill caps, column pivots,
   bounded payload and allocation-free retained normal apply is implemented.

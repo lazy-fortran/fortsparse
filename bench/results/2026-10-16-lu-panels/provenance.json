@@ -1,0 +1,103 @@
+{
+  "scope": "All60 requested ordinary children, three separate matched internal-control windows; no external/frontier claim",
+  "experiments": [
+    {
+      "name": "arbitrary-mask",
+      "archive": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-kin6d-native-migration/nonnested-csc-probe/lu-panel8-ab",
+      "source": "2926aad91e64708b2f2fd147d67056607f31ce7a",
+      "width1_source": "2926aad91e64708b2f2fd147d67056607f31ce7a",
+      "files": {
+        "probe_panel": "0b030e20853a9f33ab0719dab872a8e354df2120c1def0710082bfc76f103fd6",
+        "probe_panel_counter": "bd010395c2de7dfc6d44e4bbf0768f20ed8b97527a049d36652c1ebe02e3addc",
+        "probe_panel.f90": "c45468754b7ddc25dc59f827663d09a32a9c53e498b8fe91804316b107703f92",
+        "measure": "e3e0692499cc35e0863bae67aab8476345ee2c126ee8980b1ca75cfafcf5ebda",
+        "measure.c": "92e9706777c6d82bed495353d487a94b03fb009d8773fa5fddb18a15290a3cad",
+        "kin6d-5525.mtx": "707d5e280ed1f345f12581a1086be4bfe42ff00e5a1291e87b3176b4b5288078",
+        "kin6d-5525-nd-order.bin": "dc1e09b22da053d16bcc79698bd178282dfb7f14d453d28b83d232a3612aa25d",
+        "drift-real-32-training.mtx": "7ea38ca9b1ca1988d13ed68959e6f214705bbae8f4a57de4d12e1dbc0cfbd3ff",
+        "drift-real-32-natural-order.bin": "6b8b6bd30ff821daf5db90cc071525f5696e366efd1aeb30d0bf60f785a3c26d",
+        "/var/tmp/fortsparse-panel8-release/lib/libfortsparse.a": "5ffc3190247d2d65856d16bd3c1ef3fd6dd2316d875b403b8aed503b65e229f3"
+      },
+      "libraries": {
+        "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+        "/usr/lib/libmetis.so": "b339c99b4314402b5384608c37ce0256f91bd3e74bcb6f7b777e3e048ca74148",
+        "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad",
+        "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff"
+      },
+      "compiler": "GNU Fortran (GCC) 16.2.1 20260810",
+      "affinity": [
+        30
+      ],
+      "threads": 1,
+      "ordinary_watchdog_s": 0.9,
+      "raw_json_sha256": "0f6db185c9b2f4f7ccf61204e63669a3774b06d953640013a635f3c2d0773eb1"
+    },
+    {
+      "name": "uniform-full-mask",
+      "archive": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-kin6d-native-migration/nonnested-csc-probe/lu-panel8-fullmask-ab",
+      "source": "059859009a0b3e206f4873d0fff65d91c577b256",
+      "width1_source": "2926aad91e64708b2f2fd147d67056607f31ce7a",
+      "files": {
+        "probe_panel": "2da64d3fd8af54bf45040a71def6aa9e8f4a8eb96c87105d7c5b6bc466546563",
+        "probe_width1": "0b030e20853a9f33ab0719dab872a8e354df2120c1def0710082bfc76f103fd6",
+        "probe_panel.f90": "c45468754b7ddc25dc59f827663d09a32a9c53e498b8fe91804316b107703f92",
+        "measure": "e3e0692499cc35e0863bae67aab8476345ee2c126ee8980b1ca75cfafcf5ebda",
+        "measure.c": "92e9706777c6d82bed495353d487a94b03fb009d8773fa5fddb18a15290a3cad",
+        "kin6d-5525.mtx": "707d5e280ed1f345f12581a1086be4bfe42ff00e5a1291e87b3176b4b5288078",
+        "kin6d-5525-nd-order.bin": "dc1e09b22da053d16bcc79698bd178282dfb7f14d453d28b83d232a3612aa25d",
+        "drift-real-32-training.mtx": "7ea38ca9b1ca1988d13ed68959e6f214705bbae8f4a57de4d12e1dbc0cfbd3ff",
+        "drift-real-32-natural-order.bin": "6b8b6bd30ff821daf5db90cc071525f5696e366efd1aeb30d0bf60f785a3c26d",
+        "libfortsparse-0598590.a": "5649ce64fab1c86ac94391c82d0f14cf6d64b760abd3fa87c845df1f939a0b5d"
+      },
+      "libraries": {
+        "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+        "/usr/lib/libmetis.so": "b339c99b4314402b5384608c37ce0256f91bd3e74bcb6f7b777e3e048ca74148",
+        "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad",
+        "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff"
+      },
+      "compiler": "GNU Fortran (GCC) 16.2.1 20260810",
+      "affinity": [
+        30
+      ],
+      "threads": 1,
+      "ordinary_watchdog_s": 0.9,
+      "raw_json_sha256": "fed9f11a062a03965e3d00ca20be8f0a82f260a577b8fddda90c402a4d78199c"
+    },
+    {
+      "name": "contiguous-active-run",
+      "archive": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-kin6d-native-migration/nonnested-csc-probe/lu-panel8-range-ab",
+      "source": "bfc607b48b6c943896ea600dc441e5b288b5bed9",
+      "width1_source": "2926aad91e64708b2f2fd147d67056607f31ce7a",
+      "files": {
+        "probe_panel": "27514e309e70c5df737f71c78ed4b7362928af3b121583b0a37dc3a9c219b833",
+        "probe_width1": "0b030e20853a9f33ab0719dab872a8e354df2120c1def0710082bfc76f103fd6",
+        "probe_panel.f90": "c45468754b7ddc25dc59f827663d09a32a9c53e498b8fe91804316b107703f92",
+        "measure": "e3e0692499cc35e0863bae67aab8476345ee2c126ee8980b1ca75cfafcf5ebda",
+        "measure.c": "92e9706777c6d82bed495353d487a94b03fb009d8773fa5fddb18a15290a3cad",
+        "kin6d-5525.mtx": "707d5e280ed1f345f12581a1086be4bfe42ff00e5a1291e87b3176b4b5288078",
+        "kin6d-5525-nd-order.bin": "dc1e09b22da053d16bcc79698bd178282dfb7f14d453d28b83d232a3612aa25d",
+        "drift-real-32-training.mtx": "7ea38ca9b1ca1988d13ed68959e6f214705bbae8f4a57de4d12e1dbc0cfbd3ff",
+        "drift-real-32-natural-order.bin": "6b8b6bd30ff821daf5db90cc071525f5696e366efd1aeb30d0bf60f785a3c26d",
+        "libfortsparse-bfc607b.a": "1ae0b503464f64dd428ee31db3a396bb8ffafa09c114b244129be3fbf27028f5"
+      },
+      "libraries": {
+        "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+        "/usr/lib/libmetis.so": "b339c99b4314402b5384608c37ce0256f91bd3e74bcb6f7b777e3e048ca74148",
+        "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad",
+        "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff"
+      },
+      "compiler": "GNU Fortran (GCC) 16.2.1 20260810",
+      "affinity": [
+        30
+      ],
+      "threads": 1,
+      "ordinary_watchdog_s": 0.9,
+      "raw_json_sha256": "d8575109192591675d1cd4ddea43b3c405ad357830646f49498d474c209ef496"
+    }
+  ],
+  "public_patch_integrations": {
+    "2926aad91e64708b2f2fd147d67056607f31ce7a": "2152242d318c4891d1a42751f7f20176feef5c4f",
+    "059859009a0b3e206f4873d0fff65d91c577b256": "5215cbc0a0faf47cdad228eba5b9d1ec99c9903b",
+    "bfc607b48b6c943896ea600dc441e5b288b5bed9": "8d7f6341cef5ba3a3bd036afe4f1267a4810e29b"
+  }
+}

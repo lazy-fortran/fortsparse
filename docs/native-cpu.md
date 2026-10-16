@@ -65,6 +65,12 @@ Default AUTO prefers eligible in-process external backends when built; a
 native-only build uses native AUTO. This is capability selection, not additional
 performance admission.
 
+Public solver contexts own mutable resources. Intrinsic assignment of a whole
+`sparse_solver_t` is unsafe: native user workspace pointers and opaque external
+handles can alias. Create independent contexts through the API; low-level LU
+factor-copy checks cover allocatable factor storage, not whole public contexts.
+A safe explicit ownership/copy contract remains open roadmap work.
+
 The new references enforce `host_memory_limit_bytes` across their owned arrays,
 including factor growth replacement overlap, and support RAM-only LOW_MEMORY.
 LOW_MEMORY LU grows factor buffers by at most 1/16 of their old capacity
