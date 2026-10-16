@@ -30,8 +30,9 @@ The new references enforce `host_memory_limit_bytes` across their owned arrays,
 including factor growth replacement overlap, and support RAM-only LOW_MEMORY.
 LU uses exact-needed growth instead of geometric spare capacity in LOW_MEMORY;
 HPD already uses compact exact structural storage. Separate contexts own their
-mutable work independently. Strict-budget and LOW_MEMORY execution require
-natural ordering; these matrix classes currently execute on CPU. LU, HPD and
+mutable work independently. Strict-budget and LOW_MEMORY execution use natural
+ordering, or the audited bounded AMD path for general LU; these matrix classes
+currently execute on CPU. LU, HPD and
 real/complex LDL support `solver%refine=.true.` with
 retained original-matrix residuals, a 32-epsilon normwise backward-error target
 and at most three corrections. Statistics report correction steps and final
@@ -46,7 +47,7 @@ refactor always selects pivots anew. No derivative is taken through pivot choice
 
 ## Optional general LU ordering
 
-For uncapped real and complex general matrices, production native LU accepts
+For real and complex general matrices, production native LU accepts
 `solver%options%ordering=FORTSPARSE_ORDER_AMD` when SuiteSparse AMD is built.
 AMD accepts the canonical unsymmetric CSC graph and orders its structural
 `A+A^T`; numerical factorization borrows the original CSC values and applies the
@@ -59,13 +60,15 @@ A changed pattern recomputes AMD, and a changed ordering strategy invalidates
 pattern-reuse reporting. Normal, transpose and adjoint solves, refinement and
 implicit solve derivatives act on the original matrix.
 
-AMD's private workspace has no solver-owned hard-cap contract. Explicit AMD
-with a positive host cap or LOW_MEMORY returns BACKEND_UNAVAILABLE before
-calling AMD; the native-only build without AMD returns the same availability
-status. AMD statistics report the actual ordering and exact retained owned
-payload, but complete host peak bytes and factor memory are unknown (`-1`), and
-`strict_memory_supported` is false. Use measured process RSS for comparisons;
-these changes make no performance-admission claim.
+Uncapped AUTO-memory AMD uses the existing opaque `amd_order` path: actual
+ordering and retained owned payload are reported, but complete host peak/factor
+memory remains unknown (`-1`) and `strict_memory_supported` is false. Positive
+host caps and LOW_MEMORY instead use the audited AMD 3.3.4 `amd_2` caller-workspace
+path, including old-factor, user-vector, refinement and permutation-input overlap
+in cap admission and phase peak statistics. An unavailable audited ABI fails
+explicitly. See [bounded AMD](native-amd-bounded.md) for exact workspace counts,
+release trust, reuse and verification limits. Use measured process RSS for process
+memory comparisons; these changes make no performance-admission claim.
 
 ## Retained transpose and adjoint solves
 

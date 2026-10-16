@@ -421,3 +421,25 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     add_test(NAME test_general_amd COMMAND test_general_amd)
     set_tests_properties(test_general_amd PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
 endif()
+
+add_executable(test_native_order_amd_bounded ../test-cmake/native/test_amd_bounded.c)
+target_link_libraries(test_native_order_amd_bounded PRIVATE fortsparse ${CMAKE_DL_LIBS})
+target_include_directories(test_native_order_amd_bounded PRIVATE ../src/native)
+if(FORTSPARSE_NATIVE_BOUNDED_AMD_FOUND AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_definitions(test_native_order_amd_bounded PRIVATE FS_TEST_BOUNDED_AMD)
+    target_link_libraries(test_native_order_amd_bounded PRIVATE ${FORTSPARSE_NATIVE_AMD_TARGET})
+    target_link_options(test_native_order_amd_bounded PRIVATE "LINKER:--wrap=amd_2" "LINKER:--wrap=amd_version")
+endif()
+add_test(NAME test_native_order_amd_bounded COMMAND test_native_order_amd_bounded)
+set_tests_properties(test_native_order_amd_bounded PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_general_amd_bounded
+        ../test-cmake/native/test_general_amd_bounded.f90
+        ../test-cmake/native/count_bounded_amd.c)
+    target_link_libraries(test_general_amd_bounded PRIVATE fortsparse)
+    target_include_directories(test_general_amd_bounded PRIVATE ../src/native)
+    target_link_options(test_general_amd_bounded PRIVATE "LINKER:--wrap=fsparse_native_amd_bounded")
+    add_test(NAME test_general_amd_bounded COMMAND test_general_amd_bounded)
+    set_tests_properties(test_general_amd_bounded PROPERTIES LABELS "native;lu;refinement;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()
