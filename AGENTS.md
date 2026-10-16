@@ -151,6 +151,9 @@ never present separate process peaks as aggregate workflow memory.
    alone does not describe elimination cost. Identify mesh, nonlinear iteration
    and factor ordinal, including preconditioner replacements. A sampled hotspot
    cannot distinguish excessive fill from repeated updates or expensive entries.
+   For masked panels, retain active-lane histograms weighted by row entries
+   and arithmetic, not only call counts. Check packed instructions in the
+   compiled release kernel; a SIMD directive does not establish vectorization.
 5. Make one bounded change addressing measured evidence. Generate a bounded
    ahead-of-time variant set for tiles/layouts/unrolling/fusion where justified.
    Fewer symbolic operations do not imply lower elapsed time. Avoid unbounded
@@ -187,6 +190,10 @@ whether outer iterations actually converge. Verify projected eigensystems with
 independent known eigenvalues and true eigenvector residuals, including the
 final projected column and happy breakdown. Apply shared correctness repairs
 identically to baseline and candidate, retaining the original failed evidence.
+For affine operator callbacks, compare the offset scale with the normalized
+probe before subtracting F(0). Verify any scaling repair on independent spectra
+and original-operator residuals, including large offsets and finite-range
+failures; preserve the callback contract and physical case controls.
 
 ## Verification
 
