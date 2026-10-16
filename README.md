@@ -12,9 +12,10 @@ The next requirements are native CPU coverage across audited ITPplasma matrix
 classes and predictable, user-limited memory with RAM-only low-memory modes.
 Native CPU references and natural-order SPD blocked execution support strict
 host payload caps; exact pre-factor planning initially covers compact real SPD.
-See [memory limits and cluster sizing](docs/memory.md). Production planning,
-ordering/GPU caps and broader performance admission remain planned. Development
-continues on `main`; GPU usability precedes CPU coverage, with full GPU Pareto
+General LU also supports bounded explicit AMD through an audited caller-owned
+workspace. See [memory limits and cluster sizing](docs/memory.md). Production
+planning, SPD ordering/GPU caps and broader performance admission remain planned.
+Development continues on `main`; GPU usability precedes CPU coverage, with full GPU Pareto
 admission retained as a later gate. MPI and disk-backed factors are out of scope.
 
 The [measured real-SPD MVP](bench/results/2026-10-16-mvp.md) is on the observed

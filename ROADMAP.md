@@ -156,9 +156,11 @@ cost; provide cluster-sizing guidance with explicit headroom and uncertainty.
 Reuse keys cover every structural and scheduling assumption.
 
 Implemented host caps cover natural-order CPU SPD compact and blocked execution,
-and the new CPU factor references. Bounded panels count descriptors, graph/task
+and the CPU factor references. General LU also supports explicit AMD with
+audited caller-owned ordering workspace, including LOW_MEMORY and reuse overlap.
+Bounded panels count descriptors, graph/task
 scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
-workspace. Compact SPD has exact payload planning. Ordering/CUDA caps and wider
+workspace. Compact SPD has exact payload planning. SPD ordering/CUDA caps and wider
 production planning remain unimplemented; strict unsupported requests fail
 explicitly. See [memory contracts](docs/memory.md). This does not complete M6.1
 or confer performance admission.
