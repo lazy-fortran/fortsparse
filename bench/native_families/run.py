@@ -17,6 +17,7 @@ import time
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 EXTERNAL = ("superlu", "umfpack", "mumps", "intel-pardiso")
+NATIVE = ("native", "native-amd")
 KEYS = ("backend", "family", "level", "threads", "workload", "variant", "operation")
 
 
@@ -77,7 +78,8 @@ def invoke(binary, args, threads, cores, timeout):
     record = parse_csv(stdout)
     if record and not timed_out:
         record["process_wall_s"] = receipt["process_wall_s"]
-        record["workflow_cpu_s"] = record["parent_cpu_s"]+record["helper_cpu_s"]
+        record["workflow_cpu_s"] = (record["parent_cpu_s"]+record["helper_cpu_s"]
+            if min(record["parent_cpu_s"], record["helper_cpu_s"]) >= 0 else -1.0)
         receipt["record"] = record
         receipt["status"] = record["status"]
         if process.returncode != 0 and record["status"] == "ok":
@@ -207,12 +209,12 @@ def main():
             manifest["mini5_matrix_sha256"]:
         parser.error("retained NEO-2 numeric fixture differs from frozen provenance")
     backends = args.backends.split(",")
-    if any(b not in ("native", *EXTERNAL) for b in backends):
+    if any(b not in (*NATIVE, *EXTERNAL) for b in backends):
         parser.error("unknown backend")
     selected = None
     selection_scope = "not_applicable"
     if args.mode == "calibrate":
-        backends = [b for b in backends if b != "native"]
+        backends = [b for b in backends if b not in NATIVE]
         if not backends or any(b not in EXTERNAL for b in backends):
             parser.error("calibration uses external comparators only")
     else:
@@ -258,6 +260,7 @@ def main():
             ["git", "-C", str(ROOT), "status", "--porcelain"], text=True),
         contract=manifest, mode=args.mode, trials=args.trials, physical_cores=cores,
         timeout_s=args.timeout, window_note=args.window_note,
+        cpu_measurement_scope="parent_cumulative_rusage_self; helper_reaped_rusage_children",
         selection_scope=selection_scope, diagnostic=args.diagnostic,
         requested_backends=backends, requested_cases=cases, requested_threads=threads,
         requested_workloads=args.workloads or manifest["workloads"],
