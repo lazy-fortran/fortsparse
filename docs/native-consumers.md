@@ -27,7 +27,8 @@ perturbation (supernodal LU) is unsuitable for inertia.
 CHEASE (itpplasma/chease) factors its Grad–Shafranov bicubic-Hermite system
 with a hand-written banded LDLᵀ (`ALDLT`, `src-f90/matrix.f90`), refactored in
 the ballooning loop. It is the strongest remaining candidate: a sparse
-ordering could change its cost class. Upstream EPFL parity constrains changes.
+ordering could change its cost class. Its owners are actively tuning that
+solver under EPFL parity constraints, so no FortSparse migration is planned.
 ARES and tiago hand-write block-tridiagonal (Thomas-type) solvers in the right
 cost class; they need no migration. A 2026-10-16 audit of all itpplasma and
 lazy-fortran repositories found no other meaningful candidate.
