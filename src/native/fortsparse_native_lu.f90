@@ -99,7 +99,7 @@ contains
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
         real(dp) :: value,diagonal
-        logical :: same,use_pruning
+        logical :: same,use_pruning,exact_growth,lower_hint,upper_hint,attempt_slack
 
         self%ready=.false.
         self%factor_nnz=0_i8
@@ -255,11 +255,20 @@ contains
             call status_set(status,FORTSPARSE_SINGULAR,'LU structurally or numerically zero row')
             return
         end if
+        exact_growth=.false.
+        factor_attempt: do
+        ! A cap failure caused by this attempt's spare capacity gets exactly
+        ! one retry with exact growth. The old numerical factors are already
+        ! invalid; only their storage is released, never live entry factors to
+        ! evade the initial cap gate. Pattern/order/scaling workspace is kept.
+        lower_hint=.false.
+        upper_hint=.false.
+        call status_set(status,FORTSPARSE_OK,'')
         self%ln=0
         self%un=0
         self%lp(1)=1
         self%up(1)=1
-        do j=1,n
+        factor_columns: do j=1,n
             col=self%q(j)
             count=0
             do e=col_ptr(col),col_ptr(col+1)-1
@@ -324,10 +333,10 @@ contains
                 call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'LU factor index overflow')
                 return
             end if
-            call reserve(self,.true.,self%ln+lc,status)
-            if (status%code/=FORTSPARSE_OK) return
-            call reserve(self,.false.,self%un+uc,status)
-            if (status%code/=FORTSPARSE_OK) return
+            call reserve(self,.true.,self%ln+lc,status,exact_growth,lower_hint)
+            if (status%code/=FORTSPARSE_OK) exit factor_columns
+            call reserve(self,.false.,self%un+uc,status,exact_growth,upper_hint)
+            if (status%code/=FORTSPARSE_OK) exit factor_columns
             do t=count,1,-1
                 row=self%reach(t)
                 k=self%pinv(row)
@@ -369,7 +378,24 @@ contains
                     end do
                 end if
             end if
-        end do
+        end do factor_columns
+        if(status%code==FORTSPARSE_OK) exit factor_attempt
+        attempt_slack=.false.
+        if(allocated(self%lr)) attempt_slack=lower_hint.and.size(self%lr)>self%ln
+        if(allocated(self%ur)) attempt_slack=attempt_slack.or.(upper_hint.and.size(self%ur)>self%un)
+        if(status%code/=FORTSPARSE_RESOURCE_LIMIT.or..not.self%low.or.exact_growth.or..not.attempt_slack) return
+        ! No simultaneous old/new retry factors: preserve the measured first
+        ! attempt peak, then free all invalid numerical payload before retry.
+        if(allocated(self%lr)) deallocate(self%lr,self%lv)
+        if(allocated(self%ur)) deallocate(self%ur,self%uv)
+        self%pinv=0
+        self%mark=0
+        if(self%pruned) self%prune_end=0
+        exact_growth=.true.
+        self%last_reused_pattern=.false.
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
+        end do factor_attempt
         do e=1,self%ln
             self%lr(e)=self%pinv(self%lr(e))
         end do
@@ -463,10 +489,12 @@ contains
         endpoint=-left
     end subroutine lu_prune_column
 
-    subroutine reserve(self,lower,required,status)
+    subroutine reserve(self,lower,required,status,exact_growth,hinted)
         class(lu_factor_t), intent(inout) :: self
         logical, intent(in) :: lower
         integer, intent(in) :: required
+        logical, intent(in) :: exact_growth
+        logical, intent(inout) :: hinted
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable :: new_indices(:)
         real(dp), allocatable :: new_values(:)
@@ -483,7 +511,14 @@ contains
         end if
         if (required<=old) return
         wanted=required
-        if (.not.self%low) wanted=max(wanted,min(int(huge(0),i8),max(16_i8,2_i8*old)))
+        if (self%low) then
+            ! LOW amortizes prefix copies with at most 1/16 spare capacity at
+            ! each growth. Tiny buffers and a cap-recovery retry grow exactly.
+            if (.not.exact_growth) wanted=max(wanted,min(int(huge(0),i8), &
+                int(old,i8)+max(1_i8,int(old,i8)/16_i8)))
+        else
+            wanted=max(wanted,min(int(huge(0),i8),max(16_i8,2_i8*old)))
+        end if
         current=self%memory_bytes()
         peak=current+wanted*(ib+vb)
         if (self%limit>0 .and. peak>self%limit) then
@@ -507,6 +542,7 @@ contains
             return
         end if
         self%peak_memory_bytes=max(self%peak_memory_bytes,peak)
+        hinted=wanted>required
         if (lower) then
             if (used>0) then
                 new_indices(:used)=self%lr(:used)
@@ -809,7 +845,7 @@ contains
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
         complex(dp) :: value,diagonal
-        logical :: same,use_pruning
+        logical :: same,use_pruning,exact_growth,lower_hint,upper_hint,attempt_slack
 
         self%ready=.false.
         self%factor_nnz=0_i8
@@ -965,11 +1001,20 @@ contains
             call status_set(status,FORTSPARSE_SINGULAR,'LU structurally or numerically zero row')
             return
         end if
+        exact_growth=.false.
+        factor_attempt: do
+        ! A cap failure caused by this attempt's spare capacity gets exactly
+        ! one retry with exact growth. The old numerical factors are already
+        ! invalid; only their storage is released, never live entry factors to
+        ! evade the initial cap gate. Pattern/order/scaling workspace is kept.
+        lower_hint=.false.
+        upper_hint=.false.
+        call status_set(status,FORTSPARSE_OK,'')
         self%ln=0
         self%un=0
         self%lp(1)=1
         self%up(1)=1
-        do j=1,n
+        factor_columns: do j=1,n
             col=self%q(j)
             count=0
             do e=col_ptr(col),col_ptr(col+1)-1
@@ -1034,10 +1079,10 @@ contains
                 call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'LU factor index overflow')
                 return
             end if
-            call reserve(self,.true.,self%ln+lc,status)
-            if (status%code/=FORTSPARSE_OK) return
-            call reserve(self,.false.,self%un+uc,status)
-            if (status%code/=FORTSPARSE_OK) return
+            call reserve(self,.true.,self%ln+lc,status,exact_growth,lower_hint)
+            if (status%code/=FORTSPARSE_OK) exit factor_columns
+            call reserve(self,.false.,self%un+uc,status,exact_growth,upper_hint)
+            if (status%code/=FORTSPARSE_OK) exit factor_columns
             do t=count,1,-1
                 row=self%reach(t)
                 k=self%pinv(row)
@@ -1079,7 +1124,24 @@ contains
                     end do
                 end if
             end if
-        end do
+        end do factor_columns
+        if(status%code==FORTSPARSE_OK) exit factor_attempt
+        attempt_slack=.false.
+        if(allocated(self%lr)) attempt_slack=lower_hint.and.size(self%lr)>self%ln
+        if(allocated(self%ur)) attempt_slack=attempt_slack.or.(upper_hint.and.size(self%ur)>self%un)
+        if(status%code/=FORTSPARSE_RESOURCE_LIMIT.or..not.self%low.or.exact_growth.or..not.attempt_slack) return
+        ! No simultaneous old/new retry factors: preserve the measured first
+        ! attempt peak, then free all invalid numerical payload before retry.
+        if(allocated(self%lr)) deallocate(self%lr,self%lv)
+        if(allocated(self%ur)) deallocate(self%ur,self%uv)
+        self%pinv=0
+        self%mark=0
+        if(self%pruned) self%prune_end=0
+        exact_growth=.true.
+        self%last_reused_pattern=.false.
+        self%failed_required_bytes=0_i8
+        self%failed_available_bytes=0_i8
+        end do factor_attempt
         do e=1,self%ln
             self%lr(e)=self%pinv(self%lr(e))
         end do
@@ -1173,10 +1235,12 @@ contains
         endpoint=-left
     end subroutine lu_prune_column
 
-    subroutine reserve(self,lower,required,status)
+    subroutine reserve(self,lower,required,status,exact_growth,hinted)
         class(lu_factor_z_t), intent(inout) :: self
         logical, intent(in) :: lower
         integer, intent(in) :: required
+        logical, intent(in) :: exact_growth
+        logical, intent(inout) :: hinted
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable :: new_indices(:)
         complex(dp), allocatable :: new_values(:)
@@ -1193,7 +1257,14 @@ contains
         end if
         if (required<=old) return
         wanted=required
-        if (.not.self%low) wanted=max(wanted,min(int(huge(0),i8),max(16_i8,2_i8*old)))
+        if (self%low) then
+            ! LOW amortizes prefix copies with at most 1/16 spare capacity at
+            ! each growth. Tiny buffers and a cap-recovery retry grow exactly.
+            if (.not.exact_growth) wanted=max(wanted,min(int(huge(0),i8), &
+                int(old,i8)+max(1_i8,int(old,i8)/16_i8)))
+        else
+            wanted=max(wanted,min(int(huge(0),i8),max(16_i8,2_i8*old)))
+        end if
         current=self%memory_bytes()
         peak=current+wanted*(ib+vb)
         if (self%limit>0 .and. peak>self%limit) then
@@ -1217,6 +1288,7 @@ contains
             return
         end if
         self%peak_memory_bytes=max(self%peak_memory_bytes,peak)
+        hinted=wanted>required
         if (lower) then
             if (used>0) then
                 new_indices(:used)=self%lr(:used)

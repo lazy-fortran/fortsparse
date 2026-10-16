@@ -7,6 +7,7 @@ program test_fortsparse_native_refinement
     call structured()
     call complex_indefinite()
     call memory_and_reuse()
+    call low_cap_retry()
     print '(a)', 'Native CPU refinement original residuals, operations, reuse and memory pass'
 contains
     subroutine check(ok,message)
@@ -336,6 +337,123 @@ contains
             solver%options%host_memory_limit_bytes=0_i8
         end do
     end subroutine complex_indefinite
+    subroutine low_cap_retry()
+        integer, parameter :: n=80
+        type(sparse_solver_t) :: solver
+        type(csc_t) :: a,tiny
+        type(csc_z_t) :: z,ztiny
+        type(fortsparse_status_t) :: status
+        type(sparse_factor_stats_t) :: stats
+        integer :: rows(n*n),cols(n*n),i,j,k,kind,op
+        integer(i8) :: cap,fixed,quota,entry,value_bytes,lower,upper
+        real(dp) :: matrix(n,n),reference(n),rhs(n),x(n)
+        real(dp), pointer :: owned(:)
+        complex(dp) :: zmatrix(n,n),zreference(n),zrhs(n),zx(n)
+        logical :: reused
+        k=0
+        do j=1,n
+            do i=1,n
+                k=k+1;rows(k)=i;cols(k)=j
+                matrix(i,j)=.01_dp*sin(real(i+2*j,dp))
+                if(i==j) matrix(i,j)=real(n,dp)
+                zmatrix(i,j)=cmplx(matrix(i,j),.003_dp*cos(real(2*i+j,dp)),dp)
+            end do
+        end do
+        reference=[(sin(real(i,dp)),i=1,n)]
+        zreference=cmplx(reference,.25_dp*reference,dp)
+        call csc_from_triplet(n,n,rows,cols,reshape(matrix,[n*n]),a,status)
+        call checked(status)
+        call csc_from_triplet(n,n,rows,cols,reshape(zmatrix,[n*n]),z,status)
+        call checked(status)
+        call csc_from_triplet(1,1,[1],[1],[2._dp],tiny,status)
+        call checked(status)
+        call csc_from_triplet(1,1,[1],[1],[cmplx(2._dp,.1_dp,dp)],ztiny,status)
+        call checked(status)
+        lower=int(n,i8)*(n-1)/2;upper=int(n,i8)*(n+1)/2
+        do kind=1,2
+            solver%backend_id=FORTSPARSE_BACKEND_NATIVE
+            solver%options%memory_policy=FORTSPARSE_MEMORY_LOW
+            if(kind==1) then
+                call sparse_factor(solver,tiny,status)
+            else
+                call sparse_factor(solver,ztiny,status)
+            end if
+            call checked(status)
+            owned=>sparse_vector(solver,3)
+            call check(associated(owned),'LOW retry retains user vector')
+            owned=[7._dp,9._dp,11._dp]
+            solver%refine=.true.
+            value_bytes=8_i8*kind
+            entry=int(storage_size(0)/8,i8)+value_bytes
+            fixed=int(storage_size(0)/8,i8)*(11_i8*n+3_i8+n*n)+(value_bytes+8_i8)*n
+            quota=int(storage_size(0)/8,i8)*(n+1_i8+n*n)+value_bytes*(n*n+2_i8*n)
+            cap=fixed+(lower+2*upper-n)*entry+quota+24_i8
+            ! The checker is reserved before LU; one byte below the old exact
+            ! factor schedule still fails, with the live user vector preserved.
+            solver%options%host_memory_limit_bytes=cap-1
+            if(kind==1) then
+                call sparse_refactor(solver,a,status,reused)
+            else
+                call sparse_refactor(solver,z,status,reused)
+            end if
+            call check(status%code==FORTSPARSE_RESOURCE_LIMIT,'refined LOW retry one-byte-under cap')
+            call check(all(owned==[7._dp,9._dp,11._dp]),'failed LOW retry preserves user vector')
+            solver%options%host_memory_limit_bytes=cap
+            if(kind==1) then
+                call sparse_refactor(solver,a,status,reused)
+            else
+                call sparse_refactor(solver,z,status,reused)
+            end if
+            call checked(status)
+            do op=FORTSPARSE_OP_NORMAL,FORTSPARSE_OP_ADJOINT
+                if(kind==1) then
+                    if(op==FORTSPARSE_OP_NORMAL) then
+                        rhs=matmul(matrix,reference)
+                    else
+                        rhs=matmul(transpose(matrix),reference)
+                    end if
+                    call sparse_solve_op(solver,rhs,x,op,status)
+                    call checked(status)
+                    call check(maxval(abs(x-reference))<3e-13_dp,'refined LOW real independent solution')
+                    if(op==FORTSPARSE_OP_NORMAL) then
+                        call check(error_real(matrix,rhs,x)<=32*epsilon(1._dp),'LOW real original residual')
+                    else
+                        call check(error_real(transpose(matrix),rhs,x)<=32*epsilon(1._dp),'LOW real transpose residual')
+                    end if
+                else
+                    select case(op)
+                    case(FORTSPARSE_OP_NORMAL)
+                        zrhs=matmul(zmatrix,zreference)
+                    case(FORTSPARSE_OP_TRANSPOSE)
+                        zrhs=matmul(transpose(zmatrix),zreference)
+                    case(FORTSPARSE_OP_ADJOINT)
+                        zrhs=matmul(conjg(transpose(zmatrix)),zreference)
+                    end select
+                    call sparse_solve_op(solver,zrhs,zx,op,status)
+                    call checked(status)
+                    call check(maxval(abs(zx-zreference))<3e-13_dp,'refined LOW complex independent solution')
+                    select case(op)
+                    case(FORTSPARSE_OP_NORMAL)
+                        call check(error_complex(zmatrix,zrhs,zx)<=32*epsilon(1._dp),'LOW complex original residual')
+                    case(FORTSPARSE_OP_TRANSPOSE)
+                        call check(error_complex(transpose(zmatrix),zrhs,zx)<=32*epsilon(1._dp), &
+                            'LOW complex transpose residual')
+                    case(FORTSPARSE_OP_ADJOINT)
+                        call check(error_complex(conjg(transpose(zmatrix)),zrhs,zx)<=32*epsilon(1._dp), &
+                            'LOW complex adjoint residual')
+                    end select
+                end if
+                call sparse_factor_stats(solver,stats,status)
+                call checked(status)
+                call check(stats%host_peak_bytes<=cap,'refined LOW retry peak honors total cap')
+                call check(stats%backward_error>=0.and.stats%backward_error<=32*epsilon(1._dp), &
+                    'refined LOW retry original-matrix error')
+            end do
+            call check(all(owned==[7._dp,9._dp,11._dp]),'successful LOW retry preserves user vector')
+            call sparse_free(solver)
+            nullify(owned)
+        end do
+    end subroutine low_cap_retry
     subroutine memory_and_reuse()
         type(sparse_solver_t) :: solver
         type(csc_t) :: a,changed
