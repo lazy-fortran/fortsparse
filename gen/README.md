@@ -74,3 +74,12 @@ It lowers their diagonal block to BLAS SYRK and their remaining rectangle to
 GEMM directly in the destination factor. Irregular graph intersections retain
 the generated mapped-scatter schedule. This is a schedule for the same Schur
 update definitions; it does not introduce a second mathematical formulation.
+
+Exact (zero-added-fill) CPU/GPU supernodes may reach 128 columns. The generated
+CPU triangular schedule lowers panels with at least 96 columns and 32 tail
+rows to BLAS TRSM; smaller panels retain the generated SIMD reference loops.
+The independent larger triangular fixture checks a known solution and unequal
+leading dimensions, including untouched padding. This bounded schedule choice
+was measured end to end; wider panels trade some upper-triangle storage for
+fewer update/packing calls. Matrix residual and implicit derivative contracts
+are unchanged.
