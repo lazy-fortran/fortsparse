@@ -89,6 +89,20 @@ contains
         else
             call analyze(self, A, status)
         end if
+        if (.not. status_ok(status)) return
+        if (self%blocked) then
+            if (allocated(self%perm)) then
+                ! Panels assemble directly from the caller's canonical CSC.
+                ! Retain ordering structure and reuse keys, not a second
+                ! numeric matrix or a per-entry numeric permutation map.
+                deallocate (self%ordered%val, self%source)
+            end if
+            call numeric_factor(self, A, status)
+        else if (allocated(self%perm)) then
+            call numeric_factor(self, self%ordered, status)
+        else
+            call numeric_factor(self, A, status)
+        end if
         if (status_ok(status)) then
             if (allocated(self%perm)) self%stats%factor_mem_mb = &
                 self%stats%factor_mem_mb + real( &
@@ -311,11 +325,18 @@ contains
                 size(self%ap, kind=i8) + size(self%ai, kind=i8) + &
                 5_i8*self%n) + 8_i8*self%n
         end if
-        if (allocated(self%perm)) self%stats%workspace_bytes = &
-            self%stats%workspace_bytes + 20_i8*A%nnz + 16_i8*self%n + 8_i8
+        if (allocated(self%perm)) then
+            if (self%blocked) then
+                self%stats%workspace_bytes = self%stats%workspace_bytes &
+                    + 8_i8*A%nnz + 16_i8*self%n + 8_i8
+            else
+                self%stats%workspace_bytes = self%stats%workspace_bytes &
+                    + 20_i8*A%nnz + 16_i8*self%n + 8_i8
+            end if
+        end if
         self%stats%analysis_s = wall_time() - start
         self%stats%nthreads = 1
-        call numeric_factor(self, A, status)
+        call status_set(status, FORTSPARSE_OK, '')
     end subroutine analyze
 
     subroutine validate(self, A, status)
@@ -414,7 +435,11 @@ contains
         self%stats%device_bytes = 0_i8
         self%stats%active_device = -1
         if (self%blocked) then
-            call self%panels%factor(A, status)
+            if (allocated(self%perm)) then
+                call self%panels%factor(A, status, self%perm, self%inverse)
+            else
+                call self%panels%factor(A, status)
+            end if
             self%stats%factor_s = self%panels%numeric_s
             self%stats%flops = self%panels%flops
             self%stats%nthreads = self%options%nthreads
@@ -486,11 +511,15 @@ contains
                 if (all(self%op == A%col_ptr) .and. &
                     all(self%oi == A%row_idx)) then
                     reused = .true.
-                    do p = 1, A%nnz
-                        self%ordered%val(p) = A%val(self%source(p))
-                    end do
                     self%stats%analysis_s = 0.0_dp
-                    call numeric_factor(self, self%ordered, status)
+                    if (self%blocked) then
+                        call numeric_factor(self, A, status)
+                    else
+                        do p = 1, A%nnz
+                            self%ordered%val(p) = A%val(self%source(p))
+                        end do
+                        call numeric_factor(self, self%ordered, status)
+                    end if
                     return
                 end if
             end if

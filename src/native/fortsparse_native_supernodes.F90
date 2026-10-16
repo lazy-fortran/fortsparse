@@ -293,16 +293,17 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine build
 
-    subroutine factor(self, a, status)
+    subroutine factor(self, a, status, perm, inverse)
         class(supernodes_t), target, intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: perm(:), inverse(:)
         integer, pointer :: token(:)
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
         integer, pointer :: sources(:)
         integer :: incoming_start, incoming_end
 #endif
-        integer :: s, j, p, row, position
+        integer :: s, j, p, row, position, original_column, mapped_row
 #ifndef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
         integer :: group, first, q, dest
 #endif
@@ -314,6 +315,12 @@ contains
         if (.not. csc_is_valid(a)) return
         if (a%nrow /= self%n .or. a%ncol /= self%n) return
         if (.not. all(ieee_is_finite(a%val))) return
+        if (present(perm) .neqv. present(inverse)) return
+        if (present(perm)) then
+            if (size(perm) /= self%n .or. size(inverse) /= self%n) return
+            if (any(perm < 1) .or. any(perm > self%n)) return
+            if (any(inverse < 1) .or. any(inverse > self%n)) return
+        end if
         started = seconds()
         self%failures = 0
         self%rowmap = 0
@@ -324,9 +331,13 @@ contains
             end do
             do j = 1, self%panels(s)%width
                 row = self%panels(s)%first+j-1
-                do p = a%col_ptr(row), a%col_ptr(row+1)-1
-                    if (a%row_idx(p) < row) cycle
-                    position = self%rowmap(a%row_idx(p),1)
+                original_column = row
+                if (present(perm)) original_column = perm(row)
+                do p = a%col_ptr(original_column), a%col_ptr(original_column+1)-1
+                    mapped_row = a%row_idx(p)
+                    if (present(inverse)) mapped_row = inverse(mapped_row)
+                    if (mapped_row < row) cycle
+                    position = self%rowmap(mapped_row,1)
                     if (position == 0) return
                     self%panels(s)%values(position,j) = a%val(p)
                 end do
