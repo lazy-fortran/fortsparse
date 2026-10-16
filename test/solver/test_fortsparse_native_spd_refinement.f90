@@ -28,13 +28,13 @@ program test_fortsparse_native_spd_refinement
     solver%options%memory_policy=FORTSPARSE_MEMORY_LOW
     solver%refine=.true.
     call sparse_analyze(solver,a,plan,status)
-    if(status%code/=FORTSPARSE_BACKEND_UNAVAILABLE.or.plan%fits) error stop 'refined plan underpredicts'
-    if(plan%prediction_quality==MEMORY_PLAN_EXACT_LAYOUT) error stop 'unsupported plan claims exact layout'
+    call checked()
+    if(.not.plan%fits.or.plan%prediction_quality/=MEMORY_PLAN_EXACT_LAYOUT) error stop 'refined plan unavailable'
     call sparse_factor(solver,a,status)
     call checked()
     call sparse_analyze(solver,a,plan,status)
-    if(status%code/=FORTSPARSE_BACKEND_UNAVAILABLE.or..not.solver%factored) &
-        error stop 'unsupported planning changed retained factors'
+    call checked()
+    if(.not.solver%factored) error stop 'planning changed retained factors'
     call sparse_solve(solver,b,x,status)
     call checked()
     call oracle()

@@ -16,7 +16,7 @@ module fortsparse_native
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
     use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
-        plan_natural_spd_memory
+        plan_natural_spd_memory, refinement_payload_bytes
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_symbolic, only: native_symbolic_counts
     use fortsparse_native_cuda, only: native_cuda_available
@@ -189,8 +189,9 @@ contains
         integer(i8) :: bytes
         real(dp) :: transpose_norm
         if (fresh) then
-            bytes=int(storage_size(0)/8,i8)*(int(A%ncol,i8)+1_i8+int(A%nnz,i8)) &
-                +8_i8*(int(A%nnz,i8)+2_i8*int(A%ncol,i8))
+            bytes=0_i8
+            call refinement_payload_bytes(int(A%ncol,i8),int(A%nnz,i8),8_i8,bytes,status)
+            if (.not.status_ok(status)) return
             call self%host_budget%reserve(bytes,status,'native SPD refinement original CSC and two vectors')
             if (.not.status_ok(status)) return
             allocate(self%original_ptr(A%ncol+1),self%original_rows(A%nnz), &

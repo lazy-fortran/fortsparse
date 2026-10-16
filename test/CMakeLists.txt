@@ -403,3 +403,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         LABELS "native;refinement;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+fortsparse_add_test(test_fortsparse_refined_memory_plan solver/test_fortsparse_refined_memory_plan.f90)
+set_tests_properties(test_fortsparse_refined_memory_plan PROPERTIES
+    LABELS "native;refinement;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
