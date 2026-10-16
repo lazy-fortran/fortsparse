@@ -50,6 +50,23 @@ def parse_csv(stdout):
     return None
 
 
+class MeasuredProcess(subprocess.Popen):
+    """POSIX communicate()/wait() using wait4 to retain completed-child usage."""
+    completed_usage = None
+
+    def _try_wait(self, wait_flags):
+        # Called with Popen's waitpid lock held. Keep Popen's status handling.
+        if not hasattr(os, "wait4"):
+            return super()._try_wait(wait_flags)
+        try:
+            pid, status, usage = os.wait4(self.pid, wait_flags)
+        except ChildProcessError:
+            return self.pid, 0  # Reaped elsewhere: usage remains unavailable.
+        if pid == self.pid:
+            self.completed_usage = usage
+        return pid, status
+
+
 def invoke(binary, args, threads, cores, timeout):
     env = os.environ.copy()
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
@@ -57,7 +74,7 @@ def invoke(binary, args, threads, cores, timeout):
                MKL_DYNAMIC="FALSE", MKL_THREADING_LAYER="GNU")
     background_before = os.getloadavg()
     start = time.perf_counter()
-    process = subprocess.Popen([str(binary), *args], stdout=subprocess.PIPE,
+    process = MeasuredProcess([str(binary), *args], stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, text=True, env=env,
                                start_new_session=True,
                                preexec_fn=lambda: os.sched_setaffinity(0, cores))
@@ -75,11 +92,21 @@ def invoke(binary, args, threads, cores, timeout):
         process_wall_s=time.perf_counter()-start, returncode=process.returncode,
         background_load_before=background_before, background_load_after=os.getloadavg(),
         stdout=stdout, stderr=stderr, status="timeout" if timed_out else "failed")
+    usage = process.completed_usage
+    reaped_cpu = usage.ru_utime + usage.ru_stime if usage is not None else -1.0
+    receipt["wait4_reaped_cpu_s"] = reaped_cpu
+    receipt["process_tree_cpu_s"] = reaped_cpu if not timed_out else -1.0
+    receipt["process_tree_cpu_scope"] = (
+        "completed_process_including_reaped_descendants" if not timed_out
+        and reaped_cpu >= 0 else "incomplete_or_unavailable")
     record = parse_csv(stdout)
     if record and not timed_out:
         record["process_wall_s"] = receipt["process_wall_s"]
         record["workflow_cpu_s"] = (record["parent_cpu_s"]+record["helper_cpu_s"]
             if min(record["parent_cpu_s"], record["helper_cpu_s"]) >= 0 else -1.0)
+        if receipt["process_tree_cpu_s"] >= 0:
+            record["workflow_cpu_s"] = receipt["process_tree_cpu_s"]
+        record["process_tree_cpu_s"] = receipt["process_tree_cpu_s"]
         receipt["record"] = record
         receipt["status"] = record["status"]
         if process.returncode != 0 and record["status"] == "ok":
@@ -260,7 +287,8 @@ def main():
             ["git", "-C", str(ROOT), "status", "--porcelain"], text=True),
         contract=manifest, mode=args.mode, trials=args.trials, physical_cores=cores,
         timeout_s=args.timeout, window_note=args.window_note,
-        cpu_measurement_scope="parent_cumulative_rusage_self; helper_reaped_rusage_children",
+        cpu_measurement_scope="wait4_completed_tree; parent_pre_csv_rusage_self; "
+            "helper_reaped_rusage_children",
         selection_scope=selection_scope, diagnostic=args.diagnostic,
         requested_backends=backends, requested_cases=cases, requested_threads=threads,
         requested_workloads=args.workloads or manifest["workloads"],

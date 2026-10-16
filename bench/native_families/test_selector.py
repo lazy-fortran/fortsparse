@@ -2,8 +2,41 @@
 """Behavioral size-selection checks; no solver or benchmark timings run."""
 import itertools
 import math
+import json
+import os
+import sys
 import unittest
-from run import select_calibration_level, validate_selected_levels
+from run import select_calibration_level, validate_selected_levels, invoke
+
+
+class ProcessCPU(unittest.TestCase):
+    @unittest.skipUnless(hasattr(os, "wait4"), "POSIX wait4 required")
+    def test_completed_cpu_includes_waited_grandchild(self):
+        # Independent fork oracle: child burns CPU, parent waits without burning.
+        script = """import os, resource, time, json
+pid = os.fork()
+if pid == 0:
+    end = time.process_time() + 0.03
+    while time.process_time() < end: pass
+    os._exit(0)
+os.waitpid(pid, 0)
+r = resource.getrusage(resource.RUSAGE_SELF)
+print(json.dumps(dict(parent_cpu=r.ru_utime+r.ru_stime)))
+"""
+        receipt = invoke(sys.executable, ["-c", script], 1,
+                         [min(os.sched_getaffinity(0))], 0.8)
+        parent = json.loads(receipt["stdout"])["parent_cpu"]
+        self.assertGreater(receipt["process_tree_cpu_s"], parent+0.02)
+        self.assertEqual(receipt["returncode"], 0)
+        self.assertEqual(receipt["process_tree_cpu_scope"],
+                         "completed_process_including_reaped_descendants")
+
+    def test_timeout_cpu_is_explicitly_incomplete(self):
+        receipt = invoke(sys.executable, ["-c", "import time; time.sleep(2)"],
+                         1, [min(os.sched_getaffinity(0))], 0.03)
+        self.assertEqual(receipt["status"], "timeout")
+        self.assertEqual(receipt["process_tree_cpu_s"], -1)
+        self.assertEqual(receipt["process_tree_cpu_scope"], "incomplete_or_unavailable")
 
 
 class ExternalSelection(unittest.TestCase):

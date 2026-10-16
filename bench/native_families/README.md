@@ -62,7 +62,13 @@ Receipts produced before this instrumentation change have only that interval
 under the old `parent_cpu_s` name; never relabel them as full-process CPU.
 Final CSV printing/termination is after the cumulative sample. Helper CPU is
 separate full-lifetime `RUSAGE_CHILDREN` CPU after reaping. `workflow_cpu_s`
-is unknown (-1) if either contributor is unavailable.
+prefers the runner’s completed-process `wait4` user+system CPU, including
+reaped descendants; helpers must not be added again. The guarded pre-CSV sum
+is only a fallback when `wait4` is unavailable. `process_tree_cpu_s` is -1
+on timeout: killed or unreaped descendants make whole-tree CPU incomplete.
+`wait4_reaped_cpu_s` retains the partial launch usage separately. This CPU
+counter is not an aggregate RSS measurement. Linux propagates waited-child
+usage through ancestors (getrusage(2), RUSAGE_CHILDREN; wait4(2)).
 
 The CSV keeps parent CPU and terminated-helper CPU/RSS separate, plus actual
 reported active factor teams, requested threads, factor family, reuse, fill,
