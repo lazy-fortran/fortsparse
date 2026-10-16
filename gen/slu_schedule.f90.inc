@@ -1,0 +1,207 @@
+    ! Execution schedules only: every arithmetic operation is a generated
+    ! leaf above. Pivot selection, exchanges and the perturbation decision
+    ! are comparisons and data movement. Dummies are assumed-size so that a
+    ! caller may pass a panel element (sequence association) without the
+    ! dummy extent reaching past the owning storage. Nothing is allocated.
+
+    ! Restricted-pivot LU of the w-by-w diagonal block a(1:w,1:w), lda >= w,
+    ! packed in place as LAPACK getrf: unit L below, U on and above the
+    ! diagonal. Column k pivots on the first maximum |a(i,k)| among block rows
+    ! i = k..w only; whole block rows 1..w are exchanged and ipiv(k) records
+    ! the exchanged local row. A chosen pivot with |p| < tau_abs becomes
+    ! sign(p)*tau_abs with sign(0) = + and is counted; swaps counts exchanges.
+    ! min_pivot and max_u accumulate min |u_kk| and max |u_ij| of the block.
+    ! Rows below the block are not read or changed.
+    pure subroutine slu_block_factor(a, lda, w, tau_abs, ipiv, perturbed, &
+            swaps, min_pivot, max_u)
+        integer, intent(in) :: lda, w
+        real(dp), intent(inout) :: a(lda,*)
+        real(dp), intent(in) :: tau_abs
+        integer, intent(out) :: ipiv(*)
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot, max_u
+        integer :: i, j, k, r
+        real(dp) :: best, saved
+        do k = 1, w
+            r = k
+            best = abs(a(k,k))
+            do i = k+1, w
+                if (abs(a(i,k)) > best) then
+                    best = abs(a(i,k))
+                    r = i
+                end if
+            end do
+            ipiv(k) = r
+            if (r /= k) then
+                swaps = swaps+1
+                do j = 1, w
+                    saved = a(k,j)
+                    a(k,j) = a(r,j)
+                    a(r,j) = saved
+                end do
+            end if
+            if (abs(a(k,k)) < tau_abs) then
+                if (a(k,k) >= 0.0_dp) then
+                    a(k,k) = tau_abs
+                else
+                    a(k,k) = -tau_abs
+                end if
+                perturbed = perturbed+1
+            end if
+            min_pivot = min(min_pivot, abs(a(k,k)))
+            !$omp simd
+            do i = k+1, w
+                a(i,k) = slu_divide(a(i,k), a(k,k))
+            end do
+            do j = k+1, w
+                !$omp simd
+                do i = k+1, w
+                    a(i,j) = slu_update(a(i,j), a(i,k), a(k,j))
+                end do
+            end do
+        end do
+        do j = 1, w
+            do i = 1, j
+                max_u = max(max_u, abs(a(i,j)))
+            end do
+        end do
+    end subroutine slu_block_factor
+
+    ! B := B U^(-1) for the rows-by-w block b; U is upper, non-unit, in
+    ! u(1:w,1:w).
+    pure subroutine slu_trsm_upper(u, ldu, w, b, ldb, rows)
+        integer, intent(in) :: ldu, w, ldb, rows
+        real(dp), intent(in) :: u(ldu,*)
+        real(dp), intent(inout) :: b(ldb,*)
+        integer :: i, j, k
+        do j = 1, w
+            do k = 1, j-1
+                !$omp simd
+                do i = 1, rows
+                    b(i,j) = slu_update(b(i,j), b(i,k), u(k,j))
+                end do
+            end do
+            !$omp simd
+            do i = 1, rows
+                b(i,j) = slu_divide(b(i,j), u(j,j))
+            end do
+        end do
+    end subroutine slu_trsm_upper
+
+    ! B := B L^(-T) for the rows-by-w block b; L is unit lower in l(1:w,1:w).
+    pure subroutine slu_trsm_unit_lower_t(l, ldl, w, b, ldb, rows)
+        integer, intent(in) :: ldl, w, ldb, rows
+        real(dp), intent(in) :: l(ldl,*)
+        real(dp), intent(inout) :: b(ldb,*)
+        integer :: i, j, k
+        do j = 1, w
+            do k = 1, j-1
+                !$omp simd
+                do i = 1, rows
+                    b(i,j) = slu_update(b(i,j), b(i,k), l(j,k))
+                end do
+            end do
+        end do
+    end subroutine slu_trsm_unit_lower_t
+
+    ! General rectangular Schur update C(1:m,1:n) -= left(1:m,1:k) right(1:n,1:k)^T.
+    ! The caller owns task parallelism; SIMD avoids nested thread teams.
+    pure subroutine slu_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
+        integer, intent(in) :: ldc, ldl, ldr, m, n, k
+        real(dp), intent(inout) :: c(ldc,*)
+        real(dp), intent(in) :: left(ldl,*), right(ldr,*)
+        integer :: i, j, p
+        do j = 1, n
+            do p = 1, k
+                !$omp simd
+                do i = 1, m
+                    c(i,j) = slu_update(c(i,j), left(i,p), right(j,p))
+                end do
+            end do
+        end do
+    end subroutine slu_schur_update
+
+    ! Apply the block-local exchanges ipiv(1:w) to t(1:w): k = 1..w for the
+    ! forward permutation P, k = w..1 for its transpose.
+    pure subroutine slu_apply_swaps(t, ipiv, w, transpose)
+        integer, intent(in) :: w, ipiv(*)
+        real(dp), intent(inout) :: t(*)
+        logical, intent(in) :: transpose
+        integer :: k, first, last, step
+        real(dp) :: saved
+        first = 1
+        last = w
+        step = 1
+        if (transpose) then
+            first = w
+            last = 1
+            step = -1
+        end if
+        do k = first, last, step
+            if (ipiv(k) == k) cycle
+            saved = t(k)
+            t(k) = t(ipiv(k))
+            t(ipiv(k)) = saved
+        end do
+    end subroutine slu_apply_swaps
+
+    ! t := L^(-1) t with the unit lower triangle of the packed block.
+    pure subroutine slu_block_lower(a, lda, w, t)
+        integer, intent(in) :: lda, w
+        real(dp), intent(in) :: a(lda,*)
+        real(dp), intent(inout) :: t(*)
+        integer :: i, j
+        do j = 1, w
+            !$omp simd
+            do i = j+1, w
+                t(i) = slu_update(t(i), a(i,j), t(j))
+            end do
+        end do
+    end subroutine slu_block_lower
+
+    ! t := U^(-1) t with the non-unit upper triangle of the packed block.
+    pure subroutine slu_block_upper(a, lda, w, t)
+        integer, intent(in) :: lda, w
+        real(dp), intent(in) :: a(lda,*)
+        real(dp), intent(inout) :: t(*)
+        integer :: i, j
+        do j = w, 1, -1
+            t(j) = slu_divide(t(j), a(j,j))
+            !$omp simd
+            do i = 1, j-1
+                t(i) = slu_update(t(i), a(i,j), t(j))
+            end do
+        end do
+    end subroutine slu_block_upper
+
+    ! t := U^(-T) t.
+    pure subroutine slu_block_upper_t(a, lda, w, t)
+        integer, intent(in) :: lda, w
+        real(dp), intent(in) :: a(lda,*)
+        real(dp), intent(inout) :: t(*)
+        integer :: i, j
+        real(dp) :: value
+        do j = 1, w
+            value = t(j)
+            do i = 1, j-1
+                value = slu_update(value, a(i,j), t(i))
+            end do
+            t(j) = slu_divide(value, a(j,j))
+        end do
+    end subroutine slu_block_upper_t
+
+    ! t := L^(-T) t with the unit lower triangle.
+    pure subroutine slu_block_lower_t(a, lda, w, t)
+        integer, intent(in) :: lda, w
+        real(dp), intent(in) :: a(lda,*)
+        real(dp), intent(inout) :: t(*)
+        integer :: i, j
+        real(dp) :: value
+        do j = w, 1, -1
+            value = t(j)
+            do i = j+1, w
+                value = slu_update(value, a(i,j), t(i))
+            end do
+            t(j) = value
+        end do
+    end subroutine slu_block_lower_t

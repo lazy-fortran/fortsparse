@@ -359,9 +359,9 @@ contains
         if (self%strict_budget) self%use_blas = .false.
         call self%sched%request_threads(nthreads, self%flops, self%device >= 0)
         if (self%device < 0) then
-            call self%sched%setup_incoming(self%panels%supernode_t, self%build_ledger, status)
+            call self%sched%setup_incoming(self%panels, self%build_ledger, status)
             if (status%code == FORTSPARSE_OK) call self%sched%setup_groups( &
-                self%panels%supernode_t, self%flops, self%build_ledger, status)
+                self%panels, self%flops, self%build_ledger, status)
             if (status%code /= FORTSPARSE_OK) then
                 return
             end if

@@ -167,6 +167,8 @@ Flop shares from the diagnostic (relaxed, postordered, weighted+ND):
 - Diagonal blocks: 1.2–2.2%.
 - Supernodes with w≥8 carry 97–98% of LU flops, though up to half of the supernodes have width 1.
 
+Landed (stage 4, serial): `factor(ptr, rows, values, status)` assembles M through binary searches in the static row lists (an entry outside the structure returns INVALID_MATRIX, so a changed pattern is re-analyzed) and runs the left-looking scheme above. Contiguous destinations use `dgemm` directly; otherwise `update_work` plus the mapped scatter. Rank-one sources scatter directly. Without BLAS (small flops or a strict cap), `slu_schur_update` and the generated triangular solves are used; BLAS `dtrsm` applies for w >= 96 and m-w >= 32, as for SPD. `perturbed_pivots`, `block_swaps`, `max_growth` (max|U|/max|M|) and `min_pivot` are exact for each factorization; `nonfinite` flags a non-finite panel entry (status SINGULAR). Nothing is allocated after `analyze`.
+
 ## 5. Solves, permutations, scalings
 
 - **Normal solve** A x = b: t = Q̃ᵀ(Dr·(Pm b)); forward L̂ (per supernode: accumulate, apply P_d, unit-lower diagonal block); backward U; x = Dc·(Q̃ t).
@@ -245,6 +247,7 @@ Accuracy does not change.
   5. Supernodal solve leaves: diagonal-block forward/back with `ipiv`, transposed variants.
 
   Value-only kernels are needed; derivatives go through the solve equation. Independent compiled-kernel tests: dense LAPACK comparison per block; perturbation count and sign.
+  - Landed (stage 4) as `gen/gen_slu_leaves.f90` + `gen/slu_schedule.f90.inc` → `src/generated/fortsparse_slu_leaves.f90` (`gen/SLU.md`, `gen/regenerate_slu.sh`): value leaves `slu_update`, `slu_divide`, `slu_scale`; schedules `slu_block_factor`, `slu_trsm_upper`, `slu_trsm_unit_lower_t`, `slu_schur_update`, `slu_apply_swaps` and the four diagonal-block solves. The off-diagonal solve scatter/gather and the mapped Schur scatter reuse the SPD leaves (identical arithmetic). Tests: `test_fortsparse_slu_leaves` (per kernel) and `test_fortsparse_slu_factor` (dgesv, residuals, emulation, transpose identity, block RHS, zero pivots, disconnected blocks, zero diagonals, BLAS and generated paths).
 
 ## 10. Options and AUTO dispatch
 
