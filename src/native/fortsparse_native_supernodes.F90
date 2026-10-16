@@ -504,6 +504,19 @@ contains
         w = self%panels(source)%width
         m2 = m-first+1
         source_values => self%host_values(self%panels(source)%offset+first:)
+        ! A rank-one contraction is already the retained generated scalar
+        ! Schur update. Apply it directly through the destination row map;
+        ! no BLAS dispatch, product scratch or dense-intersection scan.
+        if (w == 1) then
+            do j = 1, q
+                column = self%panels(source)%rows(first+j-1)-self%panels(dest)%first+1
+                dest_values => self%panels(dest)%values(:,column)
+                call spd_scatter_mapped_update(dest_values, &
+                    self%panels(source)%rows(first+j-1:), self%rowmap(:,thread), &
+                    source_values(j:), m2-j+1, source_values(j))
+            end do
+            return
+        end if
         ! Exact dense intersections can update their owning panel directly.
         ! SYRK touches only the diagonal block's lower triangle; GEMM handles
         ! its rectangular tail. Irregular intersections retain mapped scatter.
