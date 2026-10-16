@@ -7,7 +7,7 @@ module fortsparse_backend
     use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, &
-        FORTSPARSE_BACKEND_UNAVAILABLE
+        FORTSPARSE_OK, FORTSPARSE_BACKEND_UNAVAILABLE
     implicit none
     private
 
@@ -230,6 +230,12 @@ contains
         call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
             'selected backend does not expose block transpose solves')
         if (any(shape(b) /= shape(x))) return
+        ! An empty valid block requires no transpose capability or solve call.
+        if (size(b,2) == 0 .and. (operation == FORTSPARSE_OP_TRANSPOSE .or. &
+                operation == FORTSPARSE_OP_ADJOINT)) then
+            call status_set(status, FORTSPARSE_OK, '')
+            return
+        end if
         do j = 1, size(b,2)
             call self%solve_real_op(b(:,j), x(:,j), operation, status)
             if (status%code /= 0) return
@@ -250,6 +256,12 @@ contains
         call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
             'selected backend does not expose block adjoint solves')
         if (any(shape(b) /= shape(x))) return
+        ! An empty valid block requires no transpose capability or solve call.
+        if (size(b,2) == 0 .and. (operation == FORTSPARSE_OP_TRANSPOSE .or. &
+                operation == FORTSPARSE_OP_ADJOINT)) then
+            call status_set(status, FORTSPARSE_OK, '')
+            return
+        end if
         do j = 1, size(b,2)
             call self%solve_complex_op(b(:,j), x(:,j), operation, status)
             if (status%code /= 0) return
