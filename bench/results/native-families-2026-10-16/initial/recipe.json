@@ -1,0 +1,9 @@
+{
+  "raw_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/measurement",
+  "raw_sha256": "5eeda7dc902e8cce880a6723d58e33d8b3648ff714c0094fde5d85e30e5c6852",
+  "cpu_scope": "parent main-entry CPU_TIME interval; helper reaped lifetime CPU separately; complete workflow CPU unavailable",
+  "plot_filter": "N; per-variant wall; training phases/CPU/RSS",
+  "aggregation": "median and full min/max range across successful trials; all timeouts retained",
+  "memory": "separate parent VmHWM and helper launch-lifecycle peak; no sum/maximum aggregate",
+  "timeout_s": 0.9
+}

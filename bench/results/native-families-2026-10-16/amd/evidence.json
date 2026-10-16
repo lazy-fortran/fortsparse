@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/amd-measurement/attempts.jsonl",
+      "sha256": "50586c748a7cd3a429259ad29c5a2a1a928c10738a2934f3910fa1c503c636cd"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/amd-measurement/provenance.json",
+      "sha256": "d7eed57d2e84896a27781f512b6daef710bfc6e48b3a5bfd3398229f71125166"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/calibration/calibration_selection.json",
+      "sha256": "14323013236c303ad6f02a9a06b225a1650c93fbbe71c2bc513fa08cb9720ba8"
+    }
+  ],
+  "plots_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/amd-analysis",
+  "raw_not_committed": true,
+  "plots_not_committed": true
+}

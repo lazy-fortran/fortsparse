@@ -1,0 +1,10 @@
+{
+  "raw_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/amd-measurement",
+  "raw_sha256": "50586c748a7cd3a429259ad29c5a2a1a928c10738a2934f3910fa1c503c636cd",
+  "cpu_scope": "completed workflow wait4 user+system CPU including reaped descendants; parent cumulative pre-CSV and main interval separate",
+  "cpu_model": "completed",
+  "plot_filter": "N; per-variant wall; training phases/CPU/RSS",
+  "aggregation": "median and full min/max range across successful trials; all timeouts retained",
+  "memory": "separate parent VmHWM and helper launch-lifecycle peak; no sum/maximum aggregate",
+  "timeout_s": 0.9
+}

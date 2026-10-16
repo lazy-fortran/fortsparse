@@ -1,0 +1,236 @@
+{
+  "source_revision": "42b8acaf5ac7eb50a648229a473e6a580ec162c8",
+  "source_status": "",
+  "contract": {
+    "schema_version": 2,
+    "frozen_date": "2026-10-16",
+    "baseline_source_revision": "82a95ae",
+    "fixture_source_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
+    "performance_admission": "unknown",
+    "performance_levels": {
+      "neo2-mini5": 5,
+      "drift-real": 128,
+      "drift-complex": 128,
+      "hpd-chain": 8192,
+      "ldlt-chain": 8192
+    },
+    "cases": {
+      "neo2-mini5": {
+        "matrix_class": "real general unsymmetric",
+        "smoke_level": 5,
+        "calibration_candidates": [
+          5
+        ],
+        "performance_role": "latency/correctness only; not a throughput or scaling case"
+      },
+      "drift-real": {
+        "matrix_class": "real general unsymmetric",
+        "smoke_level": 3,
+        "calibration_candidates": [
+          16,
+          32,
+          64,
+          128
+        ],
+        "maximum_level": 128,
+        "dimension_rule": "level**2"
+      },
+      "drift-complex": {
+        "matrix_class": "complex general unsymmetric",
+        "smoke_level": 3,
+        "calibration_candidates": [
+          16,
+          32,
+          64,
+          128
+        ],
+        "maximum_level": 128,
+        "dimension_rule": "level**2"
+      },
+      "hpd-chain": {
+        "matrix_class": "complex Hermitian positive definite",
+        "smoke_level": 3,
+        "calibration_candidates": [
+          128,
+          512,
+          2048,
+          8192
+        ],
+        "maximum_level": 8192,
+        "dimension_rule": "2*level"
+      },
+      "ldlt-chain": {
+        "matrix_class": "real symmetric indefinite with paired zero-diagonal pivots",
+        "smoke_level": 3,
+        "calibration_candidates": [
+          128,
+          512,
+          2048,
+          8192
+        ],
+        "maximum_level": 8192,
+        "dimension_rule": "2*level"
+      }
+    },
+    "workloads": [
+      "rhs1",
+      "rhs8",
+      "refactor",
+      "warm"
+    ],
+    "operations": [
+      "N",
+      "T",
+      "H"
+    ],
+    "thread_sweep": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "fresh_process_trials": 5,
+    "process_timeout_s": 0.9,
+    "scaling_size_rule": "Scan frozen candidate levels ascending using external comparators only. A level passes only after every declared backend/thread/trial completes cold factor+normal RHS8 below 0.5 seconds process wall. Stop at first refused/failed/missing/timeout/slow attempt in a family; retain it and mark all higher levels unmeasured. Select the largest completely passing level in the scanned prefix; native timings never select size.",
+    "mini5_provenance": "../fixtures/neo2-mini5/provenance.json",
+    "oracle": {
+      "backward_error_lt": 1e-12,
+      "known_solution_relative_error_lt": 1e-10,
+      "source": "known x and independent original-CSC action; training mini5 reproduces retained all-ones RHS"
+    },
+    "mkl": {
+      "product": "Intel oneMKL PARDISO; not Panua",
+      "sdk_root": "/opt/intel/oneapi/mkl/2026.0",
+      "mtypes": {
+        "real_lu": 11,
+        "complex_lu": 13,
+        "complex_hpd": 4,
+        "real_ldlt": -2
+      },
+      "transpose_iparm12": {
+        "N": 0,
+        "H": 1,
+        "T": 2
+      },
+      "official_reference": "https://cdrdv2-public.intel.com/834389/onemkl_developer-reference-fortran_2025.0-766686-834389.pdf",
+      "reference_sections": "PARDISO mtype table printed p2653; iparm(12) transpose table; CSR upper-triangle storage",
+      "source_card": "/home/ert/code/sparse-dev/library_cards/pardiso/pardiso-intel-onemkl-fortran-2025.0-reference.md",
+      "sdk_headers": {
+        "mkl_pardiso.h": "a9678faea12b04685b96b7f0ee22db28b16a3c788d0522e007c348922071b695",
+        "mkl_service.h": "02ff230034b626727576886decbdce2a01b76728e59b9d708e884d5bd153e2c7"
+      },
+      "panua_status": "not available in this driver; distinct licensed comparator remains a gap"
+    },
+    "memory": {
+      "process": "process_metrics.c VmHWM/rusage peak; parent/helper separate; do not sum RSS",
+      "owned": "library host_current_bytes/host_peak_bytes when reported; negative means unavailable",
+      "pardiso": "iparm memory is vendor-reported; owned payload and actual active factor teams unavailable"
+    },
+    "native": {
+      "factor_team": "serial reference family is reported explicitly; requested threads are not active threads",
+      "claims": "No tiny-case throughput, scaling or Pareto claim"
+    },
+    "mini5_matrix_sha256": "35ffecb5c9c11451c5bf20e8c606a9f941f5e3600d815abd3bc7170acfe29d64",
+    "scan_limits": {
+      "candidate_count_per_scaling_family": 4,
+      "maximum_dimension": 16384,
+      "maximum_attempts_all_pass": 1700,
+      "maximum_failed_attempts_per_family": 1,
+      "process_timeout_s": 0.9,
+      "wall_gate_s": 0.5,
+      "selection_scope": "largest passing scanned prefix; no monotonic-performance assumption or extrapolation beyond failure"
+    },
+    "required_external_backends": [
+      "superlu",
+      "umfpack",
+      "mumps",
+      "intel-pardiso"
+    ]
+  },
+  "mode": "measure",
+  "trials": 5,
+  "physical_cores": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+  ],
+  "timeout_s": 0.9,
+  "window_note": "Controller task builds and profilers paused; background services retained; shared workstation, load recorded per trial",
+  "selection_scope": "complete_declared_baselines",
+  "diagnostic": false,
+  "requested_backends": [
+    "native",
+    "superlu",
+    "umfpack",
+    "mumps",
+    "intel-pardiso"
+  ],
+  "requested_cases": [
+    "neo2-mini5",
+    "drift-real",
+    "drift-complex",
+    "hpd-chain",
+    "ldlt-chain"
+  ],
+  "requested_threads": [
+    1,
+    2,
+    4,
+    8,
+    16
+  ],
+  "requested_workloads": "rhs8,refactor",
+  "requested_operations": "N",
+  "requested_variants": "training,heldout",
+  "background_load": [
+    11.02099609375,
+    5.66064453125,
+    4.373046875
+  ],
+  "binaries": {
+    "native": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/bench_native_families",
+      "sha256": "b10b1b7f5d7045354391bc0a23c7c8cf4a53eeb4c2d95f722076a4953f886539",
+      "ldd": "\tlinux-vdso.so.1 (0x00007f2fee0e0000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007f2fedff0000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007f2feade0000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f2fedf83000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007f2fedf72000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f2fea400000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f2feacd8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f2fedf3a000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f2fea000000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f2fee0e2000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007f2feac1a000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007f2fedf32000)\n"
+    },
+    "superlu": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/bench_native_families",
+      "sha256": "b10b1b7f5d7045354391bc0a23c7c8cf4a53eeb4c2d95f722076a4953f886539",
+      "ldd": "\tlinux-vdso.so.1 (0x00007f8a2d959000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007f8a2d164000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007f8a2a748000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f8a2a6db000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007f8a2d8f4000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f8a29e00000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f8a29cf8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f8a2d8bc000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f8a29a00000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f8a2d95b000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007f8a2a61d000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007f8a2d8b4000)\n"
+    },
+    "umfpack": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/bench_native_families",
+      "sha256": "b10b1b7f5d7045354391bc0a23c7c8cf4a53eeb4c2d95f722076a4953f886539",
+      "ldd": "\tlinux-vdso.so.1 (0x00007fe8d0664000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007fe8d0574000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007fe8cd3e0000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007fe8d0507000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007fe8d04f6000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007fe8cca00000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fe8cd2d8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fe8d04be000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fe8cc600000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fe8d0666000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007fe8cd21a000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007fe8d04b6000)\n"
+    },
+    "mumps": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/bench_native_families",
+      "sha256": "b10b1b7f5d7045354391bc0a23c7c8cf4a53eeb4c2d95f722076a4953f886539",
+      "ldd": "\tlinux-vdso.so.1 (0x00007fa45998c000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007fa459164000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007fa456748000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007fa4598cb000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007fa4598ba000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007fa455e00000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007fa456640000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007fa455dca000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007fa455a00000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007fa45998e000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007fa455d0c000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007fa4598b0000)\n"
+    },
+    "intel-pardiso": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/bench_native_families_pardiso",
+      "sha256": "bf95c9962be27ce28cf3ae4d718acf2d97f81a6bd2b8f05673441d2807cc225a",
+      "ldd": "\tlinux-vdso.so.1 (0x00007f42a26a9000)\n\tlibmkl_rt.so.3 => /opt/intel/oneapi/mkl/2026.0/lib/libmkl_rt.so.3 (0x00007f42a1a00000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f42a1000000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f42a253f000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f42a2509000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f42a0c00000)\n\tlibdl.so.2 => /usr/lib/libdl.so.2 (0x00007f42a2502000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f42a26ab000)\n"
+    }
+  },
+  "helper": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/baseline/bin/fortsparse_umfpack_helper",
+    "sha256": "3a1c5e8bbae8a5d73b685843c9fdb8b8a46b1a255ea36b727e5077bd6a7e6920",
+    "ldd": "\tlinux-vdso.so.1 (0x00007ff737e16000)\n\tlibumfpack.so.6 => /usr/lib/libumfpack.so.6 (0x00007ff737cc1000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007ff737bb9000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007ff737bb3000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007ff737800000)\n\tlibcholmod.so.5 => /usr/lib/libcholmod.so.5 (0x00007ff737400000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007ff737af3000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007ff737ae2000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007ff737e18000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007ff737a75000)\n\tlibcolamd.so.3 => /usr/lib/libcolamd.so.3 (0x00007ff737a6b000)\n\tlibcamd.so.3 => /usr/lib/libcamd.so.3 (0x00007ff737a5a000)\n\tlibccolamd.so.3 => /usr/lib/libccolamd.so.3 (0x00007ff7377f2000)\n\tliblapack.so.3 => /usr/lib/liblapack.so.3 (0x00007ff736400000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007ff735a00000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007ff7377bc000)\n"
+  }
+}

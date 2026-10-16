@@ -1,0 +1,19 @@
+{
+  "artifacts": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/measurement/attempts.jsonl",
+      "sha256": "5eeda7dc902e8cce880a6723d58e33d8b3648ff714c0094fde5d85e30e5c6852"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/measurement/provenance.json",
+      "sha256": "083b5c6c555a7eff10a849e9761582f2bf9d003e0cfa2073a82820a8aff940b3"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/calibration/calibration_selection.json",
+      "sha256": "14323013236c303ad6f02a9a06b225a1650c93fbbe71c2bc513fa08cb9720ba8"
+    }
+  ],
+  "plots_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/initial-analysis",
+  "raw_not_committed": true,
+  "plots_not_committed": true
+}

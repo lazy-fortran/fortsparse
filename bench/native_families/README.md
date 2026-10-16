@@ -164,9 +164,11 @@ python3 bench/native_families/report.py /path/to/initial/measurement \
   --cpu-scope 'parent main-entry CPU_TIME interval; helper lifetime CPU separately'
 ```
 
-This report's interpretation and CPU labels specifically describe the initial
-2026-10-16 checkpoint. Later measurements with corrected CPU instrumentation
-need corresponding report labels and interpretation. PNGs stay outside Git.
+The default `--cpu-model initial` preserves the initial checkpoint's CPU
+interpretation. Use `--cpu-model completed` only with corrected wait4 receipts;
+the report rejects successful receipts lacking that counter. Both checkpoints'
+reviewable numeric evidence is retained in
+`bench/results/native-families-2026-10-16`. PNGs stay outside Git.
 The recipe records the raw attempts hash and filtering. Error bars span every
 successful trial; timeout crosses denote the configured censoring deadline.
 Per-panel axes adapt to the fixture's regime. The compact CSV retains solve,
