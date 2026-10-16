@@ -24,6 +24,14 @@ borrowed and capped. SPD ordering, CUDA, external backends and structured raw
 CSC conversion remain unsupported under strict caps.
 Normal uncapped paths retain their existing execution choices.
 
+The standalone [real CSR ILUTP preconditioner](ilutp.md#payload-cap-and-recovery)
+also bounds every owned array, including fixed factor capacities, setup scratch
+and retained apply workspace. Its explicit fill caps give a closed setup-payload
+formula. Rebuild frees the old arrays before allocating replacements; failure
+leaves an unfactored context. Caller storage, fixed descriptors, allocator
+overhead and process RSS are excluded. This does not establish SPEC application
+memory or preconditioner performance admission.
+
 The first exact pre-factorization planning API describes the compact real-SPD
 layout; select LOW_MEMORY or NATIVE_REFERENCE. It does not claim to predict
 blocked/ordered/pivot-dependent layouts. Production planning remains roadmap work.

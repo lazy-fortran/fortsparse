@@ -1,0 +1,220 @@
+{
+  "scope": "public algorithm and consumer provenance; no private numeric data",
+  "source_base_commit": "cac66561dce6178e04804da4af9c95c6fd6b19a3",
+  "entries": [
+    {
+      "id": "saad-2003-ilutp-book",
+      "citation": "Yousef Saad (2003), Iterative Methods for Sparse Linear Systems, second edition, SIAM",
+      "doi": null,
+      "source_url": "https://www-users.cse.umn.edu/~saad/IterMethBook_2ndEd.pdf",
+      "version": "second edition 2003",
+      "sha256": "3bdc9abb7a862d06e75244f9343f0915f3db133e7f9863b3cb555ff1dfd00f37",
+      "status": "available",
+      "reading_depth": "selected_sections",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/saad-iterative-methods-2e.pdf",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/saad-2003-ilutp-book.md"
+    },
+    {
+      "id": "saad-author-books-index",
+      "citation": "Yousef Saad, author books index",
+      "doi": null,
+      "source_url": "https://www-users.cse.umn.edu/~saad/books.html",
+      "version": "retrieved 2026-10-16",
+      "sha256": "d7af4aed2cf3263438d2051625e4ba62dee808ed8e613c3fa063693464abe5bb",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/saad-books.html",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/saad-author-books-index.md"
+    },
+    {
+      "id": "saad-1994-ilut-paper",
+      "citation": "Yousef Saad (1994), ILUT: A dual threshold incomplete LU factorization, Numerical Linear Algebra with Applications 1(4), 387\u2013402",
+      "doi": "10.1002/nla.1680010405",
+      "source_url": "https://experts.umn.edu/en/publications/ilut-a-dual-threshold-incomplete-lu-factorization/",
+      "version": "1994",
+      "sha256": null,
+      "status": "unavailable_fulltext",
+      "reading_depth": "metadata_only",
+      "archive_path": null,
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/saad-1994-ilut-paper.md"
+    },
+    {
+      "id": "spec-license",
+      "citation": "SPEC LICENSE",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/LICENSE",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "2c28d965810deb1a272a6ed0c8b837d2eb7cb0b2c5e1fa47583b5db349ac0b18",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/LICENSE",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-license.md"
+    },
+    {
+      "id": "spec-src-ilut-f",
+      "citation": "SPEC src/ilut.f",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/ilut.f",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "f63afa52d450f34e3564db5da7c202c0347d2391519799cc479389efdadf7bf7",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/ilut.f",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-ilut-f.md"
+    },
+    {
+      "id": "spec-src-iters-f",
+      "citation": "SPEC src/iters.f",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/iters.f",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "d32d0b99a233467867ea2dded31cae9a09e15f8bc106f767595d5d277301f571",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/iters.f",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-iters-f.md"
+    },
+    {
+      "id": "spec-src-mp00ac-f90",
+      "citation": "SPEC src/mp00ac.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/mp00ac.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "65b81cc111aa9a4f3a377acf6b9877d06a225685f74d86366dc9d869f5aa690b",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/mp00ac.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-mp00ac-f90.md"
+    },
+    {
+      "id": "spec-src-spsmat-f90",
+      "citation": "SPEC src/spsmat.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/spsmat.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "fbc28b3bbe01e5c202f03144dbbbe0688bf9b1e90c8f1e76674f8d6cec99bb35",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/spsmat.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-spsmat-f90.md"
+    },
+    {
+      "id": "spec-src-inputlist-f90",
+      "citation": "SPEC src/inputlist.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/inputlist.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "a953a3da150f48e29051dd5b3c52a576245b933e3d3c02ce71e303957da94d1f",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/inputlist.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-inputlist-f90.md"
+    },
+    {
+      "id": "spec-src-global-f90",
+      "citation": "SPEC src/global.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/global.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "2b09fe47950c0acc93acf98666f5860ead82195abaa9f8c03601b1590630cfcb",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/global.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-global-f90.md"
+    },
+    {
+      "id": "spec-src-memory-f90",
+      "citation": "SPEC src/memory.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/memory.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "4ee6552a24843438caadc22373697b69ddad68e5f47b116b411173222b9d8cd2",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/memory.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-memory-f90.md"
+    },
+    {
+      "id": "spec-src-preset-f90",
+      "citation": "SPEC src/preset.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/preset.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "cd81b37a7b13b24cf2fb22d77cd059e0316770e3ad7307b58d688f3f9c79c310",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/preset.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-preset-f90.md"
+    },
+    {
+      "id": "spec-src-dfp100-f90",
+      "citation": "SPEC src/dfp100.f90",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/dfp100.f90",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "3cac2472b641ad9c1d54dc8d42d7c0ce745f31c3e97ad812c59101a036169b65",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/dfp100.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-dfp100-f90.md"
+    },
+    {
+      "id": "spec-src-cmakelists-txt",
+      "citation": "SPEC src/CMakeLists.txt",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/src/CMakeLists.txt",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "aedd2ec9e95de289e1cecfa2b2ac5ff6a50fd40fe672eac44314a9922362b2b0",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/src/CMakeLists.txt",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-src-cmakelists-txt.md"
+    },
+    {
+      "id": "spec-specfile",
+      "citation": "SPEC SPECfile",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/SPECfile",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "2b53fac72cbd928196cb7525913ea16b8040302d4b4cad23f4ace225baecfe03",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/SPECfile",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-specfile.md"
+    },
+    {
+      "id": "spec-cmakelists-txt",
+      "citation": "SPEC CMakeLists.txt",
+      "doi": null,
+      "source_url": "https://github.com/PrincetonUniversity/SPEC/blob/b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88/CMakeLists.txt",
+      "version": "b23a2408fc3f1dfbc14896e16d73a57f7d1d9e88",
+      "sha256": "a32bf0c4e924d5e5f24e0e594c4ab48569e39f4cf76de55e95170a15baf4c95d",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/SPEC/CMakeLists.txt",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/spec-cmakelists-txt.md"
+    },
+    {
+      "id": "fortnum-krylov-preconditioning-contract",
+      "citation": "FortNum fortnum_krylov.f90",
+      "doi": null,
+      "source_url": "https://github.com/lazy-fortran/fortnum/blob/b29e82cf6e41dc1e5509c2e6722ad99f5a5132bd/src/linalg/fortnum_krylov.f90",
+      "version": "b29e82cf6e41dc1e5509c2e6722ad99f5a5132bd",
+      "sha256": "c728c5a6d3520aadcea28905def2476b0b547a7e8e8b9197ad2e9175e8a9fb14",
+      "status": "available",
+      "reading_depth": "source_inspection",
+      "archive_path": "/home/ert/code/sparse-dev/provenance/ilutp/fortnum_krylov.f90",
+      "card_path": "/home/ert/code/sparse-dev/library_cards/ilutp/fortnum-krylov-preconditioning-contract.md"
+    }
+  ],
+  "reused_generated_arithmetic": {
+    "definitions": "gen/gen_spd_leaves.f90",
+    "generated": "src/generated/fortsparse_spd_leaves.f90",
+    "fortsym_revision": "7e8ef7abdd90c49bb5f75e2c119e7d181656bcc6",
+    "kernels": [
+      "spd_divide",
+      "spd_update"
+    ],
+    "unchanged": true
+  }
+}
