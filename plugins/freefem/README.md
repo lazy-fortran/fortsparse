@@ -29,12 +29,16 @@ the native C ABI's default refinement policy; vendor iteration/pivot controls ar
 not translated. This component adds no cap policy or performance admission claim.
 
 `ff-c++ -n -c` supplies the installed SDK's include paths and ABI definitions.
-Its vendor link flags are not used. A private build-directory `config.h` includes
-the SDK configuration and excludes unused UMFPACK/CHOLMOD umbrella-header
+Its vendor link flags are not used. Private build-directory wrappers preserve
+the SDK's exported configuration name (`config.h` or Debian/Ubuntu's
+`FreeFEM-config.h`) and exclude unused UMFPACK/CHOLMOD umbrella-header
 adapters. The installed SDK is untouched. `FREEFEM_CXX_EXECUTABLE` and
 `FREEFEM_EXECUTABLE` are cache overrides; changing prefixes refreshes the derived
 SDK include path. SDK and runtime must match. Linux FreeFem 4.17 is the initial
-verification target; other runtime/SDK versions require their own checks. The
+verification target. Ubuntu Noble's `4.13+dfsg-1build5` SDK/interpreter also
+passes the six focused tests using extracted packages on the current Linux
+host; this does not replace Ubuntu CI verification. Other runtime/SDK versions
+require their own checks. The
 installed 4.17.0-2 SDK/runtime passed all six focused CTests on 2026-10-16,
 including the module linkage gate. Receipts are retained under
 `/home/ert/code/sparse-dev/consumer-migrations/freefem-plugin/`; the stock

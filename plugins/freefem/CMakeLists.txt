@@ -30,14 +30,26 @@ endforeach()
 unset(_ff_sdk_include_dir)
 find_path(_ff_sdk_include_dir ff++.hpp HINTS ${_ff_includes} REQUIRED NO_CACHE NO_DEFAULT_PATH)
 set(FREEFEM_INCLUDE_DIR "${_ff_sdk_include_dir}")
-if(NOT EXISTS "${FREEFEM_INCLUDE_DIR}/config.h")
-    message(FATAL_ERROR "FreeFem SDK config.h missing next to ff++.hpp")
-endif()
 # Exclude umbrella-header instantiations of unused vendor adapters, preserving
 # the installed SDK's ABI definitions and leaving the installation untouched.
+# Debian/Ubuntu SDKs export FreeFEM-config.h; other installations export config.h.
+# Wrap the actual advertised headers, without inventing configuration macros.
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/sdk-config")
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sdk-config/config.h"
-    "#pragma once\n#include \"${FREEFEM_INCLUDE_DIR}/config.h\"\n#undef HAVE_LIBUMFPACK\n#undef HAVE_LIBCHOLMOD\n")
+set(_ff_config_found FALSE)
+foreach(_ff_config_name config.h FreeFEM-config.h)
+    file(REMOVE "${CMAKE_CURRENT_BINARY_DIR}/sdk-config/${_ff_config_name}")
+    unset(_ff_config_file)
+    find_file(_ff_config_file "${_ff_config_name}" HINTS "${FREEFEM_INCLUDE_DIR}" ${_ff_includes}
+        NO_CACHE NO_DEFAULT_PATH)
+    if(_ff_config_file)
+        set(_ff_config_found TRUE)
+        file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sdk-config/${_ff_config_name}"
+            "#pragma once\n#include \"${_ff_config_file}\"\n#undef HAVE_LIBUMFPACK\n#undef HAVE_LIBCHOLMOD\n")
+    endif()
+endforeach()
+if(NOT _ff_config_found)
+    message(FATAL_ERROR "FreeFem SDK exports neither config.h nor FreeFEM-config.h in its include paths")
+endif()
 add_library(fortsparse_freefem MODULE fortsparse_freefem.cpp)
 target_include_directories(fortsparse_freefem BEFORE PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/sdk-config")
 target_include_directories(fortsparse_freefem SYSTEM PRIVATE ${_ff_includes} "${FREEFEM_INCLUDE_DIR}")
