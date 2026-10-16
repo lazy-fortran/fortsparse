@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#ifdef FS_TEST_COUNT_AMD
+int fsparse_test_general_amd_calls(void);
+#endif
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"line %d: %s\n",__LINE__,#x); exit(1); } } while (0)
 
 /* Independent original dense A actions generate RHS for known x, never using
@@ -24,7 +27,65 @@ static void complex_rhs(const double complex *a, int op, double complex *b) {
         }
     }
 }
+static void ordering_policy(void) {
+    void *h=NULL;
+    int32_t cp[]={0,2,4,6},ri[]={0,1,1,2,0,2};
+    double a[]={4,0,1,2,5,0,0,3,6},v[]={4,2,5,3,1,6},b[6],x[6];
+    char msg[160];
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_DEFAULT)==0);
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==3);
+    CHECK(fs_native_ordering_available(-1)==2);
+#ifdef FS_TEST_EXPECT_AMD
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_AMD)==0);
+#else
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_AMD)==3);
+#endif
+    CHECK(fs_native_set_ordering(NULL,FS_NATIVE_ORDER_DEFAULT)==2);
+    CHECK(fs_native_create(0,&h)==0);
+    CHECK(fs_native_factor_d(h,3,6,cp,ri,v)==0);
+    /* Invalid and unsupported requests retain usable factors and old policy. */
+    CHECK(fs_native_set_ordering(h,99)==2);
+    CHECK(fs_native_last_error(h,msg,sizeof msg)==2 && msg[0]!='\0');
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==3);
+    CHECK(fs_native_last_error(h,msg,sizeof msg)==3 && msg[0]!='\0');
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_DEFAULT)==0);
+    CHECK(fs_native_last_error(h,msg,sizeof msg)==3); /* pure query */
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
+    CHECK(fs_native_last_error(h,msg,sizeof msg)==0 && msg[0]=='\0');
+    real_rhs(a,0,b);
+    CHECK(fs_native_solve_d(h,0,3,2,b,x)==0);
+    CHECK(fabs(x[0]-1)<1e-12); /* same policy did not invalidate */
+#ifdef FS_TEST_COUNT_AMD
+    int calls_before=fsparse_test_general_amd_calls();
+#endif
+    int32_t availability=fs_native_ordering_available(FS_NATIVE_ORDER_AMD);
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_AMD)==availability);
+    if (availability==0) {
+        CHECK(fs_native_solve_d(h,0,3,2,b,x)==4);
+        CHECK(fs_native_factor_d(h,3,6,cp,ri,v)==0);
+#ifdef FS_TEST_COUNT_AMD
+        CHECK(fsparse_test_general_amd_calls()>calls_before);
+#endif
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_AMD)==0);
+    }
+    for(int op=0;op<3;++op) {
+        real_rhs(a,op,b);
+        CHECK(fs_native_solve_d(h,op,3,2,b,x)==0);
+        for(int r=0;r<2;++r) for(int i=0;i<3;++i)
+            CHECK(fabs(x[r*3+i]-(i+1+r))<1e-12);
+    }
+    v[0]=8;a[0]=8;
+    CHECK(fs_native_refactor_d(h,3,6,cp,ri,v)==0);
+    real_rhs(a,0,b);
+    CHECK(fs_native_solve_d(h,0,3,2,b,x)==0 && fabs(x[0]-1)<1e-12);
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
+    if(availability==0) CHECK(fs_native_solve_d(h,0,3,2,b,x)==4);
+    CHECK(fs_native_refactor_d(h,3,6,cp,ri,v)==0);
+    CHECK(fs_native_solve_d(h,0,3,2,b,x)==0 && fabs(x[0]-1)<1e-12);
+    CHECK(fs_native_free(&h)==0 && h==NULL);
+}
 int main(void) {
+    ordering_policy();
     void *d=NULL,*z=NULL;
     int32_t cp[]={0,2,4,6},ri[]={0,1,1,2,0,2};
     double v[]={4,2,5,3,1,6};

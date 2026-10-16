@@ -6,6 +6,15 @@
 #include "fsparse_order_graph.h"
 #endif
 
+/* Capability query without allocating a graph or invoking the vendor. */
+int fsparse_native_order_amd_available(void) {
+#ifdef FORTSPARSE_HAVE_AMD
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 /* Same public index/status conventions as fsparse_native_order (METIS).
  * perm[new] = old; inverse[old] = new; all are one-based. */
 static int order_amd(int n, int nnz, const int *ptr, const int *row,
