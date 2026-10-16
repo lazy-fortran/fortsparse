@@ -1,0 +1,24 @@
+{
+  "matrix_shape": [
+    5,
+    5
+  ],
+  "determinant_exact": "-570647616",
+  "solution_exact": [
+    "-45/22",
+    "0",
+    "0",
+    "0",
+    "1/308"
+  ],
+  "solution_decimal": [
+    -2.0454545454545454,
+    0.0,
+    0.0,
+    0.0,
+    0.003246753246753247
+  ],
+  "exact_residual": "[0,0,0,0,0]",
+  "method": "Cramer rule; determinants evaluated independently by the 120 signed permutation products, then exact rational matrix-vector residual checked",
+  "production_solver_used": false
+}

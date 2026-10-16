@@ -1,0 +1,8 @@
+%%MatrixMarket matrix array real general
+% Single all-ones RHS from NEO-2 sparse_example(1)
+5 1
+1
+1
+1
+1
+1
