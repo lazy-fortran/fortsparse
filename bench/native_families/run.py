@@ -30,7 +30,7 @@ def positive_i8(value):
 
 
 def memory_environment(backend, host_limit_bytes=None):
-    if backend != "native-amd-capped":
+    if backend != "native-amd-capped" and not (backend == "native-amd-low" and host_limit_bytes is not None):
         return {}
     return {HOST_LIMIT_ENV: str(positive_i8(host_limit_bytes))}
 
@@ -40,7 +40,7 @@ def record_memory_configuration(receipt, backend, host_limit_bytes=None):
         return receipt
     expected = dict(memory_policy=1 if backend == "native-amd-low" else 0,
                     host_memory_limit_bytes=(positive_i8(host_limit_bytes)
-                        if backend == "native-amd-capped" else 0))
+                        if backend == "native-amd-capped" or host_limit_bytes is not None else 0))
     receipt["requested_memory_configuration"] = expected
     if receipt.get("status") == "ok" and any(
             receipt.get("record", {}).get(key) != value for key, value in expected.items()):
@@ -106,6 +106,7 @@ class MeasuredProcess(subprocess.Popen):
 
 def invoke(binary, args, threads, cores, timeout, extra_env=None):
     env = os.environ.copy()
+    env.pop(HOST_LIMIT_ENV, None)  # Only an explicit runner request sets a child cap.
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
                OMP_PLACES="cores", OMP_PROC_BIND="close", MKL_NUM_THREADS=str(threads),
                MKL_DYNAMIC="FALSE", MKL_THREADING_LAYER="GNU")

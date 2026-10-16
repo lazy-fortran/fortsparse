@@ -66,13 +66,17 @@ program bench_native_families
         error stop 'unknown backend'
     end select
     if (trim(r%backend)=='native-amd-low') solver%options%memory_policy=FORTSPARSE_MEMORY_LOW
-    if (trim(r%backend)=='native-amd-capped') then
+    if (trim(r%backend)=='native-amd-capped'.or.trim(r%backend)=='native-amd-low') then
         call get_environment_variable('FORTSPARSE_BENCH_HOST_LIMIT_BYTES',argument,status=env_status)
-        if (env_status/=0.or.len_trim(argument)==0) error stop 'capped alias requires positive host limit bytes'
-        if (verify(trim(argument),'0123456789')/=0) error stop 'host limit bytes must be a positive decimal i8'
-        read(argument,*,iostat=ios) solver%options%host_memory_limit_bytes
-        if (ios/=0) error stop 'host limit bytes exceeds positive i8 range'
-        if (solver%options%host_memory_limit_bytes<=0_i8) error stop 'host limit bytes must be positive'
+        if (env_status==1) then
+            if (trim(r%backend)=='native-amd-capped') error stop 'capped alias requires positive host limit bytes'
+        else
+            if (env_status/=0) error stop 'host limit environment value is truncated'
+            if (verify(trim(argument),'0123456789')/=0) error stop 'host limit bytes must be a positive decimal i8'
+            read(argument,*,iostat=ios) solver%options%host_memory_limit_bytes
+            if (ios/=0) error stop 'host limit bytes exceeds positive i8 range'
+            if (solver%options%host_memory_limit_bytes<=0_i8) error stop 'host limit bytes must be positive'
+        end if
     end if
     r%memory_policy=solver%options%memory_policy
     r%host_memory_limit_bytes=solver%options%host_memory_limit_bytes
