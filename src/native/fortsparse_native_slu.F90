@@ -394,7 +394,8 @@ contains
             self%opaque_ordering = .true.
             code = order_amd_general(n, nnz, ptr, graph, order, finv)
         end if
-        call status_set(status, code, 'supernodal LU: column ordering failed or unavailable')
+        call status_set(status, code, &
+            'supernodal LU: column ordering failed or unavailable')
         if (.not. status_ok(status)) return
 
         ! Phase counts: symmetrized pattern, etree/counts and postorder.
@@ -822,10 +823,12 @@ contains
             return
         end if
         call self%sched%allocate_rowmap(ledger, status)
-        if (status%code == FORTSPARSE_RESOURCE_LIMIT) self%failed_phase = SLU_PHASE_SCRATCH
+        if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
+            self%failed_phase = SLU_PHASE_SCRATCH
         if (.not. status_ok(status)) return
         call self%sched%allocate_update_work(self%maxwork, ledger, status)
-        if (status%code == FORTSPARSE_RESOURCE_LIMIT) self%failed_phase = SLU_PHASE_SCRATCH
+        if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
+            self%failed_phase = SLU_PHASE_SCRATCH
         if (.not. status_ok(status)) return
         call charge_count(self, ledger, int(self%n,i8)+self%maxrows, 8_i8, &
             SLU_PHASE_SCRATCH, status)
@@ -1154,7 +1157,8 @@ contains
         if (w == 1) then
             do j = 1, q
                 col = self%panels(s)%rows(f+j-1)-first_d+1
-                call supernode_scatter_mapped_update(self%values(ld+int(col-1,i8)*md+1), &
+                call supernode_scatter_mapped_update( &
+                    self%values(ld+int(col-1,i8)*md+1), &
                     self%panels(s)%rows(f:), self%sched%rowmap(:,thread), &
                     self%values(ls+f), m2, self%values(us+f-w+j-1))
                 if (m2 > q) call supernode_scatter_mapped_update( &
@@ -1169,7 +1173,8 @@ contains
         if (self%use_blas) then
             contiguous_rows = .true.
             do p = f+1, m
-                if (self%sched%rowmap(self%panels(s)%rows(p),thread) == position+p-f) cycle
+                if (self%sched%rowmap(self%panels(s)%rows(p),thread) == &
+                    position+p-f) cycle
                 contiguous_rows = .false.
                 exit
             end do
@@ -1278,7 +1283,8 @@ contains
         integer :: op, k
         op = 0
         if (present(operation)) op = operation
-        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'supernodal LU: invalid operation')
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: invalid operation')
         if (op < 0 .or. op > 2) return
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: no factors')
         if (.not. self%factored) return
@@ -1316,7 +1322,8 @@ contains
         integer :: j, op
         op = 0
         if (present(operation)) op = operation
-        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'supernodal LU: invalid operation')
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: invalid operation')
         if (op < 0 .or. op > 2) return
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: no factors')
         if (.not. self%factored) return
