@@ -10,7 +10,7 @@ module fortsparse_solver
     ! FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an unbuilt or unknown backend
     ! yields a documented
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
-    use fortsparse_kinds, only: dp
+    use fortsparse_kinds, only: dp, i8
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX
@@ -19,7 +19,8 @@ module fortsparse_solver
         sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, &
-        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t
 #endif
@@ -27,6 +28,9 @@ module fortsparse_solver
     use fortsparse_superlu, only: superlu_backend_t
 #endif
     use fortsparse_umfpack_ipc, only: umfpack_ipc_backend_t
+    use fortsparse_memory, only: sparse_memory_plan_t, memory_budget_t, &
+        plan_natural_spd_memory
+    use fortsparse_spd_leaves, only: spd_update
     use fortsparse_native, only: native_backend_t
     implicit none
     private
@@ -70,6 +74,7 @@ module fortsparse_solver
 
     ! Re-exported option and statistics vocabulary.
     public :: sparse_options_t, sparse_factor_stats_t
+    public :: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
     public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
@@ -85,7 +90,7 @@ module fortsparse_solver
         class(sparse_backend_t), allocatable :: backend
     end type sparse_solver_t
 
-    public :: sparse_factor
+    public :: sparse_factor, sparse_analyze, sparse_memory_plan_t
     public :: sparse_refactor
     public :: sparse_solve
     public :: sparse_free
@@ -156,6 +161,47 @@ module fortsparse_solver
 
 contains
 
+    subroutine sparse_analyze(solver, A, plan, status, nrhs)
+        ! Plans the exact bounded natural-order CPU SPD layout without
+        ! factorizing or changing retained factors. Other schedules are explicit.
+        type(sparse_solver_t), intent(in) :: solver
+        type(csc_t), intent(in) :: A
+        type(sparse_memory_plan_t), intent(out) :: plan
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: nrhs
+        type(memory_budget_t) :: budget
+        plan = sparse_memory_plan_t()
+        if (solver%backend_id /= FORTSPARSE_BACKEND_NATIVE .and. &
+            solver%backend_id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'memory analysis: native CPU SPD reference layout only')
+            return
+        end if
+        if (solver%options%symmetry /= FORTSPARSE_SYM_SPD .or. &
+            solver%options%ordering /= FORTSPARSE_ORDER_DEFAULT .or. &
+            solver%options%device /= -1) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'memory analysis: require natural-order CPU SPD layout')
+            return
+        end if
+        if (solver%backend_id == FORTSPARSE_BACKEND_NATIVE .and. &
+            solver%options%host_memory_limit_bytes == 0_i8 .and. &
+            solver%options%memory_policy /= FORTSPARSE_MEMORY_LOW) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'memory analysis: select LOW_MEMORY or a host cap for reference layout')
+            return
+        end if
+        if (solver%options%device_memory_limit_bytes < 0_i8 .or. &
+            solver%options%memory_policy < FORTSPARSE_MEMORY_AUTO .or. &
+            solver%options%memory_policy > FORTSPARSE_MEMORY_LOW) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'memory analysis: invalid memory limit or policy')
+            return
+        end if
+        budget%limit = solver%options%host_memory_limit_bytes
+        call plan_natural_spd_memory(A, plan, status, budget, nrhs)
+    end subroutine sparse_analyze
+
     ! Factor a real matrix. Ensures the concrete backend, then dispatches.
     subroutine sparse_factor_real(solver, A, status)
         type(sparse_solver_t),     intent(inout) :: solver
@@ -190,6 +236,14 @@ contains
         real(dp),                  intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
+        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'strict memory: raw CSC conversion is not yet budgeted')
+            return
+        end if
         call ensure_backend(solver, nz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
@@ -206,6 +260,14 @@ contains
         complex(dp),               intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
+        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'strict memory: raw CSC conversion is not yet budgeted')
+            return
+        end if
         call ensure_backend(solver, nz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex_raw(nrow, ncol, nz, col_ptr, &
@@ -259,6 +321,15 @@ contains
         logical :: r
 
         r = .false.
+        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'strict memory: raw CSC conversion is not yet budgeted')
+            if (present(reused)) reused = .false.
+            return
+        end if
         call ensure_backend(solver, nz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real_raw(nrow, ncol, nz, col_ptr, &
@@ -280,6 +351,15 @@ contains
         logical :: r
 
         r = .false.
+        if (solver%options%host_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
+            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'strict memory: raw CSC conversion is not yet budgeted')
+            if (present(reused)) reused = .false.
+            return
+        end if
         call ensure_backend(solver, nz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex_raw(nrow, ncol, nz, col_ptr, &
@@ -329,7 +409,7 @@ contains
         real(dp), target, contiguous, intent(out) :: x_dot(:)
         type(fortsparse_status_t), intent(out) :: status
 
-        real(dp), allocatable, target :: A_dot_x(:), tangent_rhs(:)
+        integer :: column, entry, row
 
         if (.not. solver%factored) then
             call not_factored(status)
@@ -350,9 +430,14 @@ contains
                 "sparse_solve_jvp: incompatible output dimension")
             return
         end if
-        A_dot_x = csc_matvec(A_dot, x)
-        tangent_rhs = b_dot - A_dot_x
-        call sparse_solve_real(solver, tangent_rhs, x_dot, status)
+        x_dot = b_dot
+        do column = 1, A_dot%ncol
+            do entry = A_dot%col_ptr(column), A_dot%col_ptr(column+1)-1
+                row = A_dot%row_idx(entry)
+                x_dot(row) = spd_update(x_dot(row), A_dot%val(entry), x(column))
+            end do
+        end do
+        call sparse_solve_real_inplace(solver, x_dot, status)
     end subroutine sparse_solve_jvp_real
 
     subroutine sparse_solve_vjp_real( &
@@ -673,9 +758,29 @@ contains
 
         integer :: id
 
+        if (solver%options%host_memory_limit_bytes < 0_i8 .or. &
+            solver%options%device_memory_limit_bytes < 0_i8 .or. &
+            solver%options%memory_policy < FORTSPARSE_MEMORY_AUTO .or. &
+            solver%options%memory_policy > FORTSPARSE_MEMORY_LOW) then
+            solver%factored = .false.
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'sparse solver: invalid memory limit or policy')
+            return
+        end if
         id = solver%backend_id
         if (id == FORTSPARSE_BACKEND_AUTO) id = sparse_auto_backend(nnz, &
             is_complex)
+        if (id /= FORTSPARSE_BACKEND_NATIVE .and. &
+            id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) then
+            if (solver%options%host_memory_limit_bytes > 0_i8 .or. &
+                solver%options%device_memory_limit_bytes > 0_i8 .or. &
+                solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+                solver%factored = .false.
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'sparse solver: selected external backend has no strict memory contract')
+                return
+            end if
+        end if
         if (allocated(solver%backend)) then
             if (backend_is(solver%backend, id)) then
                 solver%backend%options = solver%options

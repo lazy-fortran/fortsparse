@@ -33,6 +33,9 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_ORDER_AMD = 1
     integer, parameter, public :: FORTSPARSE_ORDER_ND = 2
 
+    integer, parameter, public :: FORTSPARSE_MEMORY_AUTO = 0
+    integer, parameter, public :: FORTSPARSE_MEMORY_LOW = 1
+
     ! Backend tuning, copied from the solver to the backend at every factor.
     ! Backends that have no use for a field ignore it.
     type :: sparse_options_t
@@ -41,6 +44,10 @@ module fortsparse_backend
         integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)
         integer :: device = -1 ! native: -1 CPU, >=0 explicit CUDA device
         logical :: verbose = .false.
+        ! Strict native array-payload limits; allocator/runtime/RSS excluded.
+        integer(i8) :: host_memory_limit_bytes = 0_i8
+        integer(i8) :: device_memory_limit_bytes = 0_i8
+        integer :: memory_policy = FORTSPARSE_MEMORY_AUTO
         ! UMFPACK IPC: negative keeps its native pivot defaults; [0,1] overrides.
         real(dp) :: pivot_tolerance = -1.0_dp
         ! UMFPACK estimated peak only, excluding caller/IPC storage; 0: no gate.
@@ -69,6 +76,9 @@ module fortsparse_backend
         integer(i8) :: ipc_bytes = -1_i8
         real(dp) :: effective_pivot_tolerance = -1.0_dp
         logical :: numeric_started = .false.
+        integer(i8) :: host_current_bytes = -1_i8, host_peak_bytes = -1_i8
+        integer(i8) :: budget_required_bytes = 0_i8, budget_available_bytes = 0_i8
+        logical :: strict_memory_supported = .false.
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t

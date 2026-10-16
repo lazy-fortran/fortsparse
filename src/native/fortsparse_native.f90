@@ -8,12 +8,14 @@ module fortsparse_native
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND, &
-        FORTSPARSE_ORDER_AMD
+        FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE
+    use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
+        plan_natural_spd_memory
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_symbolic, only: native_symbolic_counts
     use fortsparse_native_cuda, only: native_cuda_available
@@ -52,7 +54,11 @@ module fortsparse_native
 
     type, extends(sparse_backend_t) :: native_backend_t
         integer :: n = 0
-        logical :: reference_only = .false.
+        logical :: reference_only = .false., bounded_memory = .false.
+        integer(i8) :: analyzed_host_limit = 0_i8, analyzed_device_limit = 0_i8
+        integer :: analyzed_memory_policy = 0
+        type(memory_budget_t) :: host_budget
+        type(sparse_memory_plan_t) :: memory_plan
         integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
         integer :: analyzed_order = 0, analyzed_threads = 0, analyzed_device = -1
         integer, allocatable :: perm(:), inverse(:), source(:), op(:), oi(:)
@@ -94,6 +100,20 @@ contains
         call self%free()
         call validate(self, A, status)
         if (.not. status_ok(status)) return
+        self%bounded_memory = self%options%host_memory_limit_bytes > 0_i8 .or. &
+            self%options%memory_policy == FORTSPARSE_MEMORY_LOW
+        self%analyzed_host_limit = self%options%host_memory_limit_bytes
+        self%analyzed_device_limit = self%options%device_memory_limit_bytes
+        self%analyzed_memory_policy = self%options%memory_policy
+        if (self%bounded_memory) then
+            self%host_budget%limit = self%options%host_memory_limit_bytes
+            call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
+            call update_budget_stats(self)
+            if (.not. status_ok(status)) return
+            call self%host_budget%reserve(self%memory_plan%peak_host_bytes, &
+                status, 'native SPD retained reference payload')
+            if (.not. status_ok(status)) return
+        end if
         start = wall_time()
         self%analyzed_order = self%options%ordering
         self%analyzed_threads = self%options%nthreads
@@ -106,6 +126,7 @@ contains
             call analyze(self, A, status)
         end if
         if (.not. status_ok(status)) return
+        if (self%bounded_memory) call update_budget_stats(self)
         if (self%blocked) then
             if (allocated(self%perm)) then
                 ! Panels assemble directly from the caller's canonical CSC.
@@ -135,6 +156,10 @@ contains
         integer, allocatable :: cursor(:)
 
         call status_set(status, FORTSPARSE_OK, '')
+        if (self%bounded_memory) then
+            self%selected_order = FORTSPARSE_ORDER_DEFAULT
+            return
+        end if
         bandwidth = 0
         do j = 1, A%ncol
             do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
@@ -316,7 +341,7 @@ contains
                 self%count(i) = self%count(i) + 1
             end do
         end do
-        self%blocked = .not. self%reference_only .and. &
+        self%blocked = .not. self%reference_only .and. .not. self%bounded_memory .and. &
             ((self%n >= 64 .and. maxval(self%count) > 12) .or. &
             self%options%device >= 0)
         if (self%blocked) then
@@ -380,6 +405,16 @@ contains
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'native SPD: require finite, full symmetric, canonical square CSC')
+        if (self%options%host_memory_limit_bytes > 0_i8 .or. &
+            self%options%device_memory_limit_bytes > 0_i8 .or. &
+            self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
+            if (self%options%device >= 0 .or. &
+                self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'native SPD: strict memory currently requires natural-order CPU execution')
+                return
+            end if
+        end if
         if (self%options%device >= 0 .and. &
             (.not. native_cuda_available .or. self%reference_only)) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
@@ -533,6 +568,12 @@ contains
         call validate(self, A, status)
         self%ready = .false.
         if (.not. status_ok(status)) return
+        if (self%analyzed_host_limit /= self%options%host_memory_limit_bytes .or. &
+            self%analyzed_device_limit /= self%options%device_memory_limit_bytes .or. &
+            self%analyzed_memory_policy /= self%options%memory_policy) then
+            call self%factor_real(A, refine, status)
+            return
+        end if
         if (self%analyzed_order /= self%options%ordering .or. &
             self%analyzed_threads /= self%options%nthreads .or. &
             self%analyzed_device /= self%options%device) then
@@ -671,6 +712,7 @@ contains
         type(sparse_factor_stats_t), intent(out) :: stats
         type(fortsparse_status_t), intent(out) :: status
 
+        call update_budget_stats(self)
         stats = self%stats
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine native_stats
@@ -679,11 +721,38 @@ contains
         class(native_backend_t), intent(inout) :: self
         integer, intent(in) :: n
         real(dp), pointer :: p(:)
+        type(fortsparse_status_t) :: status
+        integer :: ierr
 
-        if (associated(self%user_vector)) deallocate (self%user_vector)
-        allocate (self%user_vector(n))
+        nullify(p)
+        if (n < 0) return
+        if (associated(self%user_vector)) then
+            if (self%bounded_memory) call self%host_budget%release( &
+                8_i8*size(self%user_vector,kind=i8), status)
+            deallocate(self%user_vector)
+        end if
+        if (self%bounded_memory) then
+            call self%host_budget%reserve(8_i8*int(n,i8), status, 'native user vector')
+            call update_budget_stats(self)
+            if (.not. status_ok(status)) return
+        end if
+        allocate(self%user_vector(n), stat=ierr)
+        if (ierr /= 0) then
+            if (self%bounded_memory) call self%host_budget%release(8_i8*int(n,i8), status)
+            return
+        end if
         p => self%user_vector
     end function native_vector
+
+    subroutine update_budget_stats(self)
+        class(native_backend_t), intent(inout) :: self
+        if (.not. self%bounded_memory) return
+        self%stats%host_current_bytes = self%host_budget%current
+        self%stats%host_peak_bytes = self%host_budget%peak
+        self%stats%budget_required_bytes = self%host_budget%failed_required
+        self%stats%budget_available_bytes = self%host_budget%failed_available
+        self%stats%strict_memory_supported = .true.
+    end subroutine update_budget_stats
 
     subroutine release_symbolic_rows(self)
         class(native_backend_t), intent(inout) :: self
@@ -721,6 +790,9 @@ contains
         nullify (self%user_vector)
         self%n = 0
         self%ready = .false.
+        self%bounded_memory = .false.
+        self%host_budget = memory_budget_t()
+        self%memory_plan = sparse_memory_plan_t()
         self%stats = sparse_factor_stats_t()
     end subroutine native_free
 

@@ -275,3 +275,6 @@ if(FORTSPARSE_ENABLE_MUMPS)
         target_link_libraries(bench_fortsparse_backends PRIVATE fortsparse)
     endif()
 endif()
+
+fortsparse_add_test(test_fortsparse_memory_api solver/test_fortsparse_memory_api.f90)
+set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 1)
