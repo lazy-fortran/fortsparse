@@ -208,6 +208,13 @@ mathematical implementations.
   needs stable 1x1/2x2 pivots, delayed-pivot memory handling and adversarial
   stability tests. Add unsymmetric LU only for a concrete consumer with its own
   stability, transpose-solve, derivative and performance gates.
+- [ ] **M5.G — Matched GPU admission.** Compare native CUDA with cuDSS and
+  standalone CHOLMOD CUDA on the frozen FP64 SPD workflows in
+  `bench/GPU_BENCHMARKS.md`. Establish actual offload, complete host/device
+  memory accounting and external-only size calibration before native tuning.
+  Profile losing cases; improve generic emission upstream and regenerate the
+  consumer. Admit host and device-resident workflows separately, preserving
+  the CPU frontier and all failed or unavailable comparisons.
 - [ ] **M5.5 — Measured extensions within one node.** Consider multiple GPUs
   and approximate/compressed factors or preconditioners only for workloads
   that justify them, with explicit memory and accuracy budgets.

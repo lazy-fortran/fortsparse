@@ -84,6 +84,13 @@ their work is integrated and their owned processes have stopped.
   measured external configuration as a possible dominator by strict time OR
   memory separation. Unknown aggregate memory, missing comparators and range
   overlaps remain explicit; median-front membership is a weaker claim.
+- GPU admission compares native CUDA with actual GPU-library execution at the
+  same FP64 accuracy, device and host-thread budget. Follow
+  `bench/GPU_BENCHMARKS.md`; CPU-versus-GPU plots cannot establish GPU-library
+  competitiveness. Record CPU fallback, unavailable offload and unknown memory.
+- Generic emission defects are repaired in the owning generator (FortGen,
+  through FortSym where appropriate), then regenerated in FortSparse. Retain
+  compiled-kernel evidence as well as independent value/JVP/VJP checks.
 
 ## Profile-driven optimization loop
 
