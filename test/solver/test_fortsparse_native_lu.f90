@@ -14,6 +14,8 @@ program test_fortsparse_native_lu
     call raw_errors()
     call diagonal_cases()
     call limits()
+    call low_growth(.false.)
+    call low_growth(.true.)
     print '(a)', 'Native sparse real/complex LU values, operations, pivoting, reuse and memory pass'
 contains
     subroutine diagonal_cases()
@@ -379,6 +381,150 @@ contains
         call solver%free()
         call zsolver%free()
     end subroutine raw_errors
+    subroutine low_growth(pruning)
+        logical, intent(in) :: pruning
+        ! Dense independent oracle: no dropping/cancellation, so L has n(n-1)/2
+        ! entries and U has n(n+1)/2. Exact-growth peak occurs at the last U copy.
+        integer, parameter :: n=80
+        integer :: ptr(n+1),rows(n*n),q(n),i,j,k
+        real(dp) :: matrix(n,n),values(n*n),reference(n,2),rhs(n,2)
+        complex(dp) :: zmatrix(n,n),zvalues(n*n),zreference(n,2)
+        type(lu_factor_t) :: f
+        type(lu_factor_z_t) :: zf
+        type(fortsparse_status_t) :: status
+        integer(i8) :: lower,upper,fixed,zfixed,cap,zcap,bytes,entry,zentry
+        lower=int(n,i8)*(n-1)/2;upper=int(n,i8)*(n+1)/2
+        entry=int(storage_size(0)/8,i8)+8_i8
+        zentry=int(storage_size(0)/8,i8)+16_i8
+        fixed=int(storage_size(0)/8,i8)*(10_i8*n+3_i8+n*n)+16_i8*n
+        if(pruning) fixed=fixed+int(storage_size(0)/8,i8)*n
+        zfixed=fixed+8_i8*n
+        cap=fixed+(lower+2*upper-n)*entry
+        zcap=zfixed+(lower+2*upper-n)*zentry
+        q=[(mod(37*j,n)+1,j=0,n-1)]
+        k=0
+        do j=1,n
+            ptr(j)=k+1
+            do i=1,n
+                matrix(i,j)=.01_dp*sin(real(i+2*j,dp))
+                if(i==j) matrix(i,j)=real(n,dp)
+                zmatrix(i,j)=cmplx(matrix(i,j),.003_dp*cos(real(2*i+j,dp)),dp)
+                k=k+1;rows(k)=i;values(k)=matrix(i,j);zvalues(k)=zmatrix(i,j)
+            end do
+        end do
+        ptr(n+1)=k+1
+        do j=1,2
+            reference(:,j)=[(sin(real(i+j,dp)),i=1,n)]
+        end do
+        zreference=cmplx(reference,.25_dp*reference,dp)
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,pruning=pruning)
+        call checked(status)
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,pruning=pruning)
+        call checked(status)
+        ! Bound the extra capacity, without asserting a particular sequence of
+        ! internal growth calls. The bound applies to fresh increasing factors.
+        if(f%memory_bytes()>fixed+(lower+lower/16+upper+upper/16)*entry) &
+            error stop 'unlimited LOW real spare-capacity bound'
+        if(zf%memory_bytes()>zfixed+(lower+lower/16+upper+upper/16)*zentry) &
+            error stop 'unlimited LOW complex spare-capacity bound'
+        if(f%memory_bytes()<fixed+(lower+upper)*entry.or. &
+           zf%memory_bytes()<zfixed+(lower+upper)*zentry) error stop 'LOW missing factor accounting'
+        call low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        ! Generous positive limits retain fast small-slack growth as well.
+        call f%free();call zf%free()
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true., &
+            memory_limit_bytes=2*cap,pruning=pruning)
+        call checked(status)
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true., &
+            memory_limit_bytes=2*zcap,pruning=pruning)
+        call checked(status)
+        if(f%memory_bytes()<=fixed+(lower+upper)*entry.or. &
+           zf%memory_bytes()<=zfixed+(lower+upper)*zentry) error stop 'generous LOW lost bounded slack'
+        call low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        ! Fresh old-minimal caps force recovery from the hinted attempt.
+        call f%free();call zf%free()
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=cap,pruning=pruning)
+        call checked(status)
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=zcap,pruning=pruning)
+        call checked(status)
+        if(f%last_reused_pattern.or.zf%last_reused_pattern) error stop 'LOW retry claimed pattern reuse'
+        if(f%memory_bytes()/=fixed+(lower+upper)*entry.or. &
+           zf%memory_bytes()/=zfixed+(lower+upper)*zentry) error stop 'LOW retry did not use exact storage'
+        if(f%peak_memory_bytes/=cap.or.zf%peak_memory_bytes/=zcap) error stop 'LOW retry peak lost'
+        call low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        ! Each fresh one-byte-under failure must stop after its exact retry.
+        call f%free();call zf%free()
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=cap-1,pruning=pruning)
+        if(status%code/=FORTSPARSE_RESOURCE_LIMIT) error stop 'LOW real one-byte-under cap'
+        if(f%memory_bytes()>cap-1.or.f%peak_memory_bytes>cap-1) error stop 'LOW real cap exceeded'
+        rhs=0
+        call f%solve(rhs,status)
+        if(status%code/=FORTSPARSE_NOT_FACTORED) error stop 'LOW failed factor remained ready'
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=zcap-1,pruning=pruning)
+        if(status%code/=FORTSPARSE_RESOURCE_LIMIT) error stop 'LOW complex one-byte-under cap'
+        if(zf%memory_bytes()>zcap-1.or.zf%peak_memory_bytes>zcap-1) error stop 'LOW complex cap exceeded'
+        ! The exact old minimal schedule remains feasible, even after failure.
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=cap,pruning=pruning)
+        call checked(status)
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=zcap,pruning=pruning)
+        call checked(status)
+        if(f%peak_memory_bytes/=cap.or.zf%peak_memory_bytes/=zcap) error stop 'LOW exact-growth peak'
+        if(f%memory_bytes()/=fixed+(lower+upper)*entry.or. &
+           zf%memory_bytes()/=zfixed+(lower+upper)*zentry) error stop 'capped LOW spare capacity'
+        call low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        ! Retained same-pattern refactors fit their current payload, with new
+        ! numerical values and no growth. Independent N/T/H answers check reuse.
+        matrix=matrix*1.125_dp;zmatrix=zmatrix*cmplx(1.125_dp,.125_dp,dp)
+        values=reshape(matrix,[n*n]);zvalues=reshape(zmatrix,[n*n])
+        bytes=f%memory_bytes()
+        call f%factor_raw(n,ptr,rows,values,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=bytes,pruning=pruning)
+        call checked(status)
+        if(.not.f%last_reused_pattern.or.f%peak_memory_bytes/=bytes) error stop 'LOW real refactor reuse'
+        bytes=zf%memory_bytes()
+        call zf%factor_raw(n,ptr,rows,zvalues,status, &
+            column_permutation=q,pivot_threshold=.5_dp,low_memory=.true.,memory_limit_bytes=bytes,pruning=pruning)
+        call checked(status)
+        if(.not.zf%last_reused_pattern.or.zf%peak_memory_bytes/=bytes) error stop 'LOW complex refactor reuse'
+        call low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        call f%free();call zf%free()
+    end subroutine low_growth
+    subroutine low_operations(f,zf,matrix,zmatrix,reference,zreference)
+        type(lu_factor_t),intent(inout)::f
+        type(lu_factor_z_t),intent(inout)::zf
+        real(dp),intent(in)::matrix(:,:),reference(:,:)
+        complex(dp),intent(in)::zmatrix(:,:),zreference(:,:)
+        real(dp)::rhs(size(reference,1),size(reference,2))
+        complex(dp)::zrhs(size(zreference,1),size(zreference,2))
+        type(fortsparse_status_t)::status
+        integer::op
+        do op=LU_NORMAL,LU_ADJOINT
+            if(op==LU_NORMAL) then
+                rhs=matmul(matrix,reference);zrhs=matmul(zmatrix,zreference)
+            else
+                rhs=matmul(transpose(matrix),reference)
+                if(op==LU_TRANSPOSE) then
+                    zrhs=matmul(transpose(zmatrix),zreference)
+                else
+                    zrhs=matmul(conjg(transpose(zmatrix)),zreference)
+                end if
+            end if
+            call f%solve(rhs,status,op);call checked(status)
+            call zf%solve(zrhs,status,op);call checked(status)
+            if(maxval(abs(rhs-reference))>3e-13_dp.or.maxval(abs(zrhs-zreference))>3e-13_dp) &
+                error stop 'LOW real/complex independent N/T/H block solution'
+        end do
+    end subroutine low_operations
     subroutine limits()
         type(csc_t) :: a
         type(lu_factor_t) :: solver

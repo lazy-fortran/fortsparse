@@ -28,7 +28,20 @@ performance admission.
 
 The new references enforce `host_memory_limit_bytes` across their owned arrays,
 including factor growth replacement overlap, and support RAM-only LOW_MEMORY.
-LU uses exact-needed growth instead of geometric spare capacity in LOW_MEMORY;
+LOW_MEMORY LU grows factor buffers by at most 1/16 of their old capacity
+beyond the requested entries, amortizing prefix copies; buffers below 16 entries
+still grow exactly. At each growth to required size R, capacity is at most
+R + floor(R/16), compared with AUTO's doubling policy. Every allocation checks
+old/new overlap against a positive cap and first falls back to an exact request.
+If spare capacity created by the current attempt still prevents growth, LOW
+releases its already invalid numerical factors and retries once with exact
+growth, retaining the pattern/order workspace. It does not retry singular or
+OS allocation failures. Peak accounting includes both sequential attempts;
+successful retry reports pattern reuse false. Tightly capped LOW can therefore
+trade more copying for minimum padding. This retry adds no entry-cap bypass:
+the existing low-level LU entry policy may release storage when it already
+exceeds a newly requested cap. Public adapter reservations for ordering,
+refinement and user vectors remain part of the budget before LU runs.
 HPD already uses compact exact structural storage. Separate contexts own their
 mutable work independently. Strict-budget and LOW_MEMORY execution use natural
 ordering, or the audited bounded AMD path for general LU; these matrix classes
