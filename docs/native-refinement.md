@@ -2,7 +2,8 @@
 
 Set `solver%refine=.true.` before factor/refactor to enable original-matrix
 residual checking and iterative refinement for native CPU real/complex LU,
-complex HPD Cholesky and real pivoted LDLT. This option is retained at factor
+complex HPD Cholesky, real pivoted LDLT, and complex Hermitian/transpose-symmetric
+pivoted LDL. This option is retained at factor
 entry; changing it requires a factor/refactor call. This is numerical backward
 error control, not a forward-error bound or a rigorous certificate.
 
@@ -31,14 +32,18 @@ across a successful block. `backward_error` is the final estimate, or the maximu
 across a successful block. `-1` means unavailable, for example an unrefined solve
 or a nonfinite residual. A finite three-step failure retains its failed error.
 Requested/active teams, factor family and factor statistics retain their meanings;
-retention/checker setup is outside the existing numerical `factor_s` boundary.
+original CSC population and norm preparation follow the existing `factor_s`
+measurement; quota reservation remains part of its dispatch overhead.
 
 For default-width integers, additional payload is
 `4*(n+1+nnz) + value_bytes*(nnz+2*n)`, with value_bytes 8 real or 16 complex.
 The implementation uses `storage_size` for the actual integer width. It reserves
 this quota and any live `sparse_vector` payload before invoking the factors, so
 factor growth/reuse copies cannot consume the refinement quota. Original storage
-is populated after a successful factorization. Same-shape storage is reused;
+is populated after a successful factorization. Reserving future storage is
+conservative for a fresh workflow: its observed peak can be smaller than the
+cap needed to reserve that storage throughout a retained refactor's growth.
+Same-shape storage is reused;
 obsolete buffers are released before a changed shape/type is allocated. All
 retained arrays and their actual overlap with factor growth contribute to
 `host_current_bytes` and `host_peak_bytes`. These are allocation payloads;

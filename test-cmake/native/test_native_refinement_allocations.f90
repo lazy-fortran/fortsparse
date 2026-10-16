@@ -26,7 +26,7 @@ program test_native_refinement_allocations
     call checked(status)
     solver%refine=.true.
     call begin()
-    call sparse_factor(solver,a,status)
+    call sparse_factor(solver,2,2,a%nnz,a%col_ptr,a%row_idx,a%val,status)
     call finish(count,bytes)
     call checked(status)
     expected=int(storage_size(0)/8,c_int64_t)*7+8_c_int64_t*8
