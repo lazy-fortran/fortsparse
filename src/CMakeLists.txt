@@ -46,6 +46,10 @@ target_sources(fortsparse PRIVATE
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     set_source_files_properties(generated/fortsparse_spd_leaves.f90 PROPERTIES
         COMPILE_OPTIONS "-fno-semantic-interposition")
+    # Compensated LU sums depend on staged IEEE rounding. Preserve those stages
+    # while allowing calls inside this generated module to inline.
+    set_source_files_properties(generated/fortsparse_lu_leaves.f90 PROPERTIES
+        COMPILE_OPTIONS "-fno-semantic-interposition;-fno-associative-math;-ffp-contract=off")
 endif()
 
 # The SuperLU backend is an optional component. When enabled, compile its

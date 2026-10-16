@@ -25,7 +25,7 @@ module @MODULE@
         integer, allocatable, private :: lp(:), up(:), lr(:), ur(:), p(:), pinv(:), q(:)
         integer, allocatable, private :: ap(:), ai(:), mark(:), stack(:), edge(:), reach(:)
         integer, allocatable, private :: prune_end(:)
-        @SCALAR@, allocatable, private :: lv(:), uv(:), work(:)
+        @SCALAR@, allocatable, private :: lv(:), uv(:), work(:), correction(:)
         real(dp), allocatable, private :: row_norm(:)
     contains
         procedure :: factor, factor_raw
@@ -191,7 +191,7 @@ contains
             if(allocated(self%prune_end)) deallocate(self%prune_end)
         end if
         if (.not.allocated(self%ap)) then
-            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
+            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(2_i8*vb+8_i8)*n
             if(use_pruning) fixed=fixed+ib*n
             if (cap>0 .and. fixed>cap) then
                 self%failed_required_bytes=fixed
@@ -201,7 +201,7 @@ contains
             end if
             allocate(self%lp(n+1),self%up(n+1),self%p(n),self%pinv(n),self%q(n), &
                 self%ap(n+1),self%ai(size(values)),self%mark(n),self%stack(n),self%edge(n), &
-                self%reach(n),self%work(n),self%row_norm(n),stat=ierr)
+                self%reach(n),self%work(n),self%correction(n),self%row_norm(n),stat=ierr)
             if (ierr/=0) then
                 fixed=self%memory_bytes()
                 call self%free()
@@ -688,6 +688,7 @@ contains
                 return
             end if
         end do
+        self%correction=@ZERO@
         if (op==LU_NORMAL) then
             do j=1,self%n
                 row=self%p(j)
@@ -695,18 +696,22 @@ contains
             end do
             do j=1,self%n
                 e=self%lp(j)
+                self%work(j)=corrected_value(self%work(j),self%correction(j))
+                self%correction(j)=@ZERO@
                 value=self%work(j)
                 if(self%lp(j+1)>e) then
-                    call scatter_update(self%work,self%lr(e:),self%lv(e:), &
+                    call solve_scatter(self%work,self%correction,self%lr(e:),self%lv(e:), &
                         self%lp(j+1)-e,value)
                 end if
             end do
             do j=self%n,1,-1
-                self%work(j)=divide_value(self%work(j),self%uv(self%up(j+1)-1))
+                self%work(j)=divide_value(corrected_value(self%work(j),self%correction(j)), &
+                    self%uv(self%up(j+1)-1))
+                self%correction(j)=@ZERO@
                 e=self%up(j)
                 value=self%work(j)
                 if(self%up(j+1)-1>e) then
-                    call scatter_update(self%work,self%ur(e:),self%uv(e:), &
+                    call solve_scatter(self%work,self%correction,self%ur(e:),self%uv(e:), &
                         self%up(j+1)-e-1,value)
                 end if
             end do
@@ -721,7 +726,7 @@ contains
                 value=self%work(j)
                 e=self%up(j)
                 if(self%up(j+1)-1>e) then
-                    call gather_update(value,self%ur(e:),self%uv(e:),self%work, &
+                    call solve_gather(value,self%ur(e:),self%uv(e:),self%work, &
                         self%up(j+1)-e-1@GATHER_ADJOINT@)
                 end if
                 coefficient=adjoint_value(self%uv(self%up(j+1)-1),op)
@@ -731,7 +736,7 @@ contains
                 value=self%work(j)
                 e=self%lp(j)
                 if(self%lp(j+1)>e) then
-                    call gather_update(value,self%lr(e:),self%lv(e:),self%work, &
+                    call solve_gather(value,self%lr(e:),self%lv(e:),self%work, &
                         self%lp(j+1)-e@GATHER_ADJOINT@)
                 end if
                 self%work(j)=value

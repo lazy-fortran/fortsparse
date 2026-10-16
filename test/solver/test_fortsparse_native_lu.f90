@@ -396,9 +396,9 @@ contains
         lower=int(n,i8)*(n-1)/2;upper=int(n,i8)*(n+1)/2
         entry=int(storage_size(0)/8,i8)+8_i8
         zentry=int(storage_size(0)/8,i8)+16_i8
-        fixed=int(storage_size(0)/8,i8)*(10_i8*n+3_i8+n*n)+16_i8*n
+        fixed=int(storage_size(0)/8,i8)*(10_i8*n+3_i8+n*n)+24_i8*n
         if(pruning) fixed=fixed+int(storage_size(0)/8,i8)*n
-        zfixed=fixed+8_i8*n
+        zfixed=fixed+16_i8*n
         cap=fixed+(lower+2*upper-n)*entry
         zcap=zfixed+(lower+2*upper-n)*zentry
         q=[(mod(37*j,n)+1,j=0,n-1)]
@@ -533,7 +533,7 @@ contains
         real(dp) :: rhs(3)
         call csc_from_triplet(3,3,[1,2,3],[1,2,3],[2._dp,3._dp,4._dp],a,status)
         call checked(status)
-        fixed=int(storage_size(0)/8,i8)*(10_i8*3+3+3)+16_i8*3
+        fixed=int(storage_size(0)/8,i8)*(10_i8*3+3+3)+24_i8*3
         budget=fixed+int(storage_size(0)/8,i8)+8_i8-1
         call solver%factor(a,status,memory_limit_bytes=budget)
         if(status%code/=FORTSPARSE_RESOURCE_LIMIT) error stop 'LU growth cap not enforced'

@@ -8,7 +8,8 @@ module fortsparse_native_lu
     use fortsparse_spd_leaves, only: divide_value => spd_divide, &
         scatter_update => spd_scatter_update, gather_update => spd_gather_update
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-
+    use fortsparse_lu_leaves, only: solve_scatter => lu_r_compensated_scatter, &
+        solve_gather => lu_r_compensated_gather, corrected_value => lu_r_corrected_value
     implicit none
     private
     public :: lu_prune_column
@@ -25,7 +26,7 @@ module fortsparse_native_lu
         integer, allocatable, private :: lp(:), up(:), lr(:), ur(:), p(:), pinv(:), q(:)
         integer, allocatable, private :: ap(:), ai(:), mark(:), stack(:), edge(:), reach(:)
         integer, allocatable, private :: prune_end(:)
-        real(dp), allocatable, private :: lv(:), uv(:), work(:)
+        real(dp), allocatable, private :: lv(:), uv(:), work(:), correction(:)
         real(dp), allocatable, private :: row_norm(:)
     contains
         procedure :: factor, factor_raw
@@ -191,7 +192,7 @@ contains
             if(allocated(self%prune_end)) deallocate(self%prune_end)
         end if
         if (.not.allocated(self%ap)) then
-            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
+            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(2_i8*vb+8_i8)*n
             if(use_pruning) fixed=fixed+ib*n
             if (cap>0 .and. fixed>cap) then
                 self%failed_required_bytes=fixed
@@ -201,7 +202,7 @@ contains
             end if
             allocate(self%lp(n+1),self%up(n+1),self%p(n),self%pinv(n),self%q(n), &
                 self%ap(n+1),self%ai(size(values)),self%mark(n),self%stack(n),self%edge(n), &
-                self%reach(n),self%work(n),self%row_norm(n),stat=ierr)
+                self%reach(n),self%work(n),self%correction(n),self%row_norm(n),stat=ierr)
             if (ierr/=0) then
                 fixed=self%memory_bytes()
                 call self%free()
@@ -688,6 +689,7 @@ contains
                 return
             end if
         end do
+        self%correction=0.0_dp
         if (op==LU_NORMAL) then
             do j=1,self%n
                 row=self%p(j)
@@ -695,18 +697,22 @@ contains
             end do
             do j=1,self%n
                 e=self%lp(j)
+                self%work(j)=corrected_value(self%work(j),self%correction(j))
+                self%correction(j)=0.0_dp
                 value=self%work(j)
                 if(self%lp(j+1)>e) then
-                    call scatter_update(self%work,self%lr(e:),self%lv(e:), &
+                    call solve_scatter(self%work,self%correction,self%lr(e:),self%lv(e:), &
                         self%lp(j+1)-e,value)
                 end if
             end do
             do j=self%n,1,-1
-                self%work(j)=divide_value(self%work(j),self%uv(self%up(j+1)-1))
+                self%work(j)=divide_value(corrected_value(self%work(j),self%correction(j)), &
+                    self%uv(self%up(j+1)-1))
+                self%correction(j)=0.0_dp
                 e=self%up(j)
                 value=self%work(j)
                 if(self%up(j+1)-1>e) then
-                    call scatter_update(self%work,self%ur(e:),self%uv(e:), &
+                    call solve_scatter(self%work,self%correction,self%ur(e:),self%uv(e:), &
                         self%up(j+1)-e-1,value)
                 end if
             end do
@@ -721,7 +727,7 @@ contains
                 value=self%work(j)
                 e=self%up(j)
                 if(self%up(j+1)-1>e) then
-                    call gather_update(value,self%ur(e:),self%uv(e:),self%work, &
+                    call solve_gather(value,self%ur(e:),self%uv(e:),self%work, &
                         self%up(j+1)-e-1)
                 end if
                 coefficient=adjoint_value(self%uv(self%up(j+1)-1),op)
@@ -731,7 +737,7 @@ contains
                 value=self%work(j)
                 e=self%lp(j)
                 if(self%lp(j+1)>e) then
-                    call gather_update(value,self%lr(e:),self%lv(e:),self%work, &
+                    call solve_gather(value,self%lr(e:),self%lv(e:),self%work, &
                         self%lp(j+1)-e)
                 end if
                 self%work(j)=value
@@ -813,6 +819,7 @@ contains
         if(allocated(self%lv)) bytes=bytes+vb*size(self%lv,kind=i8)
         if(allocated(self%uv)) bytes=bytes+vb*size(self%uv,kind=i8)
         if(allocated(self%work)) bytes=bytes+vb*size(self%work,kind=i8)
+        if(allocated(self%correction)) bytes=bytes+vb*size(self%correction,kind=i8)
         if(allocated(self%row_norm)) bytes=bytes+8_i8*size(self%row_norm,kind=i8)
     end function memory_bytes
 
@@ -835,6 +842,7 @@ contains
         if(allocated(self%lv)) deallocate(self%lv)
         if(allocated(self%uv)) deallocate(self%uv)
         if(allocated(self%work)) deallocate(self%work)
+        if(allocated(self%correction)) deallocate(self%correction)
         if(allocated(self%row_norm)) deallocate(self%row_norm)
         self%n=0
         self%ln=0
@@ -859,7 +867,9 @@ module fortsparse_native_lu_z
     use fortsparse_lu_leaves, only: divide_value => lu_z_divide, &
         scatter_update => lu_z_scatter_update, gather_update => lu_z_gather_update
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    use fortsparse_lu_leaves, only: lu_z_finite, lu_z_norm
+    use fortsparse_lu_leaves, only: lu_z_finite, lu_z_norm, &
+        solve_scatter => lu_z_compensated_scatter, &
+        solve_gather => lu_z_compensated_gather, corrected_value => lu_z_corrected_value
     implicit none
     private
     public :: lu_prune_column
@@ -876,7 +886,7 @@ module fortsparse_native_lu_z
         integer, allocatable, private :: lp(:), up(:), lr(:), ur(:), p(:), pinv(:), q(:)
         integer, allocatable, private :: ap(:), ai(:), mark(:), stack(:), edge(:), reach(:)
         integer, allocatable, private :: prune_end(:)
-        complex(dp), allocatable, private :: lv(:), uv(:), work(:)
+        complex(dp), allocatable, private :: lv(:), uv(:), work(:), correction(:)
         real(dp), allocatable, private :: row_norm(:)
     contains
         procedure :: factor, factor_raw
@@ -1042,7 +1052,7 @@ contains
             if(allocated(self%prune_end)) deallocate(self%prune_end)
         end if
         if (.not.allocated(self%ap)) then
-            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
+            fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(2_i8*vb+8_i8)*n
             if(use_pruning) fixed=fixed+ib*n
             if (cap>0 .and. fixed>cap) then
                 self%failed_required_bytes=fixed
@@ -1052,7 +1062,7 @@ contains
             end if
             allocate(self%lp(n+1),self%up(n+1),self%p(n),self%pinv(n),self%q(n), &
                 self%ap(n+1),self%ai(size(values)),self%mark(n),self%stack(n),self%edge(n), &
-                self%reach(n),self%work(n),self%row_norm(n),stat=ierr)
+                self%reach(n),self%work(n),self%correction(n),self%row_norm(n),stat=ierr)
             if (ierr/=0) then
                 fixed=self%memory_bytes()
                 call self%free()
@@ -1539,6 +1549,7 @@ contains
                 return
             end if
         end do
+        self%correction=(0.0_dp,0.0_dp)
         if (op==LU_NORMAL) then
             do j=1,self%n
                 row=self%p(j)
@@ -1546,18 +1557,22 @@ contains
             end do
             do j=1,self%n
                 e=self%lp(j)
+                self%work(j)=corrected_value(self%work(j),self%correction(j))
+                self%correction(j)=(0.0_dp,0.0_dp)
                 value=self%work(j)
                 if(self%lp(j+1)>e) then
-                    call scatter_update(self%work,self%lr(e:),self%lv(e:), &
+                    call solve_scatter(self%work,self%correction,self%lr(e:),self%lv(e:), &
                         self%lp(j+1)-e,value)
                 end if
             end do
             do j=self%n,1,-1
-                self%work(j)=divide_value(self%work(j),self%uv(self%up(j+1)-1))
+                self%work(j)=divide_value(corrected_value(self%work(j),self%correction(j)), &
+                    self%uv(self%up(j+1)-1))
+                self%correction(j)=(0.0_dp,0.0_dp)
                 e=self%up(j)
                 value=self%work(j)
                 if(self%up(j+1)-1>e) then
-                    call scatter_update(self%work,self%ur(e:),self%uv(e:), &
+                    call solve_scatter(self%work,self%correction,self%ur(e:),self%uv(e:), &
                         self%up(j+1)-e-1,value)
                 end if
             end do
@@ -1572,7 +1587,7 @@ contains
                 value=self%work(j)
                 e=self%up(j)
                 if(self%up(j+1)-1>e) then
-                    call gather_update(value,self%ur(e:),self%uv(e:),self%work, &
+                    call solve_gather(value,self%ur(e:),self%uv(e:),self%work, &
                         self%up(j+1)-e-1,op==LU_ADJOINT)
                 end if
                 coefficient=adjoint_value(self%uv(self%up(j+1)-1),op)
@@ -1582,7 +1597,7 @@ contains
                 value=self%work(j)
                 e=self%lp(j)
                 if(self%lp(j+1)>e) then
-                    call gather_update(value,self%lr(e:),self%lv(e:),self%work, &
+                    call solve_gather(value,self%lr(e:),self%lv(e:),self%work, &
                         self%lp(j+1)-e,op==LU_ADJOINT)
                 end if
                 self%work(j)=value
@@ -1664,6 +1679,7 @@ contains
         if(allocated(self%lv)) bytes=bytes+vb*size(self%lv,kind=i8)
         if(allocated(self%uv)) bytes=bytes+vb*size(self%uv,kind=i8)
         if(allocated(self%work)) bytes=bytes+vb*size(self%work,kind=i8)
+        if(allocated(self%correction)) bytes=bytes+vb*size(self%correction,kind=i8)
         if(allocated(self%row_norm)) bytes=bytes+8_i8*size(self%row_norm,kind=i8)
     end function memory_bytes
 
@@ -1686,6 +1702,7 @@ contains
         if(allocated(self%lv)) deallocate(self%lv)
         if(allocated(self%uv)) deallocate(self%uv)
         if(allocated(self%work)) deallocate(self%work)
+        if(allocated(self%correction)) deallocate(self%correction)
         if(allocated(self%row_norm)) deallocate(self%row_norm)
         self%n=0
         self%ln=0
