@@ -20,7 +20,8 @@ module fortsparse_solver
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
-        FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
+        FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
+        FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t
 #endif
@@ -75,6 +76,8 @@ module fortsparse_solver
     ! Re-exported option and statistics vocabulary.
     public :: sparse_options_t, sparse_factor_stats_t
     public :: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
+    public :: FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT
+    public :: sparse_solve_op, sparse_solve_block_op
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
     public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
@@ -144,6 +147,15 @@ module fortsparse_solver
         module procedure sparse_solve_block_complex
     end interface sparse_solve_block
 
+    interface sparse_solve_op
+        module procedure sparse_solve_real_op
+        module procedure sparse_solve_complex_op
+    end interface sparse_solve_op
+    interface sparse_solve_block_op
+        module procedure sparse_solve_real_block_op
+        module procedure sparse_solve_complex_block_op
+    end interface sparse_solve_block_op
+
     interface sparse_solve_once
         module procedure sparse_solve_once_real
         module procedure sparse_solve_once_complex
@@ -160,6 +172,90 @@ module fortsparse_solver
     end interface sparse_solve_vjp
 
 contains
+
+    subroutine sparse_solve_real_op(solver, b, x, operation, status)
+        type(sparse_solver_t), intent(inout) :: solver
+        real(dp), target, contiguous, intent(in) :: b(:)
+        real(dp), target, contiguous, intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (operation < FORTSPARSE_OP_NORMAL .or. operation > FORTSPARSE_OP_ADJOINT) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid solve operation')
+            return
+        end if
+        if (any(shape(b) /= shape(x))) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible solve dimensions')
+            return
+        end if
+        call solver%backend%solve_real_op(b, x, operation, status)
+    end subroutine sparse_solve_real_op
+
+    subroutine sparse_solve_real_block_op(solver, b, x, operation, status)
+        type(sparse_solver_t), intent(inout) :: solver
+        real(dp), contiguous, intent(in) :: b(:,:)
+        real(dp), contiguous, intent(out) :: x(:,:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (operation < FORTSPARSE_OP_NORMAL .or. operation > FORTSPARSE_OP_ADJOINT) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid solve operation')
+            return
+        end if
+        if (any(shape(b) /= shape(x))) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible solve dimensions')
+            return
+        end if
+        call solver%backend%solve_real_block_op(b, x, operation, status)
+    end subroutine sparse_solve_real_block_op
+
+    subroutine sparse_solve_complex_op(solver, b, x, operation, status)
+        type(sparse_solver_t), intent(inout) :: solver
+        complex(dp), intent(in) :: b(:)
+        complex(dp), intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (operation < FORTSPARSE_OP_NORMAL .or. operation > FORTSPARSE_OP_ADJOINT) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid solve operation')
+            return
+        end if
+        if (any(shape(b) /= shape(x))) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible solve dimensions')
+            return
+        end if
+        call solver%backend%solve_complex_op(b, x, operation, status)
+    end subroutine sparse_solve_complex_op
+
+    subroutine sparse_solve_complex_block_op(solver, b, x, operation, status)
+        type(sparse_solver_t), intent(inout) :: solver
+        complex(dp), contiguous, intent(in) :: b(:,:)
+        complex(dp), contiguous, intent(out) :: x(:,:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (.not. solver%factored) then
+            call not_factored(status)
+            return
+        end if
+        if (operation < FORTSPARSE_OP_NORMAL .or. operation > FORTSPARSE_OP_ADJOINT) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid solve operation')
+            return
+        end if
+        if (any(shape(b) /= shape(x))) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible solve dimensions')
+            return
+        end if
+        call solver%backend%solve_complex_block_op(b, x, operation, status)
+    end subroutine sparse_solve_complex_block_op
 
     subroutine sparse_analyze(solver, A, plan, status, nrhs)
         ! Plans the exact bounded natural-order CPU SPD layout without
@@ -441,7 +537,7 @@ contains
     end subroutine sparse_solve_jvp_real
 
     subroutine sparse_solve_vjp_real( &
-            transpose_solver, A, x, x_bar, b_bar, A_values_bar, status)
+            transpose_solver, A, x, x_bar, b_bar, A_values_bar, status, use_primal_factors)
         ! Exact implicit adjoint for A x = b:
         ! A^T b_bar = x_bar, (A_ij)_bar = -b_bar_i*x_j.
         !
@@ -456,6 +552,8 @@ contains
         real(dp), intent(out) :: A_values_bar(:)
         type(fortsparse_status_t), intent(out) :: status
 
+        logical, optional, intent(in) :: use_primal_factors
+        logical :: primal
         integer :: column, entry
 
         if (.not. transpose_solver%factored) then
@@ -477,7 +575,13 @@ contains
                 "sparse_solve_vjp: incompatible cotangent dimensions")
             return
         end if
+        primal = .false.
+        if (present(use_primal_factors)) primal = use_primal_factors
+        if (primal) then
+            call sparse_solve_real_op(transpose_solver, x_bar, b_bar, FORTSPARSE_OP_TRANSPOSE, status)
+        else
         call sparse_solve_real(transpose_solver, x_bar, b_bar, status)
+        end if
         if (.not. status_ok(status)) return
         do column = 1, A%ncol
             do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1
@@ -523,7 +627,7 @@ contains
     end subroutine sparse_solve_jvp_complex
 
     subroutine sparse_solve_vjp_complex( &
-            adjoint_solver, A, x, x_bar, b_bar, A_values_bar, status)
+            adjoint_solver, A, x, x_bar, b_bar, A_values_bar, status, use_primal_factors)
         ! Exact complex implicit adjoint under the real inner product:
         ! A^H b_bar = x_bar, (A_ij)_bar = -b_bar_i*conjg(x_j).
         ! adjoint_solver must retain a factorization of A^H.
@@ -533,6 +637,8 @@ contains
         complex(dp), intent(out) :: b_bar(:), A_values_bar(:)
         type(fortsparse_status_t), intent(out) :: status
 
+        logical, optional, intent(in) :: use_primal_factors
+        logical :: primal
         integer :: column, entry
 
         if (.not. adjoint_solver%factored) then
@@ -554,7 +660,13 @@ contains
                 "sparse_solve_vjp: incompatible complex cotangent dimensions")
             return
         end if
+        primal = .false.
+        if (present(use_primal_factors)) primal = use_primal_factors
+        if (primal) then
+            call sparse_solve_complex_op(adjoint_solver, x_bar, b_bar, FORTSPARSE_OP_ADJOINT, status)
+        else
         call sparse_solve_complex(adjoint_solver, x_bar, b_bar, status)
+        end if
         if (.not. status_ok(status)) return
         do column = 1, A%ncol
             do entry = A%col_ptr(column), A%col_ptr(column + 1) - 1

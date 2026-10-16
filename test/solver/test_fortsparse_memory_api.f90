@@ -9,7 +9,7 @@ program test_fortsparse_memory_api
     type(fortsparse_status_t) :: status
     integer :: i, j, k, rows(3*n-2), cols(3*n-2)
     real(dp) :: vals(3*n-2), exact(n), rhs(n), x(n), dx(n), zeros(n)
-    real(dp) :: block(n,9), result(n,9)
+    real(dp) :: block(n,9), result(n,9), seed(n), bbar(n), abar(3*n-2)
     real(dp), pointer :: vector(:)
     integer(i8) :: required
     logical :: reused
@@ -63,12 +63,25 @@ program test_fortsparse_memory_api
     do j = 1, 9
         call check(maxval(abs(result(:,j)-j*exact)) < 2.0e-13_dp, 'block oracle')
     end do
+    call sparse_solve_op(solver,rhs,x,FORTSPARSE_OP_TRANSPOSE,status)
+    call check(status_ok(status), 'retained transpose solve')
+    call check(maxval(abs(x-exact)) < 2.0e-14_dp, 'transpose solution')
+    call sparse_solve_block_op(solver,block,result,FORTSPARSE_OP_ADJOINT,status)
+    call check(status_ok(status), 'retained block adjoint solve')
+    call sparse_solve_op(solver,rhs,x,-1,status)
+    call check(status%code == FORTSPARSE_INVALID_MATRIX, 'invalid operation')
+    call sparse_solve(solver,rhs,x,status)
+    seed = [(cos(real(i,dp)),i=1,n)]
+    call sparse_solve_vjp(solver,a,x,seed,bbar,abar,status,use_primal_factors=.true.)
+    call check(status_ok(status), 'VJP reuses primal factors')
     tangent = a
     tangent%val = 0.25_dp*a%val
     zeros = 0.0_dp
     call sparse_solve_jvp(solver,tangent,x,zeros,dx,status)
     call check(status_ok(status), 'JVP under exact cap')
     call check(maxval(abs(dx+0.25_dp*exact)) < 2.0e-14_dp, 'JVP oracle')
+    call check(abs(dot_product(seed,dx)-dot_product(abar,tangent%val)) < &
+        3.0e-13_dp, 'retained factor adjoint pairing')
     vector => sparse_vector(solver,n)
     call check(.not. associated(vector), 'vector growth rejected at cap')
     call sparse_factor_stats(solver,stats,status)
