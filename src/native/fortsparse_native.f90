@@ -14,7 +14,7 @@ module fortsparse_native
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
-        FORTSPARSE_RESOURCE_LIMIT
+        FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
     use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
         plan_natural_spd_memory
     use fortsparse_native_supernodes, only: supernodes_t
@@ -22,6 +22,7 @@ module fortsparse_native
     use fortsparse_native_cuda, only: native_cuda_available
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
+    use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
     public :: native_backend_t
@@ -73,6 +74,10 @@ module fortsparse_native
         integer(c_size_t), private :: li_bytes = 0_c_size_t
         integer, allocatable :: count(:), mark(:), reach(:), path(:)
         real(dp), allocatable :: lv(:), work(:)
+        logical, private :: refining = .false.
+        integer, allocatable, private :: original_ptr(:), original_rows(:)
+        real(dp), allocatable, private :: original_values(:), saved_rhs(:), residual(:)
+        real(dp), private :: matrix_norm = 0.0_dp
         real(dp), pointer :: user_vector(:) => null()
         type(sparse_factor_stats_t) :: stats
     contains
@@ -104,8 +109,11 @@ contains
         call self%free()
         call validate(self, A, status)
         if (.not. status_ok(status)) return
+        call refinement_supported(self,refine,status)
+        if (.not.status_ok(status)) return
+        self%refining=refine
         self%bounded_memory = self%options%host_memory_limit_bytes > 0_i8 .or. &
-            self%options%memory_policy == FORTSPARSE_MEMORY_LOW
+            self%options%memory_policy == FORTSPARSE_MEMORY_LOW .or. refine
         self%analyzed_host_limit = self%options%host_memory_limit_bytes
         self%analyzed_device_limit = self%options%device_memory_limit_bytes
         self%analyzed_memory_policy = self%options%memory_policy
@@ -113,6 +121,11 @@ contains
             self%options%memory_policy /= FORTSPARSE_MEMORY_LOW .and. &
             .not. self%reference_only
         if (self%bounded_memory) self%host_budget%limit = self%options%host_memory_limit_bytes
+        if (refine) then
+            call retain_original(self,A,.true.,status)
+            call update_budget_stats(self)
+            if (.not.status_ok(status)) return
+        end if
         if (self%bounded_memory .and. .not. self%bounded_blocked) then
             self%host_budget%limit = self%options%host_memory_limit_bytes
             call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
@@ -155,6 +168,85 @@ contains
             self%stats%analysis_s = wall_time() - start - self%stats%factor_s
         end if
     end subroutine native_factor
+
+    subroutine refinement_supported(self,refine,status)
+        class(native_backend_t), intent(in) :: self
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        call status_set(status,FORTSPARSE_OK,'')
+        if (.not.refine) return
+        if (self%options%device>=0 .or. self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) &
+            call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'native SPD refinement requires natural-order CPU factorization')
+    end subroutine refinement_supported
+
+    subroutine retain_original(self,A,fresh,status)
+        class(native_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        logical, intent(in) :: fresh
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: ierr
+        integer(i8) :: bytes
+        real(dp) :: transpose_norm
+        if (fresh) then
+            bytes=int(storage_size(0)/8,i8)*(int(A%ncol,i8)+1_i8+int(A%nnz,i8)) &
+                +8_i8*(int(A%nnz,i8)+2_i8*int(A%ncol,i8))
+            call self%host_budget%reserve(bytes,status,'native SPD refinement original CSC and two vectors')
+            if (.not.status_ok(status)) return
+            allocate(self%original_ptr(A%ncol+1),self%original_rows(A%nnz), &
+                self%original_values(A%nnz),self%saved_rhs(A%ncol),self%residual(A%ncol),stat=ierr)
+            if (ierr/=0) then
+                if (allocated(self%original_ptr)) deallocate(self%original_ptr)
+                if (allocated(self%original_rows)) deallocate(self%original_rows)
+                if (allocated(self%original_values)) deallocate(self%original_values)
+                if (allocated(self%saved_rhs)) deallocate(self%saved_rhs)
+                if (allocated(self%residual)) deallocate(self%residual)
+                call self%host_budget%release(bytes,status)
+                call memory_error(status)
+                return
+            end if
+        end if
+        self%original_ptr=A%col_ptr
+        self%original_rows=A%row_idx
+        self%original_values=A%val
+        call native_original_norms(A%ncol,A%col_ptr,A%row_idx,A%val,self%residual, &
+            self%matrix_norm,transpose_norm,status)
+        self%stats%refinement_steps=0
+        self%stats%backward_error=-1.0_dp
+    end subroutine retain_original
+
+    subroutine refine_solution(self,x,status)
+        class(native_backend_t), intent(inout) :: self
+        real(dp), intent(inout) :: x(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: step,i
+        real(dp) :: error
+        do step=0,3
+            self%stats%refinement_steps=step
+            call native_residual_error(self%original_ptr,self%original_rows,self%original_values, &
+                self%saved_rhs,x,0,self%matrix_norm,self%residual,error)
+            self%stats%backward_error=error
+            if (error<0.0_dp) then
+                call status_set(status,FORTSPARSE_SINGULAR,'native SPD refinement: nonfinite iterate or residual/error')
+                return
+            end if
+            if (error<=32.0_dp*epsilon(1.0_dp)) then
+                call status_set(status,FORTSPARSE_OK,'')
+                return
+            end if
+            if (step==3) exit
+            if (self%blocked) then
+                call self%panels%solve(self%residual,status)
+                if (.not.status_ok(status)) return
+            else
+                call triangular_values(self%n,self%lp,self%li,self%lv,self%residual)
+            end if
+            do i=1,size(x)
+                x(i)=spd_update(x(i),-1.0_dp,self%residual(i))
+            end do
+        end do
+        call status_set(status,FORTSPARSE_SINGULAR,'native SPD refinement: target not met in three corrections')
+    end subroutine refine_solution
 
     subroutine prepare_ordering(self, A, status)
         class(native_backend_t), intent(inout) :: self
@@ -607,9 +699,17 @@ contains
         integer :: p
 
         reused = .false.
+        self%stats%refinement_steps=0
+        self%stats%backward_error=-1.0_dp
         call validate(self, A, status)
         self%ready = .false.
         if (.not. status_ok(status)) return
+        call refinement_supported(self,refine,status)
+        if (.not.status_ok(status)) return
+        if (refine .neqv. self%refining) then
+            call self%factor_real(A,refine,status)
+            return
+        end if
         if (self%analyzed_host_limit /= self%options%host_memory_limit_bytes .or. &
             self%analyzed_device_limit /= self%options%device_memory_limit_bytes .or. &
             self%analyzed_memory_policy /= self%options%memory_policy) then
@@ -649,6 +749,10 @@ contains
                     reused = .true.
                     self%stats%analysis_s = 0.0_dp
                     call numeric_factor(self, A, status)
+                    if (status_ok(status) .and. self%refining) then
+                        call retain_original(self,A,.false.,status)
+                        self%ready=status_ok(status)
+                    end if
                     return
                 end if
             end if
@@ -689,6 +793,9 @@ contains
 
         call solve_shape(self, size(b), size(b), status)
         if (.not. status_ok(status)) return
+        self%stats%refinement_steps=0
+        self%stats%backward_error=-1.0_dp
+        if (self%refining) self%saved_rhs=b
         if (allocated(self%perm)) then
             self%work = b(self%perm)
             if (self%blocked) then
@@ -704,29 +811,38 @@ contains
         else
             call triangular_solve(self, b)
         end if
+        if (.not.status_ok(status)) return
+        if (self%refining) call refine_solution(self,b,status)
     end subroutine native_solve_inplace
 
-    subroutine triangular_solve(self, b)
+    subroutine triangular_solve(self,b)
         class(native_backend_t), intent(in) :: self
         real(dp), intent(inout) :: b(:)
-        integer :: j, p
-        real(dp) :: v
-
-        do j = 1, self%n
-            v = spd_divide(b(j), self%lv(self%lp(j)))
-            b(j) = v
-            p = self%lp(j) + 1
-            call spd_scatter_update(b, self%li(p:), self%lv(p:), &
-                self%lp(j + 1) - p, v)
-        end do
-        do j = self%n, 1, -1
-            v = b(j)
-            p = self%lp(j) + 1
-            call spd_gather_update(v, self%li(p:), self%lv(p:), b, &
-                self%lp(j + 1) - p)
-            b(j) = spd_divide(v, self%lv(self%lp(j)))
-        end do
+        call triangular_values(self%n,self%lp,self%li,self%lv,b)
     end subroutine triangular_solve
+
+    subroutine triangular_values(n,lp,li,lv,b)
+        integer, intent(in) :: n,lp(:)
+        integer(c_int32_t), intent(in) :: li(:)
+        real(dp), intent(in) :: lv(:)
+        real(dp), intent(inout) :: b(:)
+        integer :: j,p
+        real(dp) :: v
+        do j = 1, n
+            v = spd_divide(b(j), lv(lp(j)))
+            b(j) = v
+            p = lp(j) + 1
+            call spd_scatter_update(b, li(p:), lv(p:), &
+                lp(j + 1) - p, v)
+        end do
+        do j = n, 1, -1
+            v = b(j)
+            p = lp(j) + 1
+            call spd_gather_update(v, li(p:), lv(p:), b, &
+                lp(j + 1) - p)
+            b(j) = spd_divide(v, lv(lp(j)))
+        end do
+    end subroutine triangular_values
 
     subroutine native_solve_block_op(self, b, x, operation, status)
         class(native_backend_t), intent(inout) :: self
@@ -746,7 +862,8 @@ contains
         real(dp), contiguous, intent(in) :: B(:, :)
         real(dp), contiguous, intent(out) :: X(:, :)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: j
+        integer :: j,steps
+        real(dp) :: error
 
         call solve_shape(self, size(B, 1), size(X, 1), status)
         if (.not. status_ok(status)) return
@@ -775,9 +892,16 @@ contains
             return
         end if
         X = B
+        steps=0
+        error=-1.0_dp
         do j = 1, size(X, 2)
             call self%solve_real_inplace(X(:, j), status)
+            steps=max(steps,self%stats%refinement_steps)
+            error=max(error,self%stats%backward_error)
+            if (.not.status_ok(status)) return
         end do
+        self%stats%refinement_steps=steps
+        self%stats%backward_error=error
     end subroutine native_solve_block
 
     subroutine solve_shape(self, nb, nx, status)
@@ -878,6 +1002,13 @@ contains
         if (allocated(self%work)) deallocate (self%work)
         if (associated(self%user_vector)) deallocate (self%user_vector)
         nullify (self%user_vector)
+        if (allocated(self%original_ptr)) deallocate(self%original_ptr)
+        if (allocated(self%original_rows)) deallocate(self%original_rows)
+        if (allocated(self%original_values)) deallocate(self%original_values)
+        if (allocated(self%saved_rhs)) deallocate(self%saved_rhs)
+        if (allocated(self%residual)) deallocate(self%residual)
+        self%refining=.false.
+        self%matrix_norm=0.0_dp
         self%n = 0
         self%ready = .false.
         self%bounded_memory = .false.

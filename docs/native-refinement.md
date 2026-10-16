@@ -1,7 +1,8 @@
 # Native CPU refinement
 
 Set `solver%refine=.true.` before factor/refactor to enable original-matrix
-residual checking and iterative refinement for native CPU real/complex LU,
+residual checking and iterative refinement for native CPU real SPD Cholesky,
+real/complex LU,
 complex HPD Cholesky, real pivoted LDLT, and complex Hermitian/transpose-symmetric
 pivoted LDL. This option is retained at factor
 entry; changing it requires a factor/refactor call. This is numerical backward
@@ -32,16 +33,18 @@ across a successful block. `backward_error` is the final estimate, or the maximu
 across a successful block. `-1` means unavailable, for example an unrefined solve
 or a nonfinite residual. A finite three-step failure retains its failed error.
 Requested/active teams, factor family and factor statistics retain their meanings;
-original CSC population and norm preparation follow the existing `factor_s`
-measurement; quota reservation remains part of its dispatch overhead.
+in the general-family adapter, original CSC population and norm preparation follow
+the existing `factor_s` measurement; quota reservation remains part of its dispatch
+overhead.
 
 For default-width integers, additional payload is
 `4*(n+1+nnz) + value_bytes*(nnz+2*n)`, with value_bytes 8 real or 16 complex.
 The implementation uses `storage_size` for the actual integer width. It reserves
 this quota and any live `sparse_vector` payload before invoking the factors, so
 factor growth/reuse copies cannot consume that quota. This reservation is an
-allocation gate, not a measurement of simultaneously live arrays. A fresh
-workflow allocates/populates new original-matrix storage after factorization;
+allocation gate, not a measurement of simultaneously live arrays. In the general-family
+adapter, a fresh workflow allocates/populates original-matrix storage after
+factorization;
 a same-shape refactor keeps that storage live during factor growth. Obsolete
 buffers are released before a changed shape/type is allocated.
 
@@ -68,3 +71,22 @@ operations and cover correction-required LU, a three-correction failure,
 HPD/LDLT, in-place/block solves, implicit derivatives, changed caps/patterns,
 caller mutation and retained user-vector lifetime. Neither those fixtures nor
 payload measurements establish external-solver performance admission.
+
+Real SPD refinement supports natural-order CPU simplicial and blocked Cholesky.
+`ORDER_DEFAULT` selects natural order when refinement is requested, including
+uncapped inputs that might otherwise select automatic AMD. Explicit AMD/ND and
+GPU refinement return `BACKEND_UNAVAILABLE`. The ordinary unrefined planner and
+execution paths retain their existing behavior. Original CSC and two real vectors
+are reserved and populated before SPD analysis, so planning scratch and blocked
+construction overlap are included in the host budget. Same-pattern refactor
+refreshes the retained original values without reallocating the checker; toggling
+refinement or changing caps/patterns rebuilds through the ordinary factor path.
+Original norm preparation contributes to factor-entry overhead; scalar and block
+solves allocate no checker storage. These SPD checks use the same original-CSC
+norm and residual procedures as the native general adapter.
+
+`sparse_analyze` currently returns `BACKEND_UNAVAILABLE` when `solver%refine` is
+true, with an unfitted plan and without changing retained factors. Its exact
+layout contract covers the unrefined reference path; it must not omit checker
+storage and label that result exact. Factor/refactor still enforce refinement
+payload caps directly.
