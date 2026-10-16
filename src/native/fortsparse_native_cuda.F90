@@ -14,6 +14,7 @@ module fortsparse_native_cuda
     public :: spd_cuda_allocated_bytes
     public :: spd_cuda_set_maps, spd_cuda_begin_factor, spd_cuda_scatter_update
     public :: spd_cuda_schur_scatter
+    public :: spd_cuda_set_solve_plan, spd_cuda_solve
     public :: spd_cuda_schur_task, spd_cuda_set_schur_batches, spd_cuda_schur_batch
     public :: spd_cuda_host_plan_bytes
     public :: spd_cuda_level_panel, spd_cuda_level_task, spd_cuda_set_levels
@@ -74,6 +75,22 @@ module fortsparse_native_cuda
             import :: c_ptr, c_size_t
             type(c_ptr), value :: context
         end function spd_cuda_host_plan_bytes
+
+        integer(c_int) function spd_cuda_set_solve_plan(context, n, panels, panel_count, &
+            rows, row_count, level_count) bind(C, name='fsparse_spd_cuda_set_solve_plan')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context, panels, rows
+            integer(c_int), value :: n
+            integer(c_size_t), value :: panel_count, row_count, level_count
+        end function spd_cuda_set_solve_plan
+
+        integer(c_int) function spd_cuda_solve(context, rhs_offset, ld, nrhs) &
+            bind(C, name='fsparse_spd_cuda_solve')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: rhs_offset
+            integer(c_int), value :: ld, nrhs
+        end function spd_cuda_solve
 
         integer(c_int) function spd_cuda_create(context, device, capacity) &
             bind(C, name='fsparse_spd_cuda_create')

@@ -20,7 +20,8 @@ module fortsparse_native_supernodes
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
         spd_cuda_scatter_update, spd_cuda_allocated_bytes, spd_cuda_schur_task, &
         spd_cuda_host_plan_bytes, spd_cuda_level_panel, spd_cuda_level_task, &
-        spd_cuda_set_levels, spd_cuda_factor_level, spd_cuda_update_level
+        spd_cuda_set_levels, spd_cuda_factor_level, spd_cuda_update_level, &
+        spd_cuda_set_solve_plan, spd_cuda_solve
 #endif
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
@@ -61,7 +62,7 @@ module fortsparse_native_supernodes
         integer, allocatable, private :: group_member_ptr(:), group_members(:), group_tokens(:)
         integer, allocatable, private :: group_ptr(:), group_sources(:)
         real(dp), allocatable, private :: update_work(:,:), solve_work(:)
-        ! One owning allocation permits one factor upload/download. Panel
+        ! One owning host assembly allocation permits one factor upload. Panel
         ! views share it without maintaining a second full host factor copy.
         real(dp), pointer, contiguous, private :: host_values(:) => null()
         integer(c_size_t), private :: numeric_count = 0
@@ -72,6 +73,7 @@ module fortsparse_native_supernodes
         procedure :: build
         procedure :: factor
         procedure :: solve
+        procedure :: solve_block
         procedure :: free => supernodes_free
         procedure :: memory_bytes
         final :: finalize_supernodes
@@ -591,7 +593,11 @@ contains
 
     subroutine solve(self, b, status)
         class(supernodes_t), intent(inout) :: self
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        real(dp), target, contiguous, intent(inout) :: b(:)
+#else
         real(dp), contiguous, intent(inout) :: b(:)
+#endif
         type(fortsparse_status_t), intent(out) :: status
         integer :: s, m, w, first, p, j, column
         real(dp) :: value
@@ -600,6 +606,12 @@ contains
         if (.not. self%ready) return
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible supernode RHS')
         if (size(b) /= self%n) return
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        if (self%device >= 0) then
+            call solve_cuda_tile(self, c_loc(b), 1, status)
+            return
+        end if
+#endif
         if (.not. self%use_blas) then
             do s = 1, self%node_count
                 m = self%panels(s)%m
@@ -656,6 +668,35 @@ contains
         end do
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine solve
+
+    subroutine solve_block(self, b, status)
+        class(supernodes_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(inout) :: b(:,:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: j
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        integer :: count
+#endif
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernode factor unavailable')
+        if (.not. self%ready) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible supernode RHS')
+        if (size(b,1) /= self%n) return
+        call status_set(status, FORTSPARSE_OK, '')
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
+        if (self%device >= 0) then
+            do j = 1, size(b,2), 8
+                count = min(8,size(b,2)-j+1)
+                call solve_cuda_tile(self, c_loc(b(1,j)), count, status)
+                if (status%code /= FORTSPARSE_OK) return
+            end do
+            return
+        end if
+#endif
+        do j = 1, size(b,2)
+            call self%solve(b(:,j), status)
+            if (status%code /= FORTSPARSE_OK) return
+        end do
+    end subroutine solve_block
 
     subroutine supernodes_free(self)
         class(supernodes_t), intent(inout) :: self
@@ -972,13 +1013,13 @@ contains
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: maxwork
         type(fortsparse_status_t), intent(out) :: status
-        integer(c_int), allocatable, target :: maps(:)
+        integer(c_int), allocatable, target :: maps(:), tail_rows(:)
         type(spd_cuda_level_task), allocatable, target :: tasks(:)
         type(spd_cuda_level_panel), allocatable, target :: panels(:)
         integer, allocatable :: levels(:), next(:)
         integer :: level_count, l, count_wide
         integer :: s, first, group, dest, q, m2, u, v, count_updates, count_thin, base, p, ierr
-        integer(i8) :: count_maps
+        integer(i8) :: count_maps, count_tail
         integer(c_int) :: code
         logical :: needs_blas
 
@@ -986,7 +1027,9 @@ contains
         count_updates = 0
         count_thin = 0
         count_maps = 0_i8
+        count_tail = 0_i8
         do s = 1, self%node_count
+            count_tail = count_tail+int(self%panels(s)%m-self%panels(s)%width,i8)
             if (self%panels(s)%width > 8 .and. &
                 self%panels(s)%m > self%panels(s)%width) needs_blas = .true.
             first = self%panels(s)%width+1
@@ -998,12 +1041,13 @@ contains
                 first = group
             end do
         end do
-        if (count_maps > huge(base)) then
+        if (count_maps > huge(base) .or. count_tail > huge(base)) then
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'CUDA scatter maps too large')
             return
         end if
         allocate(self%updates(count_updates), maps(int(count_maps)), &
-            tasks(count_thin), panels(self%node_count), levels(self%node_count), stat=ierr)
+            tasks(count_thin), panels(self%node_count), levels(self%node_count), &
+            tail_rows(int(count_tail)), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'CUDA scatter map allocation failed')
             return
@@ -1091,8 +1135,14 @@ contains
             self%cuda_wide_members(next(l)) = s
             next(l) = next(l)+1
         end do
+        base = 0
+        do s = 1, self%node_count
+            m2 = self%panels(s)%m-self%panels(s)%width
+            tail_rows(base+1:base+m2) = self%panels(s)%rows(self%panels(s)%width+1:)
+            base = base+m2
+        end do
         code = spd_cuda_create_deferred(self%cuda, int(self%device,c_int), &
-            self%numeric_count+int(maxwork,c_size_t))
+            self%numeric_count+max(int(maxwork,c_size_t),8_c_size_t*int(self%n,c_size_t)))
         if (code == 0 .and. needs_blas) code = spd_cuda_prepare_blas(self%cuda)
         if (code == 0) then
             if (count_maps > 0) &
@@ -1101,6 +1151,16 @@ contains
         if (code == 0) then
             code = spd_cuda_set_levels(self%cuda, c_loc(panels), int(self%node_count,c_size_t), &
                 c_loc(tasks), int(v,c_size_t), int(level_count,c_size_t))
+        end if
+        if (code == 0) then
+            if (count_tail > 0) then
+                code = spd_cuda_set_solve_plan(self%cuda, int(self%n,c_int), c_loc(panels), &
+                    int(self%node_count,c_size_t), c_loc(tail_rows), int(count_tail,c_size_t), &
+                    int(level_count,c_size_t))
+            else
+                code = spd_cuda_set_solve_plan(self%cuda, int(self%n,c_int), c_loc(panels), &
+                    int(self%node_count,c_size_t), c_null_ptr, 0_c_size_t, int(level_count,c_size_t))
+            end if
         end if
         call cuda_status(code, status)
         if (code == 0) then
@@ -1170,13 +1230,30 @@ contains
             call status_set(status, NOT_SPD, 'CUDA supernode: nonpositive or nonfinite pivot')
             return
         end if
-        if (self%numeric_count > 0) &
-            code = spd_cuda_download(self%cuda, 0_c_size_t, c_loc(host), &
-                self%numeric_count)
-        if (code == 0) code = spd_cuda_synchronize(self%cuda)
+        ! factor_info has synchronized and checked every pivot. The numeric
+        ! factors stay on device; host_values remains the assembly input.
         call cuda_status(code, status)
         self%ready = code == 0
     end subroutine factor_cuda
+
+    subroutine solve_cuda_tile(self, host, nrhs, status)
+        class(supernodes_t), intent(inout) :: self
+        type(c_ptr), intent(in) :: host
+        integer, intent(in) :: nrhs
+        type(fortsparse_status_t), intent(out) :: status
+        integer(c_int) :: code, waited
+        integer(c_size_t) :: count
+        count = int(self%n,c_size_t)*int(nrhs,c_size_t)
+        code = spd_cuda_upload(self%cuda, self%numeric_count, host, count)
+        if (code == 0) code = spd_cuda_solve(self%cuda, self%numeric_count, &
+            int(self%n,c_int), int(nrhs,c_int))
+        if (code == 0) code = spd_cuda_download(self%cuda, self%numeric_count, host, count)
+        ! Always finish pending copies before a private TARGET dummy expires.
+        waited = spd_cuda_synchronize(self%cuda)
+        if (code == 0) code = waited
+        if (code /= 0) self%ready = .false.
+        call cuda_status(code, status)
+    end subroutine solve_cuda_tile
 
     subroutine cuda_status(code, status)
         integer(c_int), intent(in) :: code

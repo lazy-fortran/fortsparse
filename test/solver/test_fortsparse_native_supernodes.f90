@@ -134,7 +134,7 @@ contains
         type(fortsparse_status_t) :: status
         logical, allocatable :: graph(:,:)
         integer, allocatable :: rows(:), columns(:), lp(:), li(:)
-        real(dp), allocatable :: vals(:), x(:), b(:), expected(:)
+        real(dp), allocatable :: vals(:), x(:), b(:), expected(:), block(:,:), empty(:,:)
         integer :: n, i, j, p, q, nz
 
         n = size(matrix,1)
@@ -208,6 +208,20 @@ contains
         call checked(status)
         if (maxval(abs(x-expected)) > 3.0e-12_dp) error stop 'supernode known-solution error'
         if (maxval(abs(matmul(matrix,x)-b)) > 3.0e-12_dp) error stop 'supernode residual'
+        if (n == 33 .or. n == 193) then
+            allocate(block(n,9), empty(n,0))
+            do j = 1, 9
+                block(:,j) = real(j-5,dp)*b
+            end do
+            call solver%solve_block(block, status)
+            call checked(status)
+            do j = 1, 9
+                if (maxval(abs(block(:,j)-real(j-5,dp)*expected)) > 1.2e-11_dp) &
+                    error stop 'supernode block solve known solution'
+            end do
+            call solver%solve_block(empty, status)
+            call checked(status)
+        end if
         a%val = 0.75_dp*a%val
         call solver%factor(a, status)
         call checked(status)
@@ -219,6 +233,25 @@ contains
                 maxval(abs(x-expected))
             error stop 'supernode refactor error'
         end if
+        ! A nonuniform positive diagonal update keeps the graph and SPD property.
+        ! Manufacture the new RHS from the original CSC, independent of panels.
+        do j = 1, n
+            do i = a%col_ptr(j), a%col_ptr(j+1)-1
+                if (a%row_idx(i) == j) a%val(i) = a%val(i)+0.01_dp*real(1+mod(j,7),dp)
+            end do
+        end do
+        call solver%factor(a, status)
+        call checked(status)
+        x = csc_matvec(a, expected)
+        call solver%solve(x, status)
+        call checked(status)
+        if (maxval(abs(x-expected)) > 3.0e-12_dp) error stop 'nonuniform refactor solve'
+        ! Restore the original scaled values before the failed-pivot/recovery test.
+        do j = 1, n
+            do i = a%col_ptr(j), a%col_ptr(j+1)-1
+                a%val(i) = 0.75_dp*matrix(a%row_idx(i),j)
+            end do
+        end do
         a%val(1) = -1.0_dp
         call solver%factor(a, status)
         if (status%code /= FORTSPARSE_NOT_POSITIVE_DEFINITE) error stop 'missing supernode failed pivot'

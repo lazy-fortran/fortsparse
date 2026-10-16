@@ -8,12 +8,17 @@ program test_fortsparse_native
     type(fortsparse_status_t) :: status
     type(sparse_factor_stats_t) :: stats
     integer, parameter :: n = 19
-    integer :: i, j, p, k, ordering, rows(n*n), cols(n*n)
+    integer :: i, j, p, k, ordering, rows(n*n), cols(n*n), device
+    character(16) :: argument
     real(dp) :: dense(n, n), vals(n*n), exact(n), b(n), x(n), y(n)
     real(dp) :: Bblock(n, 8), Xblock(n, 8), dx(n), seed(n), bbar(n)
     real(dp), allocatable :: abar(:)
     real(dp) :: zero(n), lhs, rhs
     logical :: reused
+
+    call get_command_argument(1, argument)
+    device = -1
+    if (trim(argument) == '--cuda') device = 0
 
     ! A sparse SPD graph with fill: weighted graph Laplacian + I.
     ! This independent fixture is also invariant under the reversed numbering.
@@ -39,8 +44,10 @@ program test_fortsparse_native
     call require(status_ok(status), 'construct')
     solver%backend_id = FORTSPARSE_BACKEND_NATIVE
     solver%options%symmetry = FORTSPARSE_SYM_SPD
+    solver%options%device = device
     other%backend_id = FORTSPARSE_BACKEND_NATIVE
     other%options%symmetry = FORTSPARSE_SYM_SPD
+    other%options%device = device
     exact = [(sin(real(i, dp)), i=1, n)]
     b = matmul(dense, exact)
     call sparse_factor(solver, A, status)
@@ -106,12 +113,14 @@ program test_fortsparse_native
         call close(x, exact, 'permuted refactor solve')
     end do
     other%options%ordering = FORTSPARSE_ORDER_DEFAULT
+    other%options%device = -1
     other%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
     call sparse_factor(other, A, status)
     call require(status_ok(status), 'explicit reference selection')
     call sparse_solve(other, b, x, status)
     call close(x, exact, 'reference factory switch')
     other%backend_id = FORTSPARSE_BACKEND_NATIVE
+    other%options%device = device
     call sparse_factor(other, A, status)
     invalid = A
     invalid%val(1) = ieee_value(0.0_dp, ieee_quiet_nan)
@@ -192,6 +201,7 @@ contains
         allocate (matrix_cotangent(matrix%nnz))
         ordered_solver%backend_id = FORTSPARSE_BACKEND_NATIVE
         ordered_solver%options%symmetry = FORTSPARSE_SYM_SPD
+        ordered_solver%options%device = device
         do order = FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
             ordered_solver%options%ordering = order
             call sparse_factor(ordered_solver, matrix, status)
