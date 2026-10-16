@@ -63,6 +63,9 @@ their work is integrated and their owned processes have stopped.
   RSS, sampled/PSS measurements and attributed storage/workspace bytes.
   Report UMFPACK parent/helper memory separately; summing RSS double-counts
   shared mappings. Unknown or incomparable memory is not evidence of a win.
+- Measure repeated factor/free lifetimes as well as retained-factor reuse. Lower
+  live allocation bytes do not establish lower RSS: inspect allocator caching
+  and validate actual page release with context-local workspace ownership.
 - Use five fresh-process timing trials by default; retain raw numeric evidence,
   medians/ranges, commands, source/binary identities, hardware and tool/library
   versions. Keep large traces and datasets outside source history, retaining

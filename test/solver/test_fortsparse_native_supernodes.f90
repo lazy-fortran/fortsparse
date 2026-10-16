@@ -5,7 +5,7 @@ program test_fortsparse_native_supernodes
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_cuda, only: native_cuda_available
     implicit none
-    integer, parameter :: sizes(*) = [1, 15, 16, 17, 31, 32, 33, 65, 193, 513]
+    integer, parameter :: sizes(*) = [1, 15, 16, 17, 31, 32, 33, 65, 193, 257, 513]
     integer :: k, device
     character(16) :: argument
     call get_command_argument(1, argument)

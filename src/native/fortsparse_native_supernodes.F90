@@ -105,7 +105,7 @@ contains
         integer, optional, intent(in) :: device
         integer, allocatable :: mark(:), starts(:), ends(:), counts(:), rowlist(:)
         integer :: s, j, p, row, m, first, last, group, q, dest, ierr, maxwork, maxrows
-        integer :: candidate_m, candidate_w
+        integer :: candidate_m, candidate_w, exact_limit
         integer(i8) :: update_size, original_count, candidate_count, padded
 
         call self%free()
@@ -130,6 +130,10 @@ contains
         end do
         self%n = n
         self%symbolic_nnz = size(li,kind=i8)
+        ! Wider dense panels pay only when the structural fill can amortize
+        ! packing and diagonal storage. Keep the low-fill schedule compact.
+        exact_limit = 64
+        if (self%symbolic_nnz > 128_i8*n) exact_limit = EXACT_WIDTH
         allocate(mark(n), starts(n), ends(n), counts(n), rowlist(n), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
@@ -149,7 +153,7 @@ contains
                 if (lp(last+1)-lp(last) < 2) exit
                 if (li(lp(last)+1) /= last+1) exit
                 candidate_w = last-first+2
-                if (candidate_w > EXACT_WIDTH) exit
+                if (candidate_w > exact_limit) exit
                 candidate_m = m
                 do p = lp(last+1), lp(last+2)-1
                     row = li(p)

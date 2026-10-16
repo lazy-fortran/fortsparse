@@ -67,3 +67,10 @@ The owning library includes `cmake/fortsparse_native_symbolic.cmake`, calls
 `fortsparse_configure_native_symbolic(fortsparse)` once, and registers the
 focused test with `fortsparse_add_native_symbolic_test(fortsparse)` when testing
 is enabled. Backend integration and threshold selection are separate changes.
+
+The backend uses this count schedule for reordered matrices with at least
+4096 columns. Small and low-fill natural-order cases retain the simple reach
+counter. Filled row-index construction remains a separate pass. Current
+five-trial 3D analysis medians improved by roughly 0.7 ms; complete timings
+remain subject to independent numeric-work variability, so no whole-solve
+speedup is inferred from that setup measurement alone.

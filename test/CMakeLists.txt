@@ -13,6 +13,8 @@ function(fortsparse_add_test name source)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
 
+fortsparse_add_native_symbolic_test(fortsparse)
+
 fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)

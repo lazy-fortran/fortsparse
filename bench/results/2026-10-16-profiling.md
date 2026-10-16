@@ -155,3 +155,43 @@ source was regenerated through the retained FortSym revision.
 A separate OpenMP passive-wait experiment reduced wasted process CPU time;
 wall improvements were small. The runner now records the selected wait policy.
 It does not silently change library-wide threading policy.
+
+## Elimination trees, retained layouts and allocator diagnosis
+
+Small complete elimination subtrees now form tasks; large critical panels
+remain separate. This preserves branch parallelism lost by arbitrary contiguous
+batches. Structural mean column fill selects the bounded exact-panel cap:
+64 normally, 128 above mean fill 128. No matrix-family name selects a schedule.
+The 257-column dense oracle exercises the wider path; the interleaved
+independent-component oracle exercises noncontiguous subtree membership.
+
+The new path-union count helper has a retained argument and 1127 independent
+dense-elimination oracle graphs. It avoids enumerating filled edges for the
+count pass on larger reordered systems. Analysis medians improved about
+0.7 ms; numeric variability remains explicit. Six focused CPU tests and all
+120 structural-schedule benchmark trials pass.
+
+Blocked reordered factors now load original CSC values through permutations,
+releasing the numeric ordered copy and per-entry source map. Retained payload
+falls by exactly 12*nnz bytes, but process RSS did not fall measurably. A
+link-time free/mallinfo diagnostic found why: the first 7,499,752-byte row-index
+scratch free left 568,336 cached heap bytes; its warm-lifetime equivalent
+7,498,248-byte free left 8,098,416 cached bytes. Larger numeric allocations had
+raised glibc's mmap threshold. A private page-backed lifetime for that temporary
+is the next measured change; changing global allocator policy is unnecessary.
+
+## GPU diagnostic timeline
+
+Nsight Systems traced one cold factorization plus changed-value refactor on
+2D n=1024. Across both factors it recorded 132 panel kernels (4.49 ms), 130
+TRSM kernels (1.98 ms), 252 GEMM kernels (1.86 ms), and 268 scatter kernels
+(0.28 ms). Three host-to-device and four device-to-host transfers totalled
+0.113 ms. Runtime module loading consumed 50.9 ms of traced API time. The
+trace-visible CUDA allocation peak includes vendor allocations and is retained
+in the compact JSON; attributed backend bytes alone are smaller.
+
+Profiler timing/RSS include instrumentation and never enter admission. The
+bounded profiling replay exceeded its internal budget under instrumentation;
+an ordinary single refactor workflow provided the diagnostic trace instead.
+Nsight Compute returned ERR_NVGPUCTRPERM, so hardware-counter metrics are
+unavailable; permissions were not changed. Full traces remain outside Git.
