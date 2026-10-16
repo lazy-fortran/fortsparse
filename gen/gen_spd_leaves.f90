@@ -14,7 +14,7 @@ program gen_spd_leaves
     use fortsym_engine_native, only: native_engine_t, make_native_engine
     implicit none
     character(*), parameter :: revision = &
-        '9b0af4c89658610c4d3e8cfc2fe4b1beec0aec08'
+        'cf7efc3864f6de26024c940bcf2ec96b3698b7af'
     type(arena_t), target :: arena
     type(native_engine_t) :: engine
     type(expr_t) :: a, b, c, da, db, dc, seed

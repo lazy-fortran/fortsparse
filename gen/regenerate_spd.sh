@@ -3,7 +3,7 @@ set -euo pipefail
 fortsym_source=${1:?Usage: regenerate_spd.sh FORTSYM_SOURCE [GEN_BUILD [FORTSYM_BUILD]]}
 generator_build=${2:-build/codegen}
 fortsym_build=${3:-"$fortsym_source/build"}
-expected_revision=9b0af4c89658610c4d3e8cfc2fe4b1beec0aec08
+expected_revision=cf7efc3864f6de26024c940bcf2ec96b3698b7af
 test "$(git -C "$fortsym_source" rev-parse HEAD)" = "$expected_revision"
 mkdir -p "$generator_build" src/generated
 "${FC:-gfortran}" -I "$fortsym_build/include" \
