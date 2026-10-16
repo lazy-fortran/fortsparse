@@ -204,3 +204,39 @@ complex N/T/H blocks, explicit stored zeros, duplicate rejection, changed values
 with the same graph, requested core order and pruning. Existing strict-cap
 fixtures keep their exact payload formulas; preprocessing adds no allocation.
 This is an accuracy repair, with no new performance admission claim.
+
+### Experimental real LU target panels
+
+The low-level real `lu_factor_t%factor` and `%factor_raw` accept a final optional
+`panel_width`. Its default is 1. Width 8 selects an experimental rolling panel
+of target columns; this does not change any public solver/backend default.
+Complex width 8 and `low_memory=.true.` with width 8 return backend unavailable.
+There is no automatic retry using another schedule or external solver.
+
+The panel retains canonical sparse L/U, global threshold row pivoting, singleton
+precedence and original-column row preferences. A union DFS of completed-prefix
+L supplies topological source order. Lane bits propagate through full numerical
+L, including entries omitted from witnessed-pruned DFS adjacency. Each source's
+coefficient is read after its predecessors have updated it. Current columns then
+use the existing individual reach, pivot/U/L storage and pruning logic; a newly
+committed L column updates future panel lanes. Its rows were unpivoted, so it
+cannot change a completed-prefix pivot coefficient. Shared source order can change
+roundoff and near-tie pivot decisions; bitwise equality is not promised.
+
+`gen_spd_leaves.f90` emits the masked contiguous-lane update and its JVP/VJP from
+the same retained scalar update definition. `spd_panel_update.f90.inc` owns the
+indexing/SIMD schedule. Rows in each full L span must be distinct and active lane
+bits must describe the requested lanes. The low-level `lu_panel_prefix` helper
+makes the production prefix sweep directly testable. The independent test checks
+all 1024 five-node DAGs: actual pruning preserves Floyd–Warshall closure, paired
+rows/values remain aligned, propagated masks agree with that closure, and prefix
+values agree with dense triangular elimination.
+
+Width 8 owns a real `(8,n)` panel, `n` integer masks and eight real coefficients.
+For 32-bit indices the added array payload is `68*n+64` bytes, retained for numeric
+reuse and included in current/peak/cap accounting and old/new growth overlap.
+Setup checks allocation arithmetic and caps; numerical source/column loops
+allocate nothing. This exact workspace is not a prediction of unknown factor
+fill or a bound on process RSS. No source-supernode factor copy or opaque BLAS
+workspace is introduced. This prototype requires measured complete-workflow
+admission before any automatic selection or consumer-pin change.
