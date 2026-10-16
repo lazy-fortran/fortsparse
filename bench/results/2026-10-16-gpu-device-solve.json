@@ -1,0 +1,147 @@
+{
+  "schema": "fortsparse-gpu-device-solve-checkpoint-v1",
+  "measurement_class": "diagnostic-shared",
+  "ordinary_raw": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-checkpoint.json",
+    "sha256": "9d8f0339d88eb9cae2adc7ec429e8d61669d215a578605d2e1629d7b2b572551"
+  },
+  "annotated_raw": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-checkpoint-with-offload.json",
+    "sha256": "c00b7e206aa46a585a563730002ec17d2d67a32bb3b60b05b114f3083b38570e"
+  },
+  "source_identity": {
+    "captured_utc": "2026-10-16T09:06:56Z",
+    "primary_revision": "c6f3a4fbedcdccd0b867d71674fe6c8107d3859d",
+    "binaries": {
+      "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_native_gpu": {
+        "sha256": "6f88affe7785a66e716518fdebbbee1efdda7bf2725458457033cb662bf0c848",
+        "source_binary": "/var/tmp/fortsparse-main/build-cuda/bin/bench_spd_native_gpu"
+      },
+      "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss": {
+        "sha256": "39e0a81172a0ed9c5563c00564ede054ab2232cd4558562d3b0f479fc4e9846f",
+        "source_binary": "/var/tmp/fortsparse-main/build-cuda/bin/bench_spd_cudss"
+      },
+      "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/cpu/bin/bench_spd_native_gpu": {
+        "sha256": "ac9a687221ff4a9a16295c8194eabdb72f12bb126d24f310dc949dcc76e2766a",
+        "source_binary": "/var/tmp/fortsparse-main/build-cpu/bin/bench_spd_native_gpu"
+      },
+      "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod": {
+        "sha256": "ae9d7df22d59d1d1e488659623e8525cd7f0dd5b1cd2fcf02083bd5ba5d3afa7",
+        "source_binary": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/level-stage/gpu/bin/bench_spd_cholmod"
+      }
+    },
+    "note": "CPU native source a3bd4a2; later label/test-only commits do not change CPU numerical source. CHOLMOD copied exact standalone level-stage comparator. Historical reference binary SHA is authoritative.",
+    "cholmod_standalone_build": {
+      "cache_path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/cholmod-standalone-CMakeCache.txt",
+      "cache_sha256": "f8ffdd37a6871d42b834e42c88dbe131f97d1f46ce95c6fb86402a22a6f04993",
+      "note": "Independent archived comparator; GPU root CMake cache describes native/cuDSS only."
+    }
+  },
+  "runner_reported_revision": "ea9979959b235cf34137907fb4dd4d06193aca5c",
+  "runner_source_hash_scope": "Observed checkout at run completion. Candidate numerical native source a3bd4a2 plus GPU execution label c6f3a4f; later ea99799 test-only correction. Immutable executable SHA identifies every trial.",
+  "command": [
+    "bench/gpu/run_gpu_spd.py",
+    "--bin-dir",
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin",
+    "--cpu-bin-dir",
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/cpu/bin",
+    "--reference-bin-dir",
+    "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/level-stage/gpu/bin",
+    "--output",
+    "/var/tmp/fortsparse-gpu/device-solve-checkpoint.json",
+    "--backends",
+    "native-cuda,native-cuda-nd,cudss,cholmod,native,native-nd",
+    "--cases",
+    "grid2:3,grid3:7,grid2:9,grid3:8",
+    "--workloads",
+    "warm,refactor",
+    "--threads",
+    "1",
+    "--trials",
+    "5",
+    "--measurement-class",
+    "diagnostic-shared",
+    "--resource-note",
+    "Physical GPU1 shares VRAM with running LLM; compiler/profiler jobs paused by controller, unrelated host jobs remain. Candidate GPU factor+solve and frozen DAG GPU-factor/CPU-solve reference interleaved. CPU-only native binary uses one physical core. Diagnostic visibility checkpoint, not controlled performance admission. Device total peak unknown; no accounting configuration changes."
+  ],
+  "environment": {
+    "CUDA_VISIBLE_DEVICES": "1",
+    "CUDA_MODULE_LOADING": null,
+    "OMP_WAIT_POLICY": null,
+    "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+    "CHOLMOD_GPU_POOL_BYTES": "67108864"
+  },
+  "gpu_observation": {
+    "before": {
+      "utc": "2026-10-16T09:06:56Z",
+      "nvidia_smi": "0, GPU-b0a38907-d7be-1bbe-e4ee-ee34b2e49902, 00000000:07:00.0, NVIDIA GeForce RTX 5060 Ti, 615.78.08, 16311, 15149\n1, GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db, 00000000:08:00.0, NVIDIA GeForce RTX 5060 Ti, 615.78.08, 16311, 15115",
+      "status": 0,
+      "loadavg": "3.67 6.97 9.05 3/3265 1867248"
+    },
+    "after": {
+      "utc": "2026-10-16T09:09:24Z",
+      "nvidia_smi": "0, GPU-b0a38907-d7be-1bbe-e4ee-ee34b2e49902, 00000000:07:00.0, NVIDIA GeForce RTX 5060 Ti, 615.78.08, 16311, 15149\n1, GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db, 00000000:08:00.0, NVIDIA GeForce RTX 5060 Ti, 615.78.08, 16311, 15115",
+      "status": 0,
+      "loadavg": "2.79 5.29 8.10 3/3229 1875418"
+    }
+  },
+  "corpus": [
+    [
+      "grid2",
+      3
+    ],
+    [
+      "grid3",
+      7
+    ],
+    [
+      "grid2",
+      9
+    ],
+    [
+      "grid3",
+      8
+    ]
+  ],
+  "status_counts": {
+    "ok": 319,
+    "timeout": 1
+  },
+  "trial_count": 320,
+  "max_success_backward_error": 1.2573307187147822e-15,
+  "offload_provenance": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/offload-provenance.json",
+    "sha256": "8b421db143ccb55d73156cd079d931f29bebf200f245f1f69ca461cbf3b370f0",
+    "validated_proofs": 5,
+    "matched_trials": 25,
+    "limit": "SQLite verifies process/device/kernel events. Binary SHA, argv, environment and configuration are retained capture assertions, matched exactly to ordinary trials. Trace timings are diagnostic and never pooled with ordinary trials."
+  },
+  "inspection": "All three final named PNGs inspected: standalone legends, wrapped captions within margins, logarithmic RSS axis, min/max ranges, units, markers, and the incomplete configuration annotation.",
+  "plots": {
+    "gpu-libraries-final.png": {
+      "path": "/var/tmp/fortsparse-gpu/device-solve-plots/gpu-libraries-final.png",
+      "sha256": "acc7e082c60e7dc94f73e5ab30c6106ebbfb478f49d64a7f5829937add40fa04"
+    },
+    "cpu-gpu-final.png": {
+      "path": "/var/tmp/fortsparse-gpu/device-solve-plots/cpu-gpu-final.png",
+      "sha256": "457aedd0ecb7b94d968510de10bc7c1e4b7f501ab3a73f2d0b0b75bfd391c60a"
+    },
+    "host-memory-final.png": {
+      "path": "/var/tmp/fortsparse-gpu/device-solve-plots/host-memory-final.png",
+      "sha256": "f51a0d3e03dfbdc41dc044e893c89a8d9d823b96a4930a6ef0788bfbea59b937"
+    }
+  },
+  "limits": [
+    "Shared GPU with running LLM; no controlled-performance/frontier admission.",
+    "One host physical core; no thread/device scaling claim.",
+    "Only25ordinary trials have five exact Nsight configuration proofs; other vendor offload fields preserved.",
+    "Device total peak unknown. Sampled/attributed device memory is separate and cannot replace a peak.",
+    "One native CUDA ND large2D warm timeout retained; its displayed ranges use four successes.",
+    "All ordinary invocations retain a1s deadline; profiler startup/export timings separate."
+  ],
+  "recipe": {
+    "path": "bench/gpu/device_solve_checkpoint.py",
+    "sha256": "e4cc702616f7a64ca4bfcf7df74358d1ec411c31cead78a98a662b599f6f5e2c"
+  },
+  "compact_csv_sha256": "c4a8bb7dd98b3c23ac063333dabc0fdc6319533786d3584f2fad8fdedd0bce2f"
+}

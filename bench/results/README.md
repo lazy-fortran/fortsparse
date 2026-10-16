@@ -5,6 +5,11 @@ intermediate checkpoints below for current native CPU comparisons. It retains
 all 115 case-group statuses and distinguishes nondominance from the stronger
 same-comparator match/beat gate.
 
+The [GPU device-solve checkpoint](2026-10-16-gpu-device-solve.md) retains
+320 interleaved trials against cuDSS, standalone CHOLMOD, native CPU and the
+prior GPU-factor/CPU-solve binary. It is shared-GPU diagnostic evidence with
+319 passes and one retained timeout, rather than a performance admission.
+
 ## 2026-10-16: simplicial reference checkpoint
 
 This is an intermediate reference, not the competitive production MVP.

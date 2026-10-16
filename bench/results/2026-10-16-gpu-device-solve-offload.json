@@ -1,0 +1,521 @@
+{
+  "schema": "fortsparse-gpu-offload-proof-v1",
+  "scope": "Exact refactor configurations for frozen2D/3D selectedcases only;25ordinary trials. Full invocation includes initial factorization and refactor/solve; no per-phase vendor attribution. Instrumented timings excluded.",
+  "proofs": [
+    {
+      "id": "cudss-grid2-9-refactor",
+      "executable": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+        "sha256": "39e0a81172a0ed9c5563c00564ede054ab2232cd4558562d3b0f479fc4e9846f"
+      },
+      "capture": {
+        "configuration": {
+          "requested_backend": "cudss",
+          "family": "grid2",
+          "level": 9.0,
+          "workload": "refactor",
+          "variant": "training",
+          "io_mode": "host",
+          "threads": 1.0,
+          "ordering": "tuned",
+          "repeats": 1.0,
+          "pool_budget_bytes": 134217728,
+          "requested_device": 0
+        },
+        "logical_device": 0,
+        "environment": {
+          "CUDA_VISIBLE_DEVICES": "1",
+          "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+          "CHOLMOD_GPU_POOL_BYTES": "67108864"
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+          "grid2",
+          "9",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "inputs": {
+          "matrix_sha256": null,
+          "permutation_sha256": null
+        },
+        "physical_gpu": {
+          "index": 1,
+          "uuid": "GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db",
+          "pci_bus_id": "0000:08:00.0"
+        },
+        "profiler_invocation": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "nsys",
+          "profile",
+          "--trace=cuda",
+          "--sample=none",
+          "--cpuctxsw=none",
+          "--force-overwrite=true",
+          "--export=sqlite",
+          "--output",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cudss-grid2-9-refactor",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+          "grid2",
+          "9",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "receipt_file": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/capture-receipts.json"
+      },
+      "trace": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cudss-grid2-9-refactor.sqlite",
+        "sha256": "1ae54720ca362e831bcca6b129911b9786619edc4f0b5f1e408738204312bbfa",
+        "pid": 1884718
+      },
+      "kernels": [
+        {
+          "name": "void cudss::factorize_ker<long, double, int, double, (int)32, (int)1, (int)0, (int)1, (int)1, (int)0, (int)16, (int)32>(int, unsigned int, T3, T3, T2 *, T2 *, const T1 *, const T3 *, const T3 *, int *, const T3 *, const T1 *, const T1 *, const T1 *, const T3 *, T3 *, T3, T3, T3, T3, T3 *, T3 *, T3 *, T3 *, T4, T4 *, int, T3 *, int, T1, T1, const T3 *, const T1 *, const T1 *, T1, T1, const T3 *, int, int *, int, const int *)",
+          "count": 2,
+          "purpose": "cuDSS FP64 sparse factorization kernel"
+        },
+        {
+          "name": "void cudss::factorize_v3_ker<long, double, int, double, (int)128, (int)8, (int)1, (int)0, (int)1, (int)1, (int)1, (int)16, (int)32>(int, int, unsigned int, T3, T3, T2 *, T2 *, const T1 *, const T3 *, const T3 *, int *, const T3 *, const T1 *, const T1 *, const T1 *, T3 *, const T3 *, T3 *, T3, T3, T3, T3, T3 *, T3 *, T3 *, T3 *, int *, T4, T4 *, int, T3 *, int, T1, T1, const T3 *, const T1 *, T1, const T1 *, T1, const T3 *, int, int *, int, const int *)",
+          "count": 2,
+          "purpose": "cuDSS FP64 sparse factorization kernel"
+        }
+      ]
+    },
+    {
+      "id": "cudss-grid3-8-refactor",
+      "executable": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+        "sha256": "39e0a81172a0ed9c5563c00564ede054ab2232cd4558562d3b0f479fc4e9846f"
+      },
+      "capture": {
+        "configuration": {
+          "requested_backend": "cudss",
+          "family": "grid3",
+          "level": 8.0,
+          "workload": "refactor",
+          "variant": "training",
+          "io_mode": "host",
+          "threads": 1.0,
+          "ordering": "tuned",
+          "repeats": 1.0,
+          "pool_budget_bytes": 134217728,
+          "requested_device": 0
+        },
+        "logical_device": 0,
+        "environment": {
+          "CUDA_VISIBLE_DEVICES": "1",
+          "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+          "CHOLMOD_GPU_POOL_BYTES": "67108864"
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "inputs": {
+          "matrix_sha256": null,
+          "permutation_sha256": null
+        },
+        "physical_gpu": {
+          "index": 1,
+          "uuid": "GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db",
+          "pci_bus_id": "0000:08:00.0"
+        },
+        "profiler_invocation": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "nsys",
+          "profile",
+          "--trace=cuda",
+          "--sample=none",
+          "--cpuctxsw=none",
+          "--force-overwrite=true",
+          "--export=sqlite",
+          "--output",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cudss-grid3-8-refactor",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cudss",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "receipt_file": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/capture-receipts.json"
+      },
+      "trace": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cudss-grid3-8-refactor.sqlite",
+        "sha256": "24b06f9f3d3790ce2fb33b4b28094ba964f7e79bcf4f4d1683c32c90f51a8ce9",
+        "pid": 1884948
+      },
+      "kernels": [
+        {
+          "name": "void cudss::factorize_ker<long, double, int, double, (int)32, (int)1, (int)0, (int)1, (int)1, (int)0, (int)16, (int)32>(int, unsigned int, T3, T3, T2 *, T2 *, const T1 *, const T3 *, const T3 *, int *, const T3 *, const T1 *, const T1 *, const T1 *, const T3 *, T3 *, T3, T3, T3, T3, T3 *, T3 *, T3 *, T3 *, T4, T4 *, int, T3 *, int, T1, T1, const T3 *, const T1 *, const T1 *, T1, T1, const T3 *, int, int *, int, const int *)",
+          "count": 2,
+          "purpose": "cuDSS FP64 sparse factorization kernel"
+        },
+        {
+          "name": "void cudss::factorize_v3_ker<long, double, int, double, (int)128, (int)8, (int)1, (int)0, (int)1, (int)1, (int)1, (int)16, (int)32>(int, int, unsigned int, T3, T3, T2 *, T2 *, const T1 *, const T3 *, const T3 *, int *, const T3 *, const T1 *, const T1 *, const T1 *, T3 *, const T3 *, T3 *, T3, T3, T3, T3, T3 *, T3 *, T3 *, T3 *, int *, T4, T4 *, int, T3 *, int, T1, T1, const T3 *, const T1 *, T1, const T1 *, T1, const T3 *, int, int *, int, const int *)",
+          "count": 2,
+          "purpose": "cuDSS FP64 sparse factorization kernel"
+        }
+      ]
+    },
+    {
+      "id": "cholmod-grid2-9-refactor",
+      "executable": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+        "sha256": "ae9d7df22d59d1d1e488659623e8525cd7f0dd5b1cd2fcf02083bd5ba5d3afa7"
+      },
+      "capture": {
+        "configuration": {
+          "requested_backend": "cholmod",
+          "family": "grid2",
+          "level": 9.0,
+          "workload": "refactor",
+          "variant": "training",
+          "io_mode": "host",
+          "threads": 1.0,
+          "ordering": "tuned",
+          "repeats": 1.0,
+          "pool_budget_bytes": 67108864,
+          "requested_device": 0.0
+        },
+        "logical_device": 0,
+        "environment": {
+          "CUDA_VISIBLE_DEVICES": "1",
+          "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+          "CHOLMOD_GPU_POOL_BYTES": "67108864"
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+          "grid2",
+          "9",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "inputs": {
+          "matrix_sha256": null,
+          "permutation_sha256": null
+        },
+        "physical_gpu": {
+          "index": 1,
+          "uuid": "GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db",
+          "pci_bus_id": "0000:08:00.0"
+        },
+        "profiler_invocation": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "nsys",
+          "profile",
+          "--trace=cuda",
+          "--sample=none",
+          "--cpuctxsw=none",
+          "--force-overwrite=true",
+          "--export=sqlite",
+          "--output",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cholmod-grid2-9-refactor",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+          "grid2",
+          "9",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "receipt_file": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/capture-receipts.json"
+      },
+      "trace": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cholmod-grid2-9-refactor.sqlite",
+        "sha256": "4ff0b9c745f2b65526e43ba991aff678e79c8618d550467184dad22ffc910fb4",
+        "pid": 1885464
+      },
+      "kernels": [
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_32x32_16x5_nt_align1>(T1::Params)",
+          "count": 8,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884syrk_lower_32x32_16x5_nt_align1>(T1::Params)",
+          "count": 8,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884syrk_lower_64x32_16x4_nt_align1>(T1::Params)",
+          "count": 2,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        }
+      ]
+    },
+    {
+      "id": "cholmod-grid3-8-refactor",
+      "executable": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+        "sha256": "ae9d7df22d59d1d1e488659623e8525cd7f0dd5b1cd2fcf02083bd5ba5d3afa7"
+      },
+      "capture": {
+        "configuration": {
+          "requested_backend": "cholmod",
+          "family": "grid3",
+          "level": 8.0,
+          "workload": "refactor",
+          "variant": "training",
+          "io_mode": "host",
+          "threads": 1.0,
+          "ordering": "tuned",
+          "repeats": 1.0,
+          "pool_budget_bytes": 67108864,
+          "requested_device": 0.0
+        },
+        "logical_device": 0,
+        "environment": {
+          "CUDA_VISIBLE_DEVICES": "1",
+          "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+          "CHOLMOD_GPU_POOL_BYTES": "67108864"
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "inputs": {
+          "matrix_sha256": null,
+          "permutation_sha256": null
+        },
+        "physical_gpu": {
+          "index": 1,
+          "uuid": "GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db",
+          "pci_bus_id": "0000:08:00.0"
+        },
+        "profiler_invocation": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "nsys",
+          "profile",
+          "--trace=cuda",
+          "--sample=none",
+          "--cpuctxsw=none",
+          "--force-overwrite=true",
+          "--export=sqlite",
+          "--output",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cholmod-grid3-8-refactor",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_cholmod",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "receipt_file": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/capture-receipts.json"
+      },
+      "trace": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/cholmod-grid3-8-refactor.sqlite",
+        "sha256": "af26b5cd6ecdaef44d4228fea8deceba1b12b192f2f1e220c330040bcaff433b",
+        "pid": 1885807
+      },
+      "kernels": [
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_32x32_16x5_nt_align1>(T1::Params)",
+          "count": 92,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884gemm_64x32_16x4_nt_align1>(T1::Params)",
+          "count": 24,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884syrk_lower_128x128_16x3_nt_align1>(T1::Params)",
+          "count": 4,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884syrk_lower_32x32_16x5_nt_align1>(T1::Params)",
+          "count": 92,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        },
+        {
+          "name": "void cutlass::Kernel2<cutlass_80_tensorop_d884syrk_lower_64x32_16x4_nt_align1>(T1::Params)",
+          "count": 26,
+          "purpose": "FP64 trailing matrix product/symmetric update in isolated CHOLMOD"
+        }
+      ]
+    },
+    {
+      "id": "native-cuda-grid3-8-refactor",
+      "executable": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_native_gpu",
+        "sha256": "6f88affe7785a66e716518fdebbbee1efdda7bf2725458457033cb662bf0c848"
+      },
+      "capture": {
+        "configuration": {
+          "requested_backend": "native-cuda",
+          "family": "grid3",
+          "level": 8.0,
+          "workload": "refactor",
+          "variant": "training",
+          "io_mode": "host",
+          "threads": 1.0,
+          "ordering": "tuned",
+          "repeats": 1.0,
+          "pool_budget_bytes": 0,
+          "requested_device": 0
+        },
+        "logical_device": 0,
+        "environment": {
+          "CUDA_VISIBLE_DEVICES": "1",
+          "FSBENCH_CUDSS_POOL_LIMIT_BYTES": "134217728",
+          "CHOLMOD_GPU_POOL_BYTES": "67108864"
+        },
+        "command": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_native_gpu",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "inputs": {
+          "matrix_sha256": null,
+          "permutation_sha256": null
+        },
+        "physical_gpu": {
+          "index": 1,
+          "uuid": "GPU-ae0ce76b-94b7-f19c-6689-e7730b5b59db",
+          "pci_bus_id": "0000:08:00.0"
+        },
+        "profiler_invocation": [
+          "taskset",
+          "--cpu-list",
+          "0",
+          "nsys",
+          "profile",
+          "--trace=cuda",
+          "--sample=none",
+          "--cpuctxsw=none",
+          "--force-overwrite=true",
+          "--export=sqlite",
+          "--output",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/native-cuda-grid3-8-refactor",
+          "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/binaries/device-solve-stage/gpu/bin/bench_spd_native_gpu",
+          "grid3",
+          "8",
+          "1",
+          "refactor",
+          "training",
+          "0",
+          "host",
+          "tuned",
+          "-",
+          "1",
+          "-"
+        ],
+        "receipt_file": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/capture-receipts.json"
+      },
+      "trace": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-gpu-mvp/device-solve-profiles/native-cuda-grid3-8-refactor.sqlite",
+        "sha256": "b36c1e47ca46552991f7c5a957048d52520fb27ca980347d6be0b68c38ccab00",
+        "pid": 1886080
+      },
+      "kernels": [
+        {
+          "name": "<unnamed>::factor_level(double *, const fsparse_spd_cuda_level_panel *, unsigned long, int *)",
+          "count": 28,
+          "purpose": "Generated SPD forward/backward triangular solve or factor level"
+        },
+        {
+          "name": "void <unnamed>::solve_level<(bool)0>(double *, const <unnamed>::SolvePanel *, unsigned long, const int *, double *, int, int, const int *)",
+          "count": 35,
+          "purpose": "Generated SPD forward/backward triangular solve or factor level"
+        },
+        {
+          "name": "void <unnamed>::solve_level<(bool)1>(double *, const <unnamed>::SolvePanel *, unsigned long, const int *, double *, int, int, const int *)",
+          "count": 35,
+          "purpose": "Generated SPD forward/backward triangular solve or factor level"
+        }
+      ]
+    }
+  ]
+}
