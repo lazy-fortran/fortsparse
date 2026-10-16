@@ -1,10 +1,11 @@
 import argparse
 from pathlib import Path
+import random
 import subprocess
 import unittest
 from unittest.mock import patch, MagicMock
 
-from run_gpu_spd import parse_metrics, phase_objective, sample, unavailable
+from run_gpu_spd import parse_metrics, phase_objective, sample, sample_block, build_sources, unavailable
 
 
 class RunnerTests(unittest.TestCase):
@@ -61,6 +62,48 @@ class RunnerTests(unittest.TestCase):
             gpu = sample(args, [0], 'native-cuda', 'grid2', 1, 1, 'warm', 'host', 'tuned', 0)
         self.assertEqual(cpu['command'][3], '/cpu/bin/bench_spd_native_gpu')
         self.assertEqual(gpu['command'][3], '/test/bin/bench_spd_native_gpu')
+
+    def test_reference_processes_share_randomized_blocks_and_backend_names(self):
+        args = self.arguments()
+        args.reference_bin_dir = Path('/frozen/bin')
+        args.reference_backends = 'native-cuda,native-cuda-nd'
+        backends = ['native-cuda', 'native-cuda-nd', 'cudss']
+        with patch.object(Path, 'is_file', return_value=False):
+            records = sample_block(args, [0], backends, 'grid3', 8, 1, 'warm',
+                                   'host', 'tuned', 2, random.Random(7))
+        self.assertEqual(len(records), 5)
+        self.assertEqual({r['requested_backend'] for r in records}, set(backends))
+        self.assertEqual([r['series'] for r in records],
+                         ['reference', 'candidate', 'reference', 'candidate', 'candidate'])
+        self.assertTrue(all(r['trial'] == 2 and r['threads'] == 1 for r in records))
+        for row in records:
+            expected = '/frozen/bin' if row['series'] == 'reference' else '/test/bin'
+            self.assertEqual(str(Path(row['command'][3]).parent), expected)
+        self.assertEqual(args.bin_dir, Path('/test/bin')) # copying reference args is isolated
+
+    def test_reference_cpu_copy_overrides_candidate_cpu_build_only_for_reference(self):
+        args = self.arguments()
+        args.cpu_bin_dir = Path('/candidate-cpu/bin')
+        args.reference_bin_dir = Path('/reference-cpu/bin')
+        args.reference_backends = 'native'
+        with patch.object(Path, 'is_file', return_value=False):
+            records = sample_block(args, [0], ['native'], 'grid2', 1, 1, 'rhs1',
+                                   'host', 'tuned', 0, random.Random(0))
+        self.assertEqual({(r['series'], r['command'][3]) for r in records}, {
+            ('candidate', '/candidate-cpu/bin/bench_spd_native_gpu'),
+            ('reference', '/reference-cpu/bin/bench_spd_native_gpu')})
+        self.assertTrue(all(r['requested_device'] == -1 for r in records))
+
+    def test_reference_build_metadata_keeps_separate_cache_source(self):
+        args = self.arguments()
+        args.cpu_bin_dir = Path('/cpu/bin')
+        args.reference_bin_dir = Path('/reference/bin')
+        with patch('run_gpu_spd.build_provenance', side_effect=lambda path: {'cache_path': str(path)}):
+            sources = build_sources(args)
+        self.assertEqual(sources['build_provenance']['cache_path'], '/test/bin')
+        self.assertEqual(sources['cpu_build_provenance']['cache_path'], '/cpu/bin')
+        self.assertEqual(sources['reference_build_provenance']['cache_path'], '/reference/bin')
+        self.assertIn('not an attestation', sources['reference_build_provenance']['source_hash_scope'])
 
     def test_failed_vendor_retains_partial_numeric_output(self):
         process = MagicMock(returncode=2)

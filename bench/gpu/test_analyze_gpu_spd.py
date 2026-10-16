@@ -68,6 +68,18 @@ class FrontAudit(unittest.TestCase):
         self.assertEqual(result["cases"][0]["candidates"][0]["objectives"]
                          ["wall_host_rss"]["status"], "native_incomplete")
 
+    def test_identical_reference_candidate_binary_hashes_still_keep_five_trials_each(self):
+        candidate = trials("native-cuda", [1, 2, 2, 2, 3], 20, 30)
+        reference = copy.deepcopy(candidate)
+        for row in candidate:
+            row.update(series="candidate", executable_sha256="a" * 64)
+        for row in reference:
+            row.update(series="reference", executable_sha256="a" * 64)
+        groups = summarize(candidate + reference)
+        self.assertEqual(len(groups), 2)
+        self.assertEqual({r['series'] for r in groups}, {'candidate', 'reference'})
+        self.assertTrue(all(r['samples'] == 5 and r['complete'] for r in groups))
+
     def test_pool_configurations_never_pool_trials(self):
         small = trials("cudss", [1, 2, 2, 2, 3], 20, 30)
         large = copy.deepcopy(small)

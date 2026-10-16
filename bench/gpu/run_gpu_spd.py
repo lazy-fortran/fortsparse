@@ -2,6 +2,7 @@
 """Optional matched GPU benchmark orchestration; never part of library runtime."""
 import argparse
 from collections import Counter
+from copy import copy
 import csv
 import hashlib
 import io
@@ -122,6 +123,37 @@ def sample(args, cpus, backend, family, level, thread, workload, io_mode, orderi
     return record
 
 
+def sample_block(args, cpus, backends, family, level, thread, workload,
+                 io_mode, ordering, trial, randomizer):
+    """Randomize candidate/reference processes together inside each trial block."""
+    block = [(args, backend, "candidate") for backend in backends]
+    reference_dir = getattr(args, "reference_bin_dir", None)
+    if reference_dir:
+        reference = copy(args)
+        reference.bin_dir = reference_dir
+        reference.cpu_bin_dir = reference_dir
+        requested = getattr(args, "reference_backends", "native-cuda,native-cuda-nd").split(",")
+        block += [(reference, backend, "reference") for backend in backends if backend in requested]
+    randomizer.shuffle(block)
+    return [dict(sample(configuration, cpus, backend, family, level, thread,
+                        workload, io_mode, ordering, trial), series=series)
+            for configuration, backend, series in block]
+
+
+def build_sources(args):
+    result = dict(build_provenance=build_provenance(args.bin_dir),
+                  cpu_build_provenance=build_provenance(args.cpu_bin_dir)
+                      if args.cpu_bin_dir else None,
+                  reference_build_provenance=None)
+    if args.reference_bin_dir:
+        reference = build_provenance(args.reference_bin_dir)
+        reference["source_hash_scope"] = (
+            "Observed current source at the archived cache's CMAKE_HOME_DIRECTORY; "
+            "not an attestation of the historical reference build. Executable SHA is authoritative.")
+        result["reference_build_provenance"] = reference
+    return result
+
+
 def snapshot():
     result = subprocess.run(["nvidia-smi", "--query-gpu=index,uuid,pci.bus_id,name,driver_version,memory.total,memory.used",
                              "--format=csv,noheader,nounits"], text=True, capture_output=True)
@@ -139,6 +171,10 @@ def main():
     parser.add_argument("--bin-dir", type=Path, required=True)
     parser.add_argument("--cpu-bin-dir", type=Path,
                         help="Use a CPU-only native build for CPU comparisons")
+    parser.add_argument("--reference-bin-dir", type=Path,
+                        help="Interleave frozen reference executables with candidates")
+    parser.add_argument("--reference-backends", default="native-cuda,native-cuda-nd",
+                        help="Reference copies of these active --backends (same backend names)")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backends", default="native-cuda,cudss,cholmod")
     parser.add_argument("--cases", default="band:1,band:2,band:3,grid2:1,grid2:2,grid2:3,grid2:7,grid3:1,grid3:2,grid3:3,grid3:7")
@@ -160,7 +196,11 @@ def main():
     parser.add_argument("--resource-note", default="No exclusive device lease asserted")
     args = parser.parse_args()
     args.bin_dir = args.bin_dir.resolve()
+    if args.reference_bin_dir:
+        args.reference_bin_dir = args.reference_bin_dir.resolve()
     backends = args.backends.split(",")
+    if any(b not in EXECUTABLES for b in args.reference_backends.split(",")):
+        parser.error("unknown reference backend")
     if any(b not in EXECUTABLES for b in backends):
         parser.error("unknown backend")
     if args.calibration_only:
@@ -191,24 +231,24 @@ def main():
                 for io_mode in args.io_modes.split(","):
                     for ordering in orderings:
                         for trial in range(args.trials):
-                            block = list(backends)
-                            randomizer.shuffle(block)
-                            for backend in block:
-                                records.append(sample(args, cpus, backend, family, level,
-                                    thread, workload, io_mode, ordering, trial))
+                            records.extend(sample_block(args, cpus, backends, family, level,
+                                thread, workload, io_mode, ordering, trial, randomizer))
     binaries = {}
     for binary in sorted({Path(r["command"][3]) for r in records}):
         if binary.is_file():
             binaries[str(binary)] = dict(file_identity(binary), ldd=subprocess.run(
                 ["ldd", str(binary)], text=True, capture_output=True).stdout)
+    for record in records:
+        record["executable_sha256"] = binaries.get(record["command"][3], {}).get("sha256")
     result = dict(schema="fortsparse-gpu-benchmark-v1", trials=records,
         command=sys.argv, revision=subprocess.run(["git", "rev-parse", "HEAD"],
             text=True, capture_output=True).stdout.strip(),
         working_tree_dirty=bool(subprocess.run(["git", "status", "--porcelain"],
             text=True, capture_output=True).stdout.strip()), platform=platform.platform(),
         source_files=[file_identity(Path(__file__)), file_identity(Path(__file__).parents[1]/"spd_fixtures.f90")],
-        binary_provenance=binaries, build_provenance=build_provenance(args.bin_dir),
-        cpu_build_provenance=build_provenance(args.cpu_bin_dir) if args.cpu_bin_dir else None,
+        binary_provenance=binaries, **build_sources(args),
+        reference_bin_dir=str(args.reference_bin_dir) if args.reference_bin_dir else None,
+        reference_backends=args.reference_backends.split(",") if args.reference_bin_dir else [],
         physical_cpu_ids=cpus, gpu_observation=dict(before=before, after=snapshot()),
         measurement_class=args.measurement_class, resource_note=args.resource_note,
         calibration_only=args.calibration_only, corpus=cases, seed=args.seed,

@@ -23,6 +23,20 @@ STYLES = {
 }
 
 
+def series_label(row):
+    label = STYLES[row["requested_backend"]][2]
+    return f"{label} [{row.get('series', 'candidate')}, {row.get('executable_sha256', '')[:8] or 'unknown SHA'}]"
+
+
+def scaling_groups(rows):
+    groups = {}
+    for row in rows:
+        key = (row["requested_backend"], row["ordering"], row["pool_budget_bytes"],
+               row.get("series", "candidate"), row.get("executable_sha256", ""))
+        groups.setdefault(key, []).append(row)
+    return groups
+
+
 def metric(row, name, scale=1):
     value = row["metrics"].get(name)
     if value is None:
@@ -54,7 +68,7 @@ def finish(fig, path, title, note):
 
 
 def completion_note(rows):
-    failed = [f"{STYLES[r['requested_backend']][2]} ({r['threads']} cores): "
+    failed = [f"{series_label(r)} ({r['threads']} cores): "
               f"{r['successes']}/{r['samples']} passed" for r in rows if not r['complete']]
     return "Incomplete configurations: " + "; ".join(failed) if failed else "All configurations completed."
 
@@ -76,7 +90,8 @@ def pareto(rows, path, title, note):
                 xerr=[[wall[1] - wall[0]], [wall[2] - wall[1]]],
                 yerr=[[memory[1] - memory[0]], [memory[2] - memory[1]]],
                 marker=marker, color=color, markersize=8, capsize=2, linestyle="none",
-                markerfacecolor=color if field == "parent_rss_kib" and row["complete"] else "white",
+                markerfacecolor=color if field == "parent_rss_kib" and row["complete"]
+                    and row.get("series", "candidate") != "reference" else "white",
                 alpha=1 if row["complete"] else .45)
         frontier = front(gpu, "primary_phase_s", field)
         if len(frontier) > 1:
@@ -87,9 +102,11 @@ def pareto(rows, path, title, note):
         ax.grid(alpha=.2)
     axes[0].set_title("Median frontier; observed min–max ranges")
     axes[1].set_title("Sampled memory only; total VRAM peak unknown")
+    identities = {(r["requested_backend"], r.get("series", "candidate"),
+                   r.get("executable_sha256", "")): r for r in gpu}
     handles = [Line2D([], [], color=STYLES[b][0], marker=STYLES[b][1], linestyle="none",
-                     label=STYLES[b][2]) for b in STYLES
-               if any(r["requested_backend"] == b for r in gpu)]
+                     markerfacecolor="white" if series == "reference" else STYLES[b][0],
+                     label=series_label(row)) for (b, series, _), row in sorted(identities.items())]
     axes[0].legend(handles=handles, fontsize=9)
     failed = sum(not r["complete"] for r in gpu)
     finish(fig, path, title, note + f"\n{failed} incomplete configurations retained; dotted lines are median frontiers, not admission.")
@@ -97,12 +114,11 @@ def pareto(rows, path, title, note):
 
 def scaling(rows, path, title, note):
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    groups = {}
-    for row in rows:
-        key = (row["requested_backend"], row["ordering"], row["pool_budget_bytes"])
-        groups.setdefault(key, []).append(row)
-    for (backend, order, pool), values in sorted(groups.items()):
-        color, marker, label, line = STYLES[backend]
+    for (backend, order, pool, series, _), values in sorted(scaling_groups(rows).items()):
+        color, marker, _, line = STYLES[backend]
+        label = series_label(values[0])
+        if series == "reference":
+            line = ":"
         values = sorted([r for r in values if r["complete"]], key=lambda r: r["threads"])
         if not values:
             continue
@@ -115,7 +131,8 @@ def scaling(rows, path, title, note):
             intervals = [metric(r, field, 1000) for r in usable]
             ax.errorbar([r["threads"] for r in usable], [v[1] for v in intervals],
                 yerr=[[v[1] - v[0] for v in intervals], [v[2] - v[1] for v in intervals]],
-                color=color, marker=marker, linestyle=line, label=label, capsize=2)
+                color=color, marker=marker, linestyle=line, label=label, capsize=2,
+                markerfacecolor="white" if series == "reference" else color)
     for ax, ylabel in zip(axes, ("Matched phase wall time (ms)", "Whole-workflow process CPU time (ms)")):
         ax.set(xlabel="Allowed host physical cores (one GPU per GPU solver)", ylabel=ylabel,
                xscale="log", yscale="log")
@@ -129,8 +146,10 @@ def cpu_gpu(rows, path, title, note):
     rows = [r for r in rows if r["threads"] == 1]
     fig, ax = plt.subplots(figsize=(9, 5))
     labels = []
-    for i, row in enumerate(sorted(rows, key=lambda r: r["requested_backend"])):
-        color, marker, label, _ = STYLES[row["requested_backend"]]
+    for i, row in enumerate(sorted(rows, key=lambda r: (r["requested_backend"],
+            r.get("series", "candidate"), r.get("executable_sha256", "")))):
+        color, marker, _, _ = STYLES[row["requested_backend"]]
+        label = series_label(row)
         value = metric(row, "primary_phase_s", 1000)
         if row["pool_budget_bytes"] > 0:
             label += f"\n{row['pool_budget_bytes'] / 2**20:g} MiB pool"
@@ -139,7 +158,8 @@ def cpu_gpu(rows, path, title, note):
         if value:
             ax.errorbar(value[1], i, xerr=[[value[1] - value[0]], [value[2] - value[1]]],
                         marker=marker, color=color, markersize=9, capsize=3,
-                        markerfacecolor=color if row['complete'] else 'white')
+                        markerfacecolor=color if row['complete'] and
+                        row.get("series", "candidate") != "reference" else 'white')
             ax.text(value[2] * 1.04, i, f"{value[1]:.2f}", va="center", fontsize=9)
         else:
             ax.text(.02, i, "No successful timing", transform=ax.get_yaxis_transform(),
