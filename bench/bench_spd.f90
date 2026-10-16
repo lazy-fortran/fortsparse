@@ -3,7 +3,7 @@ program bench_spd
         status_ok, sparse_factor, sparse_solve, sparse_solve_block, &
         sparse_refactor, sparse_free, sparse_factor_stats_t, &
         sparse_factor_stats, sparse_solve_jvp, sparse_solve_vjp, &
-        FORTSPARSE_SYM_SPD
+        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_ND
     use spd_fixtures, only: fixture_t, make_fixture, fixture_product, &
         backward_error, wall_time
     use, intrinsic :: iso_c_binding, only: c_double
@@ -59,6 +59,9 @@ program bench_spd
         solver%backend_id = 3
     case ("native")
         solver%backend_id = 4
+    case ("native-nd")
+        solver%backend_id = 4
+        solver%options%ordering = FORTSPARSE_ORDER_ND
     case ("native-cuda")
         solver%backend_id = 4
         solver%options%device = 0

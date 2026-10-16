@@ -31,6 +31,8 @@ class AdmissionTests(unittest.TestCase):
                               observations("mkl-pardiso", [2], 10))
         self.assertEqual(result["overall"]["native"],
                          "not_competitive_over_observed_ranges")
+        self.assertEqual(result["best_native_overall"],
+                         "not_competitive_over_observed_ranges")
 
     def test_best_thread_configuration_is_on_frontier(self):
         result = self.analyze(observations("native", [0.9], 5),
@@ -79,6 +81,63 @@ class AdmissionTests(unittest.TestCase):
                               observations("superlu", [1], 10))
         self.assertEqual(result["overall"]["native-cuda"],
                          "indeterminate_device_execution")
+        self.assertEqual(result["best_native_overall"], "failed_or_unavailable")
+
+    def test_union_selects_explicit_ordering_and_same_comparator(self):
+        nd = observations("native-nd", [0.5, 0.6], 5, threads=4)
+        for row in nd:
+            row["ordering_used"] = 3
+        result = self.analyze(observations("native", [2], 15), nd,
+                              observations("superlu", [1], 10))
+        selected = result["best_native_by_case"][0]
+        self.assertEqual(result["best_native_overall"], "pass_over_observed_ranges")
+        self.assertEqual(result["overall"]["native"],
+                         "not_competitive_over_observed_ranges")
+        self.assertEqual(selected["selected_native"], dict(backend="native-nd", threads=4))
+        self.assertEqual(selected["matched_comparator"], dict(backend="superlu", threads=1))
+        self.assertEqual(selected["ordering_used"]["median"], 3)
+        self.assertEqual(len(selected["alternatives"]), 2)
+        self.assertIn("not an AUTO/default", result["native_selection_policy"])
+
+    def test_union_cannot_hide_a_failed_case(self):
+        native = observations("native", [0.5], 5)
+        ext = observations("superlu", [1], 10)
+        failed = [dict(native[0], level=2, status="timeout")]
+        ext_two = [dict(ext[0], level=2)]
+        result = self.analyze(native, ext, failed, ext_two)
+        self.assertEqual(len(result["best_native_by_case"]), 2)
+        self.assertEqual(result["best_native_overall"], "failed_or_unavailable")
+        self.assertIsNone(result["best_native_by_case"][1]["selected_native"])
+
+    def test_union_missing_comparator_and_unknown_memory_remain_indeterminate(self):
+        for groups, expected in ((
+                (observations("native-nd", [0.5], 5), observations("superlu", [1], 10)),
+                ["native-nd", "superlu", "mkl-pardiso"]), (
+                (observations("native-nd", [0.5], 5), observations("superlu", [1], 10),
+                 observations("umfpack", [0.8], 3)),
+                ["native-nd", "superlu", "umfpack"])):
+            with self.subTest(expected=expected):
+                result = self.analyze(*groups, backends=expected)
+                self.assertEqual(result["best_native_overall"], "indeterminate")
+                self.assertIsNone(result["best_native_by_case"][0]["selected_native"])
+
+    def test_union_excludes_reference_cuda_and_unrecognized_fallback_alias(self):
+        for backend in ("native-reference", "native-cuda", "native-external-fallback"):
+            with self.subTest(backend=backend):
+                result = self.analyze(observations(backend, [0.5], 5),
+                                      observations("native", [2], 15),
+                                      observations("superlu", [1], 10))
+                self.assertEqual(result["best_native_overall"],
+                                 "not_competitive_over_observed_ranges")
+                self.assertIsNone(result["best_native_by_case"][0]["selected_native"])
+
+    def test_union_cannot_combine_variants_on_different_axes(self):
+        result = self.analyze(observations("native", [0.5], 15),
+                              observations("native-nd", [1.5], 5),
+                              observations("superlu", [1], 10))
+        self.assertEqual(result["best_native_overall"],
+                         "not_competitive_over_observed_ranges")
+        self.assertIsNone(result["best_native_by_case"][0]["selected_native"])
 
     def test_refactor_and_derivative_objectives_include_their_work(self):
         refactor = observations("native", [5], 5, workload="refactor")[0]

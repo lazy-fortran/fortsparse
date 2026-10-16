@@ -141,6 +141,23 @@ complete admission claim. The reference path is labeled separately from the
 production path, and this performance analysis does not itself establish all
 MVP requirements.
 
+The default comparison includes `native` (public AUTO ordering) and `native-nd`
+(the same production backend with public nested-dissection ordering). Raw CSV
+retains `ordering_used`, actual thread/device counts and attributed storage.
+`admission.best_native_by_case` selects an explicitly measured CPU ordering and
+thread configuration only when one strict comparison passes on both elapsed
+time and parent peak RSS against the **same** protected external frontier
+configuration. Its companion `best_native_overall` passes only if every
+evaluated case/workload/variant group passes. Failed alternatives remain in
+the per-backend admission and raw trials; missing comparators and uncertain
+aggregate UMFPACK memory retain indeterminate status. Reference, CUDA and
+external-fallback aliases cannot supply this production CPU union.
+
+This union requires case-specific ordering and thread choices. It is not a
+universal claim about AUTO/default performance. Plots show `Native CPU (ND)`
+as a separate marker in the CPU family color, including CPU/CUDA comparisons;
+they do not silently combine ordering variants.
+
 For CPU stack profiling, replay complete solver operations for about 0.2 s:
 
 ```sh
