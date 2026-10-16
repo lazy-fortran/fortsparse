@@ -35,12 +35,14 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DMUMPS_DIR=/mnt/storage/fs1-envs/mumps-local/cmake \
   -DFORTSPARSE_BENCH_MKL_ROOT=/opt/intel/oneapi/mkl/2026.0
 cmake --build build --target bench_native_families \
-  bench_native_families_pardiso test_native_family_fixtures -j 2
+  bench_native_families_pardiso bench_native_families_umfpack \
+  test_native_family_fixtures -j 2
 ctest --test-dir build -R '^native_family_' --output-on-failure -j 2
 ```
 
 The general driver takes backend, case, level, threads, workload, operation,
-variant and mini5 matrix path. The Intel-only driver omits the backend argument:
+variant and mini5 matrix path. The Intel-only and direct UMFPACK drivers omit
+the backend argument:
 
 ```sh
 OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 build/bin/bench_native_families \
@@ -128,15 +130,15 @@ largest passing **scanned prefix**, not a claim of monotonic solver performance
 or an extrapolation beyond the first failure. Missing comparators are recorded
 separately from size/time or numerical failures.
 
-With four external backends, five thread budgets and five trials, a completely
-passing four-level scan needs at most 1700 processes across these five cases.
+With five external backends, five thread budgets and five trials, a completely
+passing four-level scan needs at most 2125 processes across these five cases.
 Each failure ends its family immediately; the process watchdog is 0.9 s.
 Native execution never participates in calibration or size selection. No
 ordinary measurements accompany this source change. Freeze the raw receipts
 and resulting selection before tuning or timing larger native cases.
 
 `--levels-from PATH` verifies the raw receipt hash, selected family/candidate,
-complete passing coverage, and the declared SuperLU/UMFPACK/MUMPS/Intel-PARDISO
+complete passing coverage, and the declared SuperLU/UMFPACK-IPC/UMFPACK-direct/MUMPS/Intel-PARDISO
 baselines at all requested 1/2/4/8/16 thread budgets and at least five trials.
 A selection from fewer declared baselines is rejected by default. Explicit
 `--diagnostic` permits an incomplete selection, labels its provenance as a
@@ -174,3 +176,28 @@ successful trial; timeout crosses denote the configured censoring deadline.
 Per-panel axes adapt to the fixture's regime. The compact CSV retains solve,
 refactor, main-workflow and subprocess timings separately, actual factor-team
 reports (unknown externally) and memory diagnostics without aggregating RSS.
+
+The default comparator set now includes both `umfpack` (the FortSparse IPC
+backend) and `umfpack-direct` (a standalone GPL general-LU executable).
+The direct target is optional when UMFPACK is found and never links FortSparse.
+It reuses these same fixtures, records, process metrics and original-CSC oracles.
+Its packed complex I4 API maps ordinary T to `UMFPACK_Aat` and adjoint H to
+`UMFPACK_At`. Symbolic analysis is retained across numerical refactorization;
+native controls/defaults are unchanged. HPD/LDLT cases are compared using
+UMFPACK's general LU, not mislabelled Cholesky/LDL execution.
+
+The standalone process has no helper or IPC: its Linux `VmHWM` is the complete
+postexec process peak, and is an available memory comparator. Vendor factor
+memory separately multiplies `UMFPACK_PEAK_MEMORY` Units by
+`UMFPACK_SIZE_OF_UNIT` bytes/Unit, then converts to decimal MB. It is not an
+exact owned-allocation count; owned fields stay unavailable. Default thread
+budgets/environment and actual loaded libraries remain in runner provenance;
+actual active UMFPACK teams are not reported. The installed library inspected
+for this addition links reference BLAS/LAPACK, so these source checks establish
+no best-tuned UMFPACK performance claim. See `umfpack_direct/README.md`.
+
+Contract schema 3 adds this fifth required external baseline. Existing receipts
+and four-comparator selections keep their original historical scope; they do
+not silently acquire the new baseline. Such selections now need explicit
+`--diagnostic` use until a complete five-comparator calibration is collected.
+No ordinary measurements or calibration were performed for this source change.

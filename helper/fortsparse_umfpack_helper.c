@@ -1,8 +1,9 @@
 /* Out-of-process UMFPACK helper (GPL). SEPARATE standalone executable.
  *
- * This is the ONLY file that includes umfpack.h and links -lumfpack. It never
- * becomes part of libfortsparse. The MIT library drives it at arm's length
- * over the shared memory and named semaphores created by the parent process
+ * This product helper and the optional standalone GPL benchmark client include
+ * umfpack.h and link UMFPACK. Neither becomes part of libfortsparse.
+ * The MIT library drives this product helper at arm's length over shared memory
+ * and named semaphores created by the parent process
  * (see include/fsparse_ipc.h, include/fsparse_proto.h). FSF treats a separate
  * process behind an IPC boundary as a GPL-compatible separation, so the GPL of
  * UMFPACK stays confined to this binary.

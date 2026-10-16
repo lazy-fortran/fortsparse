@@ -16,11 +16,11 @@ METRICS = ('n', 'nnz', 'nrhs', 'process_wall_s', 'total_s', 'factor_s', 'solve_s
            'prime_factor_s', 'active_threads',
            'native_factor_serial', 'factor_nnz', 'host_peak_bytes',
            'backward_error', 'forward_error')
-BACKENDS = ('native', 'native-amd', 'superlu', 'umfpack', 'mumps', 'intel-pardiso')
+BACKENDS = ('native', 'native-amd', 'superlu', 'umfpack', 'mumps', 'intel-pardiso', 'umfpack-direct')
 FAMILIES = ('neo2-mini5', 'drift-real', 'drift-complex', 'hpd-chain', 'ldlt-chain')
 # Okabe-Ito palette; marker shapes redundantly identify backends.
-COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00')
-MARKERS = ('o', 'v', 's', '^', 'D', 'P')
+COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9')
+MARKERS = ('o', 'v', 's', '^', 'D', 'P', 'X')
 
 
 def summarize(attempts):

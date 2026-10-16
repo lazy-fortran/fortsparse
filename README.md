@@ -106,8 +106,8 @@ Options, all set with `-D`:
 
 With `FORTSPARSE_ENABLE_UMFPACK_IPC=ON`, the UMFPACK helper builds whenever
 the SuiteSparse chain is available (fetched, or found under
-`FORTSPARSE_USE_SYSTEM_DEPS`). It is the one GPL artifact and the
-one place `umfpack.h` appears.
+`FORTSPARSE_USE_SYSTEM_DEPS`). Optional benchmark builds can also produce
+a separate GPL UMFPACK comparator; neither target links into the MIT library.
 
 A native-only CMake build needs BLAS/LAPACK and no sparse solver, helper or CAS:
 
@@ -424,9 +424,9 @@ compares the backends.
   protocol and the IPC ABI.
 - `backends/mumps/`: the optional MUMPS binding (Fortran module and MIT C
   shims for real and complex, plus a link stub for double-only MUMPS). Outside `src/` so `fpm` and `fo` never compile it.
-- `helper/`: `fortsparse_umfpack_helper.c`, the standalone GPL binary, the only
-  file that includes `umfpack.h`. It lives outside `src/` so `fpm` and `fo`
-  never compile it.
+- `helper/`: `fortsparse_umfpack_helper.c`, the standalone GPL product helper.
+  Like the optional GPL benchmark under `bench/native_families/umfpack_direct/`,
+  it lives outside `src/` and is never linked into the MIT library.
 - `test/`: CTest suite, grouped into `csc/`, `solver/`, and `ipc/`.
 - `docs/`: `design.md`, design notes plus the planned autodiff and device work.
 - `cmake/`: helper modules, `FindSuperLU.cmake`, `FindUMFPACK.cmake`.
@@ -454,3 +454,10 @@ Building the helper is the user's choice. A SuperLU-only build never produces
 it. A user who wants UMFPACK builds the helper and accepts the GPL for that one
 binary; the MIT library it talks to is unaffected. See `docs/design.md` for the
 process-boundary argument.
+
+The optional `bench_native_families_umfpack` comparator directly links UMFPACK
+in its own GPL-2.0-or-later executable. Its Fortran/C driver sources and license
+are kept under `bench/native_families/umfpack_direct/`; shared fixture and record
+sources remain MIT. It does not link FortSparse, replace the IPC backend or
+change the library's license. See that directory's README for ABI and memory
+measurement limits.

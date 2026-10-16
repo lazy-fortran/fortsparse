@@ -16,9 +16,17 @@ import time
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-EXTERNAL = ("superlu", "umfpack", "mumps", "intel-pardiso")
+EXTERNAL = ("superlu", "umfpack", "umfpack-direct", "mumps", "intel-pardiso")
 NATIVE = ("native", "native-amd")
 KEYS = ("backend", "family", "level", "threads", "workload", "variant", "operation")
+
+
+def binary_name(backend):
+    if backend == "intel-pardiso":
+        return "bench_native_families_pardiso"
+    if backend == "umfpack-direct":
+        return "bench_native_families_umfpack"
+    return "bench_native_families"
 
 
 def physical_cores():
@@ -295,8 +303,7 @@ def main():
         requested_operations=args.operations, requested_variants=args.variants,
         background_load=os.getloadavg(), binaries={})
     for backend in backends:
-        path = args.build.resolve() / "bin" / ("bench_native_families_pardiso" if
-            backend == "intel-pardiso" else "bench_native_families")
+        path = args.build.resolve() / "bin" / binary_name(backend)
         if path.exists():
             provenance["binaries"][backend] = dict(path=str(path), sha256=hashlib.sha256(
                 path.read_bytes()).hexdigest(), ldd=subprocess.run(
@@ -321,11 +328,10 @@ def main():
                 failed_candidate = False
                 for backend, nt, workload, variant, operation, trial in matched_points(
                         backends, threads, args.trials, workloads, variants, operations):
-                    binary = args.build.resolve()/"bin"/("bench_native_families_pardiso"
-                        if backend == "intel-pardiso" else "bench_native_families")
+                    binary = args.build.resolve()/"bin"/binary_name(backend)
                     command = [family, str(level), str(nt), workload, operation,
                                variant, str(ROOT/"bench/fixtures/neo2-mini5/matrix.mtx")]
-                    if backend != "intel-pardiso":
+                    if backend not in ("intel-pardiso", "umfpack-direct"):
                         command.insert(0, backend)
                     if args.dry_run:
                         print(str(binary), *command)
