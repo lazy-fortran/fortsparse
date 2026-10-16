@@ -259,6 +259,10 @@ mathematical implementations.
 - [ ] **M6.2: real unsymmetric LU.** Sparse pivoted reference, then blocked/
   supernodal production execution; scaling, threshold pivoting, normal/transpose
   solves, refinement, diagnostics, bounded growth and consumer frontier gates.
+  The KIN6D coupled gauge/voltage Jacobian exposes a practical ordering/fill
+  gap. Opt-in structural matching with matched-graph AMD and generated pivot-row
+  preferences is being implemented; original-matrix correctness, cap accounting
+  and the unchanged full consumer case must qualify before admission.
 - [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
   explicit real-pairing derivatives; retain separate complex-class evidence.
 - [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex
@@ -274,8 +278,10 @@ mathematical implementations.
   when the consumer inventory demonstrates a requirement.
   Native real CSR [ILUTP](docs/ilutp.md) with explicit fill caps, column pivots,
   bounded payload and allocation-free retained normal apply is implemented.
-  SPEC application migration, its left-preconditioned GMRES contract and
-  representative preconditioner performance admission remain pending.
+  First-party draft migrations and measured CPU/RSS changes are tracked in
+  [native consumers](docs/native-consumers.md). Unqualified scientific or runtime
+  paths remain explicit. The deferred SPEC fork checkpoint does not take current
+  priority; representative preconditioner performance admission remains pending.
 - [ ] **M6.7: GPU admission and coverage.** Profile unresolved frozen SPD cases
   to the GPU-library Pareto frontier, then add consumer-required GPU classes
   with the same correctness, derivative, memory and performance gates.
