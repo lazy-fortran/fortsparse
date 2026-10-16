@@ -70,8 +70,9 @@ def sample(args, cpus, backend, family, level, thread, workload, io_mode, orderi
         ordering = "nd"
     device = -1 if backend in ("native", "native-nd") else args.device
     repeats = args.repeats if workload == "repeated-rhs" else 1
+    binary_dir = (getattr(args, "cpu_bin_dir", None) or args.bin_dir) if device < 0 else args.bin_dir
     command = ["taskset", "--cpu-list", ",".join(map(str, cpus[:thread])),
-        str(args.bin_dir / EXECUTABLES[backend]), family, str(level), str(thread),
+        str(binary_dir / EXECUTABLES[backend]), family, str(level), str(thread),
         workload, args.variant, str(device), io_mode, ordering,
         str(args.matrix) if args.matrix else "-", str(repeats),
         str(args.permutation) if args.permutation else "-"]
@@ -136,6 +137,8 @@ def file_identity(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", type=Path, required=True)
+    parser.add_argument("--cpu-bin-dir", type=Path,
+                        help="Use a CPU-only native build for CPU comparisons")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backends", default="native-cuda,cudss,cholmod")
     parser.add_argument("--cases", default="band:1,band:2,band:3,grid2:1,grid2:2,grid2:3,grid2:7,grid3:1,grid3:2,grid3:3,grid3:7")
@@ -194,10 +197,9 @@ def main():
                                 records.append(sample(args, cpus, backend, family, level,
                                     thread, workload, io_mode, ordering, trial))
     binaries = {}
-    for name in sorted({EXECUTABLES[b] for b in backends}):
-        binary = args.bin_dir/name
+    for binary in sorted({Path(r["command"][3]) for r in records}):
         if binary.is_file():
-            binaries[name] = dict(file_identity(binary), ldd=subprocess.run(
+            binaries[str(binary)] = dict(file_identity(binary), ldd=subprocess.run(
                 ["ldd", str(binary)], text=True, capture_output=True).stdout)
     result = dict(schema="fortsparse-gpu-benchmark-v1", trials=records,
         command=sys.argv, revision=subprocess.run(["git", "rev-parse", "HEAD"],
@@ -206,6 +208,7 @@ def main():
             text=True, capture_output=True).stdout.strip()), platform=platform.platform(),
         source_files=[file_identity(Path(__file__)), file_identity(Path(__file__).parents[1]/"spd_fixtures.f90")],
         binary_provenance=binaries, build_provenance=build_provenance(args.bin_dir),
+        cpu_build_provenance=build_provenance(args.cpu_bin_dir) if args.cpu_bin_dir else None,
         physical_cpu_ids=cpus, gpu_observation=dict(before=before, after=snapshot()),
         measurement_class=args.measurement_class, resource_note=args.resource_note,
         calibration_only=args.calibration_only, corpus=cases, seed=args.seed,

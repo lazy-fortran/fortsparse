@@ -44,11 +44,19 @@ def front(rows, xname, yname):
 
 def finish(fig, path, title, note):
     fig.suptitle(title, fontsize=14)
-    wrapped = "\n".join(textwrap.fill(line, 110) for line in note.splitlines())
-    fig.text(.5, .015, wrapped, ha="center", fontsize=9)
-    fig.tight_layout(rect=(0, .18, 1, .93))
+    width = max(65, int(fig.get_figwidth() * 10))
+    wrapped = "\n".join(textwrap.fill(line, width) for line in note.splitlines())
+    bottom = max(.18, (12 * len(wrapped.splitlines()) + 18) / (72 * fig.get_figheight()))
+    fig.text(.5, .015, wrapped, ha="center", va="bottom", fontsize=9)
+    fig.tight_layout(rect=(0, bottom, 1, .93))
     fig.savefig(path, dpi=180)
     plt.close(fig)
+
+
+def completion_note(rows):
+    failed = [f"{STYLES[r['requested_backend']][2]} ({r['threads']} cores): "
+              f"{r['successes']}/{r['samples']} passed" for r in rows if not r['complete']]
+    return "Incomplete configurations: " + "; ".join(failed) if failed else "All configurations completed."
 
 
 def pareto(rows, path, title, note):
@@ -118,17 +126,26 @@ def scaling(rows, path, title, note):
 
 
 def cpu_gpu(rows, path, title, note):
-    rows = [r for r in rows if r["threads"] == 1 and r["complete"] and metric(r, "primary_phase_s")]
+    rows = [r for r in rows if r["threads"] == 1]
     fig, ax = plt.subplots(figsize=(9, 5))
+    labels = []
     for i, row in enumerate(sorted(rows, key=lambda r: r["requested_backend"])):
         color, marker, label, _ = STYLES[row["requested_backend"]]
         value = metric(row, "primary_phase_s", 1000)
         if row["pool_budget_bytes"] > 0:
             label += f"\n{row['pool_budget_bytes'] / 2**20:g} MiB pool"
-        ax.errorbar(value[1], i, xerr=[[value[1] - value[0]], [value[2] - value[1]]],
-                    marker=marker, color=color, markersize=9, capsize=3)
-        ax.text(value[2] * 1.04, i, f"{value[1]:.2f}", va="center", fontsize=9)
-        ax.set_yticks(list(range(i + 1)), [t.get_text() for t in ax.get_yticklabels()][:i] + [label])
+        if not row['complete']:
+            label += f"\n{row['successes']}/{row['samples']} passed"
+        if value:
+            ax.errorbar(value[1], i, xerr=[[value[1] - value[0]], [value[2] - value[1]]],
+                        marker=marker, color=color, markersize=9, capsize=3,
+                        markerfacecolor=color if row['complete'] else 'white')
+            ax.text(value[2] * 1.04, i, f"{value[1]:.2f}", va="center", fontsize=9)
+        else:
+            ax.text(.02, i, "No successful timing", transform=ax.get_yaxis_transform(),
+                    va="center", color=color, fontsize=9)
+        labels.append(label)
+    ax.set_yticks(range(len(labels)), labels)
     ax.set(xlabel="Host input to host solution: matched phase wall time (ms)", xscale="log")
     ax.grid(axis="x", alpha=.2)
     ax.margins(x=.2)
@@ -155,6 +172,7 @@ def main():
     counts = "/".join(str(n) for n in sorted({r["samples"] for r in rows}))
     note = (f"{document.get('measurement_class', 'unknown')} • {counts} trials/configuration • "
             "FP64, backward error ≤ 1e-12\n" + document.get("resource_note", "Resource control unknown"))
+    note += "\n" + completion_note(rows)
     for name, render in (("pareto", pareto), ("scaling", scaling), ("cpu-gpu", cpu_gpu)):
         render(rows, args.output_dir / f"{name}-{family}-{level}-{args.workload}.png", title, note)
     (args.output_dir / "manifest.json").write_text(json.dumps(dict(
