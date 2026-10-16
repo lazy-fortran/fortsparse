@@ -27,7 +27,7 @@ int64_t fsbench_gpu_process_memory(int device) {
             if (processes(handle, &count, records) == NVML_SUCCESS)
                 for (unsigned i = 0; i < count; ++i)
                     if (records[i].pid == (unsigned)getpid() &&
-                        records[i].usedGpuMemory != NVML_VALUE_NOT_AVAILABLE)
+                        records[i].usedGpuMemory != (unsigned long long)NVML_VALUE_NOT_AVAILABLE)
                         bytes = (int64_t)records[i].usedGpuMemory;
         }
         finish();
