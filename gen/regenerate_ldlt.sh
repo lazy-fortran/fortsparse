@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+fortsym_source=${1:?Usage: regenerate_ldlt.sh FORTSYM_SOURCE [GEN_BUILD [FORTSYM_BUILD]]}
+generator_build=${2:-build/ldlt-codegen}
+fortsym_build=${3:-"$fortsym_source/build"}
+expected_revision=cf7efc3864f6de26024c940bcf2ec96b3698b7af
+test "$(git -C "$fortsym_source" rev-parse HEAD)" = "$expected_revision"
+mkdir -p "$generator_build" src/generated
+"${FC:-gfortran}" -I "$fortsym_build/include" gen/gen_ldlt.f90 \
+    -L "$fortsym_build/lib" -Wl,-rpath,"$fortsym_build/lib" -lfortsym \
+    -o "$generator_build/gen_ldlt"
+"$generator_build/gen_ldlt"
