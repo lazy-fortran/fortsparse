@@ -5,7 +5,7 @@ program native_gpu_comparison
         FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
     use spd_fixtures, only: fixture_t, make_fixture, fixture_spd_update, &
         fixture_known_rhs, backward_error, wall_time
-    use, intrinsic :: iso_c_binding, only: c_double
+    use, intrinsic :: iso_c_binding, only: c_double, c_int, c_int64_t
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
     interface
@@ -14,6 +14,11 @@ program native_gpu_comparison
             import :: c_double
             real(c_double), intent(out) :: rss, child_rss, child_cpu
         end subroutine
+        integer(c_int64_t) function device_memory(device) &
+                bind(C, name='fsbench_gpu_process_memory')
+            import :: c_int, c_int64_t
+            integer(c_int), value :: device
+        end function
     end interface
     type(fixture_t) :: fixture, changed
     type(csc_t) :: a
@@ -25,14 +30,20 @@ program native_gpu_comparison
     character(1024) :: matrix_path
     integer :: level, threads, device, nrhs, repeats, j, repetition, n, nnz
     integer :: offload, device_unknown
+    integer :: sample_count
+    integer(c_int64_t) :: sampled_device_bytes, sample_bytes
     real(dp), allocatable :: rhs(:, :), reference(:, :), x(:, :)
     real(dp) :: total_start, cpu_start, start, factor_s, cold_factor_s, solve_s
     real(dp) :: refactor_s, total_s, cpu_s, cleanup_s, error, known_error
     real(dp) :: rss, child_rss, child_cpu, conversion_s, h2d_s, d2h_s
+    real(dp) :: sampling_s
     logical :: reused
 
     total_start = wall_time()
     call cpu_time(cpu_start)
+    sampled_device_bytes = -1_c_int64_t
+    sample_count = 0
+    sampling_s = 0.0_dp
     call get_command_argument(1, family)
     call get_command_argument(2, argument)
     read (argument, *) level
@@ -98,8 +109,9 @@ program native_gpu_comparison
     call fixture_known_rhs(fixture, nrhs, 1, rhs, reference)
     start = wall_time()
     call sparse_factor(solver, a, status)
-    cold_factor_s = wall_time() - start
+    cold_factor_s = wall_time() - start + conversion_s
     call require_ok('factor')
+    call sample_device()
     factor_s = cold_factor_s
     if (workload == 'warm') then
         call sparse_free(solver)
@@ -107,17 +119,19 @@ program native_gpu_comparison
         call sparse_factor(solver, a, status)
         factor_s = wall_time() - start
         call require_ok('warm factor')
+        call sample_device()
     end if
     refactor_s = -1.0_dp
     if (workload == 'refactor') then
         call fixture_spd_update(fixture, changed)
         call move_alloc(changed%val, fixture%val)
-        a%val = fixture%val
         call fixture_known_rhs(fixture, nrhs, 1, rhs, reference)
         start = wall_time()
+        a%val = fixture%val
         call sparse_refactor(solver, a, status, reused)
         refactor_s = wall_time() - start
         call require_ok('refactor')
+        call sample_device()
         if (.not. reused) error stop 'native symbolic reuse failed'
     end if
     solve_s = 0.0_dp
@@ -128,6 +142,7 @@ program native_gpu_comparison
         call sparse_solve_block(solver, rhs, x, status)
         solve_s = solve_s + wall_time() - start
         call require_ok('solve')
+        call sample_device()
         do j = 1, nrhs
             error = max(error, backward_error(fixture, x(:, j), rhs(:, j)))
             known_error = maxval(abs(x(:, j) - reference(:, j))) / &
@@ -174,17 +189,31 @@ program native_gpu_comparison
         'device_process_sampled_max_bytes,device_total_peak_bytes,'// &
         'pinned_host_bytes,factor_nnz,requested_threads,active_threads,'// &
         'ordering_hash,solver_version,execution_mode,gpu_kernel_calls,'// &
-        'gpu_offload_verified'
+        'gpu_offload_verified,device_process_sample_count,memory_sampling_s'
     write (*, '(*(g0,:,","))') trim(backend), trim(family), level, n, nnz, &
         threads, nrhs, trim(workload), trim(variant), stats%active_device, &
         trim(io_mode), trim(ordering), repeats, 0, error, factor_s, cold_factor_s, &
         stats%analysis_s, stats%factor_s, refactor_s, solve_s, total_s, cpu_s, &
         rss, child_rss, child_cpu, -1.0_dp, conversion_s, h2d_s, d2h_s, &
         -1.0_dp, cleanup_s, device_unknown, device_unknown, device_unknown, &
-        stats%device_bytes, device_unknown, device_unknown, device_unknown, &
+        stats%device_bytes, sampled_device_bytes, device_unknown, device_unknown, &
         stats%factor_nnz, threads, stats%active_threads, '-1', 'fortsparse-native', &
-        trim(execution_mode), -1, offload
+        trim(execution_mode), -1, offload, sample_count, sampling_s
 contains
+    subroutine sample_device()
+        real(dp) :: sample_start
+        if (device < 0) then
+            sampled_device_bytes = 0_c_int64_t
+            return
+        end if
+        sample_start = wall_time()
+        sample_bytes = device_memory(int(device, c_int))
+        sampling_s = sampling_s + wall_time() - sample_start
+        if (sample_bytes < 0) return
+        sampled_device_bytes = max(sampled_device_bytes, sample_bytes)
+        sample_count = sample_count + 1
+    end subroutine
+
     subroutine require_ok(phase)
         character(*), intent(in) :: phase
         if (status_ok(status)) return
