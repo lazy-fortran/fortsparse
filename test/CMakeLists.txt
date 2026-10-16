@@ -18,6 +18,8 @@ fortsparse_add_native_symbolic_test(fortsparse)
 fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
+fortsparse_add_test(test_fortsparse_memory solver/test_fortsparse_memory.f90)
+set_tests_properties(test_fortsparse_memory PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_spd_leaves
     solver/test_fortsparse_spd_leaves.f90)
 fortsparse_add_test(test_fortsparse_native
