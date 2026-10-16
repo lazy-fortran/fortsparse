@@ -973,7 +973,9 @@ contains
         if (associated(self%user_vector)) vector_bytes = 8_i8*size(self%user_vector,kind=i8)
         self%stats%host_current_bytes = self%real_factor%memory_bytes() &
             +self%complex_factor%memory_bytes()+self%hpd_factor%memory_current_bytes() &
-            +self%ldlt_factor%retained_bytes()+self%complex_ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)+matching_bytes(self)
+            +self%ldlt_factor%retained_bytes() &
+            +self%complex_ldlt_factor%retained_bytes()+vector_bytes &
+            +original_bytes(self)+matching_bytes(self)
         if (.not.self%bounded_amd .or. self%factor_invoked) then
             self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
                 self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
