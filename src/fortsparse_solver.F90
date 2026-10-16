@@ -277,7 +277,7 @@ contains
         end if
         if (solver%options%symmetry /= FORTSPARSE_SYM_SPD .or. &
             solver%options%ordering /= FORTSPARSE_ORDER_DEFAULT .or. &
-            solver%options%device /= -1) then
+            solver%options%structural_matching .or. solver%options%device /= -1) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'memory analysis: require natural-order CPU SPD layout')
             return
@@ -910,6 +910,17 @@ contains
         id = solver%backend_id
         if (id == FORTSPARSE_BACKEND_AUTO) id = sparse_auto_backend(nnz, &
             is_complex)
+        if (solver%options%structural_matching) then
+            if ((id /= FORTSPARSE_BACKEND_NATIVE .and. &
+                 id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) .or. &
+                solver%options%symmetry /= FORTSPARSE_SYM_GENERAL .or. &
+                solver%options%device /= -1) then
+                solver%factored = .false.
+                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'structural matching requires native CPU GENERAL factorization')
+                return
+            end if
+        end if
         if (id /= FORTSPARSE_BACKEND_NATIVE .and. &
             id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) then
             if (solver%options%host_memory_limit_bytes > 0_i8 .or. &

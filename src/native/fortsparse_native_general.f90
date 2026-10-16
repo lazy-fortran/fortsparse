@@ -21,10 +21,12 @@ module fortsparse_native_general
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_RESOURCE_LIMIT, &
         FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR, FORTSPARSE_INDEX_OVERFLOW
     use fortsparse_native_amd, only: bounded_amd_available, bounded_amd_size, bounded_amd_order
+    use fortsparse_native_matching, only: structural_row_matching, matching_graph_rows
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
     public :: native_general_backend_t
+    integer(i8), parameter :: matching_integer_bytes=int(storage_size(0)/8,i8)
     interface
         integer(c_int) function order_amd_general(n,nnz,ptr,row,perm,inverse) &
             bind(C,name='fsparse_native_order_amd_general')
@@ -42,6 +44,9 @@ module fortsparse_native_general
         logical :: same_ordering_strategy = .false.
         logical :: bounded_amd = .false., factor_invoked = .false.
         integer(i8) :: refinement_quota = 0_i8
+        logical :: previous_matching = .false.
+        integer, allocatable :: matching_preference(:), matching_inverse(:)
+        integer, allocatable :: matching_work(:), matching_rows(:)
         type(native_hpd_t) :: hpd_factor
         type(native_ldlt_t) :: ldlt_factor
         type(native_ldlt_z_t) :: complex_ldlt_factor
@@ -199,6 +204,101 @@ contains
         self%stats%analysis_s=seconds()-started
     end subroutine column_order
 
+    subroutine general_order(self,n,ptr,rows,is_complex,order,cap,status,values,zvalues)
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        logical, intent(in) :: is_complex
+        integer, allocatable, intent(out) :: order(:)
+        integer(i8), intent(inout) :: cap
+        type(fortsparse_status_t), intent(out) :: status
+        real(dp), optional, intent(in) :: values(:)
+        complex(dp), optional, intent(in) :: zvalues(:)
+        integer(i8) :: entries,bytes,preference_bytes
+        integer :: ierr
+        real(dp) :: started
+        if(.not.self%options%structural_matching) then
+            call column_order(self,n,ptr,rows,is_complex,order,cap,status)
+            return
+        end if
+        started=seconds()
+        call status_set(status,FORTSPARSE_INVALID_MATRIX,'matching: dimension exceeds workspace range')
+        if(n<0.or.n>huge(0)/7) return
+        entries=7_i8*int(n,i8)
+        if(self%options%ordering==FORTSPARSE_ORDER_AMD) entries=entries+size(rows,kind=i8)
+        bytes=0_i8
+        call memory_checked_mul(matching_integer_bytes,entries,bytes,status)
+        if(.not.status_ok(status)) return
+        call admit_order(self,bytes,status)
+        if(.not.status_ok(status)) goto 900
+        allocate(self%matching_preference(n),self%matching_inverse(n), &
+            self%matching_work(5*n),stat=ierr)
+        if(ierr/=0) then
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'matching workspace allocation failed')
+            goto 900
+        end if
+        call record_order_peak(self,0_i8)
+        if(is_complex) then
+            call structural_row_matching(n,ptr,rows,zvalues,self%matching_preference, &
+                self%matching_inverse,self%matching_work,status)
+        else
+            call structural_row_matching(n,ptr,rows,values,self%matching_preference, &
+                self%matching_inverse,self%matching_work,status)
+        end if
+        if(.not.status_ok(status)) goto 900
+        if(self%options%ordering==FORTSPARSE_ORDER_AMD) then
+            allocate(self%matching_rows(size(rows)),stat=ierr)
+            if(ierr/=0) then
+                call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'matching graph allocation failed')
+                goto 900
+            end if
+            call record_order_peak(self,0_i8)
+            call matching_graph_rows(ptr,rows,self%matching_inverse,self%matching_rows)
+            call column_order(self,n,ptr,self%matching_rows,is_complex,order,cap,status)
+        else
+            call column_order(self,n,ptr,rows,is_complex,order,cap,status)
+        end if
+900     continue
+        call record_order_peak(self,0_i8)
+        if(allocated(self%matching_inverse)) deallocate(self%matching_inverse)
+        if(allocated(self%matching_work)) deallocate(self%matching_work)
+        if(allocated(self%matching_rows)) deallocate(self%matching_rows)
+        if(status_ok(status)) then
+            preference_bytes=matching_integer_bytes*int(n,i8)
+            if(cap>0_i8) then
+                if(cap<=preference_bytes) then
+                    self%failed_required=preference_bytes+1_i8
+                    self%failed_available=cap
+                    call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'matching preference leaves no factor budget')
+                else
+                    cap=cap-preference_bytes
+                end if
+            end if
+            if(status_ok(status)) self%factor_external_live=self%factor_external_live+preference_bytes
+        end if
+        if(.not.status_ok(status)) then
+            call release_matching(self)
+            call update_stats(self)
+        end if
+        self%stats%analysis_s=seconds()-started
+    end subroutine general_order
+
+    integer(i8) function matching_bytes(self) result(bytes)
+        class(native_general_backend_t), intent(in) :: self
+        bytes=0_i8
+        if(allocated(self%matching_preference)) bytes=bytes+matching_integer_bytes*size(self%matching_preference,kind=i8)
+        if(allocated(self%matching_inverse)) bytes=bytes+matching_integer_bytes*size(self%matching_inverse,kind=i8)
+        if(allocated(self%matching_work)) bytes=bytes+matching_integer_bytes*size(self%matching_work,kind=i8)
+        if(allocated(self%matching_rows)) bytes=bytes+matching_integer_bytes*size(self%matching_rows,kind=i8)
+    end function matching_bytes
+
+    subroutine release_matching(self)
+        class(native_general_backend_t), intent(inout) :: self
+        if(allocated(self%matching_preference)) deallocate(self%matching_preference)
+        if(allocated(self%matching_inverse)) deallocate(self%matching_inverse)
+        if(allocated(self%matching_work)) deallocate(self%matching_work)
+        if(allocated(self%matching_rows)) deallocate(self%matching_rows)
+    end subroutine release_matching
+
     subroutine admit_order(self,bytes,status)
         class(native_general_backend_t), intent(inout) :: self
         integer(i8), intent(in) :: bytes
@@ -215,7 +315,7 @@ contains
             if (total>self%options%host_memory_limit_bytes) then
                 self%failed_required=bytes
                 self%failed_available=max(0_i8,self%options%host_memory_limit_bytes-base)
-                call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'native LU: bounded AMD ordering exceeds host cap')
+                call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'native LU: ordering/matching workspace exceeds host cap')
             end if
         end if
     end subroutine admit_order
@@ -234,6 +334,7 @@ contains
         integer(i8), intent(out) :: cap
         type(fortsparse_status_t), intent(out) :: status
         self%ready = .false.
+        call release_matching(self)
         self%converted_raw = .false.
         self%same_ordering_strategy = self%selected_order == self%options%ordering
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
@@ -275,6 +376,9 @@ contains
                 self%same_ordering_strategy=self%retained_order==self%options%ordering
             end if
         end if
+        if(self%options%structural_matching.or.self%previous_matching) self%same_ordering_strategy=.false.
+        self%previous_matching=self%options%structural_matching
+        if(self%options%structural_matching.and.self%options%symmetry/=FORTSPARSE_SYM_GENERAL) return
         if (cap > 0_i8 .and. associated(self%user_vector)) then
             cap = cap-8_i8*size(self%user_vector,kind=i8)
             if (cap <= 0_i8) then
@@ -345,18 +449,19 @@ contains
         call self%ldlt_factor%free()
         call reserve_original(self,A%ncol,A%nnz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,A%ncol,A%col_ptr,A%row_idx,.false., &
-            order,cap,status)
+        call general_order(self,A%ncol,A%col_ptr,A%row_idx,.false., &
+            order,cap,status, values=A%val)
         if (.not.status_ok(status)) return
         started = seconds()
         self%factor_invoked=.true.
         self%retained_order=-1
         call self%real_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
-            pruning=.not.self%reference_only, &
+            pruning=.not.self%reference_only, row_preference=self%matching_preference, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
+        call release_matching(self)
         self%ready = status_ok(status)
         if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_real(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
@@ -476,17 +581,18 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.false.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,ncol,col_ptr,row_idx,.false.,order,cap,status)
+        call general_order(self,ncol,col_ptr,row_idx,.false.,order,cap,status, values=val)
         if (.not.status_ok(status)) return
         started = seconds()
         self%factor_invoked=.true.
         self%retained_order=-1
         call self%real_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
-            pruning=.not.self%reference_only, &
+            pruning=.not.self%reference_only, row_preference=self%matching_preference, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
+        call release_matching(self)
         self%ready = status_ok(status)
         if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_real(self,ncol,col_ptr,row_idx,val,refine,status)
@@ -662,18 +768,19 @@ contains
         call self%ldlt_factor%free()
         call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,A%ncol,A%col_ptr,A%row_idx,.true., &
-            order,cap,status)
+        call general_order(self,A%ncol,A%col_ptr,A%row_idx,.true., &
+            order,cap,status, zvalues=A%val)
         if (.not.status_ok(status)) return
         started = seconds()
         self%factor_invoked=.true.
         self%retained_order=-1
         call self%complex_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
-            pruning=.not.self%reference_only, &
+            pruning=.not.self%reference_only, row_preference=self%matching_preference, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
+        call release_matching(self)
         self%ready = status_ok(status)
         if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
@@ -727,17 +834,18 @@ contains
         started = seconds()
         call reserve_original(self,ncol,nz,refine,.true.,cap,status)
         if (.not.status_ok(status)) return
-        call column_order(self,ncol,col_ptr,row_idx,.true.,order,cap,status)
+        call general_order(self,ncol,col_ptr,row_idx,.true.,order,cap,status, zvalues=val)
         if (.not.status_ok(status)) return
         started = seconds()
         self%factor_invoked=.true.
         self%retained_order=-1
         call self%complex_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
-            pruning=.not.self%reference_only, &
+            pruning=.not.self%reference_only, row_preference=self%matching_preference, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
+        call release_matching(self)
         self%ready = status_ok(status)
         if (self%ready) self%retained_order=self%selected_order
         if (self%ready) call retain_complex(self,ncol,col_ptr,row_idx,val,refine,status)
@@ -865,7 +973,7 @@ contains
         if (associated(self%user_vector)) vector_bytes = 8_i8*size(self%user_vector,kind=i8)
         self%stats%host_current_bytes = self%real_factor%memory_bytes() &
             +self%complex_factor%memory_bytes()+self%hpd_factor%memory_current_bytes() &
-            +self%ldlt_factor%retained_bytes()+self%complex_ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)
+            +self%ldlt_factor%retained_bytes()+self%complex_ldlt_factor%retained_bytes()+vector_bytes+original_bytes(self)+matching_bytes(self)
         if (.not.self%bounded_amd .or. self%factor_invoked) then
             self%stats%host_peak_bytes = max(self%stats%host_peak_bytes, &
                 self%real_factor%peak_memory_bytes+self%complex_factor%peak_memory_bytes &
@@ -944,7 +1052,7 @@ contains
         class(native_general_backend_t), intent(in) :: self
         bytes=self%real_factor%memory_bytes()+self%complex_factor%memory_bytes() &
             +self%hpd_factor%memory_current_bytes()+self%ldlt_factor%retained_bytes() &
-            +self%complex_ldlt_factor%retained_bytes()+original_bytes(self)
+            +self%complex_ldlt_factor%retained_bytes()+original_bytes(self)+matching_bytes(self)
         if (associated(self%user_vector)) bytes=bytes+8_i8*size(self%user_vector,kind=i8)
     end function current_bytes
 
@@ -1206,6 +1314,8 @@ contains
         call self%ldlt_factor%free()
         call self%complex_ldlt_factor%free()
         self%n = 0
+        call release_matching(self)
+        self%previous_matching=.false.
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
         self%same_ordering_strategy = .false.
         call release_original(self)
