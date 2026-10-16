@@ -4,18 +4,26 @@ module @MODULE@
     use fortsparse_csc, only: @CSC@, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_SINGULAR, FORTSPARSE_NOT_FACTORED, &
-        FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_INDEX_OVERFLOW
+        FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_INDEX_OVERFLOW, &
+        FORTSPARSE_BACKEND_UNAVAILABLE
     use @LEAVES@, only: divide_value => @DIVIDE@, &
         scatter_update => @SCATTER@, gather_update => @GATHER@
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     @EXTRA_USE@
+@REAL_PANEL_BEGIN@
+    use fortsparse_memory, only: memory_checked_add, memory_checked_mul
+    use fortsparse_spd_leaves, only: spd_panel_scatter
+@REAL_PANEL_END@
     implicit none
     private
     public :: lu_prune_column
+@REAL_PANEL_BEGIN@
+    public :: lu_panel_prefix
+@REAL_PANEL_END@
     integer, parameter, public :: LU_NORMAL=0, LU_TRANSPOSE=1, LU_ADJOINT=2
     integer(i8), parameter :: ib=int(storage_size(0)/8,i8), vb=@VALUE_BYTES@_i8
     type, public :: @TYPE@
-        integer :: n=0
+        integer :: n=0, panel_width=1
         integer(i8) :: factor_nnz=0_i8, peak_memory_bytes=0_i8
         integer(i8) :: failed_required_bytes=0_i8, failed_available_bytes=0_i8
         logical :: last_reused_pattern=.false.
@@ -27,6 +35,10 @@ module @MODULE@
         integer, allocatable, private :: prune_end(:)
         @SCALAR@, allocatable, private :: lv(:), uv(:), work(:), correction(:)
         real(dp), allocatable, private :: row_norm(:)
+@REAL_PANEL_BEGIN@
+        real(dp), allocatable, private :: panel(:,:), panel_coefficient(:)
+        integer, allocatable, private :: panel_mask(:)
+@REAL_PANEL_END@
     contains
         procedure :: factor, factor_raw
         procedure, private :: solve_vector, solve_block
@@ -60,7 +72,7 @@ contains
     end subroutine copy_column_order
 
     subroutine factor(self,a,status,column_permutation,pivot_threshold, &
-        memory_limit_bytes,low_memory,pruning,row_preference)
+        memory_limit_bytes,low_memory,pruning,row_preference,panel_width)
         class(@TYPE@), intent(inout) :: self
         type(@CSC@), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
@@ -68,7 +80,7 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
-        integer, intent(in), optional :: row_preference(:)
+        integer, intent(in), optional :: row_preference(:), panel_width
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -80,14 +92,14 @@ contains
             return
         end if
         call self%factor_raw(a%ncol,a%col_ptr,a%row_idx,a%val,status, &
-            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
+            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference,panel_width)
     end subroutine factor
 
     ! Threshold partial row pivoting of D*A(:,q). Sparse triangular reach is
     ! Gilbert--Peierls style; no numerical or symbolic dense n-by-n storage.
     ! Caller input is borrowed, never copied into another CSC container.
     subroutine factor_raw(self,n,col_ptr,row_idx,values,status, &
-        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
+        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference,panel_width)
         class(@TYPE@), intent(inout) :: self
         integer, intent(in) :: n,col_ptr(:),row_idx(:)
         @SCALAR@, intent(in) :: values(:)
@@ -96,8 +108,11 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
-        integer, intent(in), optional :: row_preference(:)
-        integer :: j,i,k,t,e,row,col,pivot,count,lc,uc,ierr
+        integer, intent(in), optional :: row_preference(:), panel_width
+        integer :: j,i,k,t,e,row,col,pivot,count,lc,uc,ierr,width
+@REAL_PANEL_BEGIN@
+        integer :: panel_first, panel_last, lanes, lane, active
+@REAL_PANEL_END@
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
         @SCALAR@ :: value,diagonal
@@ -109,6 +124,26 @@ contains
         self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%peak_memory_bytes=self%memory_bytes()
+        width=1
+        if (present(panel_width)) width=panel_width
+        if (width/=1 .and. width/=8) then
+            call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU panel width must be 1 or 8')
+            return
+        end if
+        if (width==8) then
+            if (@COMPLEX@) then
+                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'LU target panels currently support real arithmetic only')
+                return
+            end if
+            if (present(low_memory)) then
+                if (low_memory) then
+                    call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                        'LU target panels do not support LOW_MEMORY')
+                    return
+                end if
+            end if
+        end if
         threshold=1.0_dp
         if (present(pivot_threshold)) threshold=pivot_threshold
         cap=0_i8
@@ -186,6 +221,14 @@ contains
         self%low=.false.
         if (present(low_memory)) self%low=low_memory
         self%peak_memory_bytes=self%memory_bytes()
+        self%panel_width=width
+@REAL_PANEL_BEGIN@
+        if (width==1) then
+            if (allocated(self%panel)) deallocate(self%panel)
+            if (allocated(self%panel_coefficient)) deallocate(self%panel_coefficient)
+            if (allocated(self%panel_mask)) deallocate(self%panel_mask)
+        end if
+@REAL_PANEL_END@
         self%pruned=.false.
         if(.not.use_pruning) then
             if(allocated(self%prune_end)) deallocate(self%prune_end)
@@ -236,6 +279,12 @@ contains
         self%peak_memory_bytes=max(self%peak_memory_bytes,self%memory_bytes())
         self%ap=col_ptr
         self%ai=row_idx
+@REAL_PANEL_BEGIN@
+        if (width==8) then
+            call panel_storage(self,status)
+            if (status%code/=FORTSPARSE_OK) return
+        end if
+@REAL_PANEL_END@
         self%last_reused_pattern=same
         self%pinv=0
         self%mark=0
@@ -300,11 +349,66 @@ contains
         self%pinv=0
         self%mark=0
         factor_columns: do j=1,n
+@REAL_PANEL_BEGIN@
+            if (width==8) then
+                if (mod(j-1,8)==0) then
+                    panel_first=j
+                    panel_last=j+min(8,n-j+1)-1
+                    lanes=panel_last-panel_first+1
+                    count=0
+                    do lane=1,lanes
+                        col=self%q(panel_first+lane-1)
+                        do e=col_ptr(col),col_ptr(col+1)-1
+                            call visit(self,row_idx(e),j,count)
+                        end do
+                    end do
+                    do t=1,count
+                        row=self%reach(t)
+                        self%panel(:,row)=0.0_dp
+                        self%panel_mask(row)=0
+                    end do
+                    do lane=1,lanes
+                        col=self%q(panel_first+lane-1)
+                        do e=col_ptr(col),col_ptr(col+1)-1
+                            row=row_idx(e)
+                            value=divide_value(values(e),self%row_norm(row))
+                            if (.not.ieee_is_finite(value) .or. &
+                                (value==0.0_dp .and. values(e)/=0.0_dp)) then
+                                call status_set(status,FORTSPARSE_SINGULAR, &
+                                    'LU row scaling exceeds numerical range')
+                                return
+                            end if
+                            self%panel(lane,row)=value
+                            self%panel_mask(row)=ibset(self%panel_mask(row),lane-1)
+                        end do
+                    end do
+                    ! Empty L need not be allocated (diagonal / singleton input).
+                    if (self%ln>0) then
+                        call lu_panel_prefix(self%panel,self%panel_mask, &
+                            self%panel_coefficient,lanes,self%reach,count, &
+                            self%pinv,self%lp,self%lr,self%lv)
+                    end if
+                    ! Union used generation j, also the first ordinary visit.
+                    do t=1,count
+                        self%mark(self%reach(t))=0
+                    end do
+                end if
+            end if
+@REAL_PANEL_END@
             col=self%q(j)
             count=0
             do e=col_ptr(col),col_ptr(col+1)-1
                 call visit(self,row_idx(e),j,count)
             end do
+@REAL_PANEL_BEGIN@
+            if (width==8) then
+                lane=j-panel_first+1
+                do t=1,count
+                    row=self%reach(t)
+                    self%work(row)=self%panel(lane,row)
+                end do
+            else
+@REAL_PANEL_END@
             do e=col_ptr(col),col_ptr(col+1)-1
                 row=row_idx(e)
                 value=divide_value(values(e),scalar_from_real(self%row_norm(row)))
@@ -326,6 +430,9 @@ contains
                         self%lp(k+1)-e,value)
                 end if
             end do
+@REAL_PANEL_BEGIN@
+            end if
+@REAL_PANEL_END@
             best=0
             pivot=0
             lc=0
@@ -420,6 +527,23 @@ contains
                     end do
                 end if
             end if
+@REAL_PANEL_BEGIN@
+            if (width==8) then
+                if (j<panel_last) then
+                    active=0
+                    do lane=1,lanes
+                        if (lane>j-panel_first+1) active=ibset(active,lane-1)
+                        self%panel_coefficient(lane)=self%panel(lane,pivot)
+                    end do
+                    e=self%lp(j)
+                    if (self%lp(j+1)>e) then
+                        call spd_panel_scatter(self%panel,self%panel_mask, &
+                            self%lr(e:),self%lv(e:),self%lp(j+1)-e, &
+                            self%panel_coefficient,lanes,active)
+                    end if
+                end if
+            end if
+@REAL_PANEL_END@
         end do factor_columns
         if(status%code==FORTSPARSE_OK) exit factor_attempt
         attempt_slack=.false.
@@ -445,6 +569,87 @@ contains
         self%ready=.true.
         call status_set(status,FORTSPARSE_OK,'')
     end subroutine factor_raw
+
+@REAL_PANEL_BEGIN@
+    subroutine lu_panel_prefix(panel,masks,coefficient,lanes,reach,count, &
+            pinv,lp,rows,values)
+        real(dp), intent(inout) :: panel(8,*), coefficient(8)
+        integer, intent(inout) :: masks(*)
+        integer, intent(in) :: lanes, reach(*), count, pinv(*), lp(*), rows(*)
+        real(dp), intent(in) :: values(*)
+        integer :: t,row,k,first,active,lane
+        do t=count,1,-1
+            row=reach(t)
+            k=pinv(row)
+            if (k==0) cycle
+            active=masks(row)
+            do lane=1,lanes
+                coefficient(lane)=panel(lane,row)
+            end do
+            first=lp(k)
+            if (lp(k+1)>first) then
+                call spd_panel_scatter(panel,masks,rows(first:lp(k+1)-1),values(first:lp(k+1)-1), &
+                    lp(k+1)-first,coefficient,lanes,active)
+            end if
+        end do
+    end subroutine lu_panel_prefix
+
+    subroutine panel_storage(self,status)
+        class(@TYPE@), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        integer(i8) :: extra,part,total
+        integer :: ierr
+        extra=0_i8
+        part=0_i8
+        total=0_i8
+        if (.not.allocated(self%panel)) then
+            call memory_checked_mul(64_i8,int(self%n,i8),part,status)
+            if (status%code/=FORTSPARSE_OK) goto 90
+            call memory_checked_add(extra,part,total,status)
+            if (status%code/=FORTSPARSE_OK) goto 90
+            extra=total
+        end if
+        if (.not.allocated(self%panel_mask)) then
+            call memory_checked_mul(ib,int(self%n,i8),part,status)
+            if (status%code/=FORTSPARSE_OK) goto 90
+            call memory_checked_add(extra,part,total,status)
+            if (status%code/=FORTSPARSE_OK) goto 90
+            extra=total
+        end if
+        if (.not.allocated(self%panel_coefficient)) then
+            call memory_checked_add(extra,64_i8,total,status)
+            if (status%code/=FORTSPARSE_OK) goto 90
+            extra=total
+        end if
+        call memory_checked_add(self%memory_bytes(),extra,total,status)
+        if (status%code/=FORTSPARSE_OK) goto 90
+        if (self%limit>0_i8) then
+            if (total>self%limit) then
+                self%failed_required_bytes=extra
+                self%failed_available_bytes=max(0_i8,self%limit-self%memory_bytes())
+                call status_set(status,FORTSPARSE_RESOURCE_LIMIT, &
+                    'LU target-panel workspace exceeds cap including reuse')
+                return
+            end if
+        end if
+        ! Allocations are setup-only and checked against the whole simultaneous
+        ! payload first. Partial failures remain owned and exactly observable.
+        ierr=0
+        if (.not.allocated(self%panel)) allocate(self%panel(8,self%n),stat=ierr)
+        if (ierr/=0) goto 80
+        if (.not.allocated(self%panel_mask)) allocate(self%panel_mask(self%n),stat=ierr)
+        if (ierr/=0) goto 80
+        if (.not.allocated(self%panel_coefficient)) allocate(self%panel_coefficient(8),stat=ierr)
+        if (ierr/=0) goto 80
+        self%peak_memory_bytes=max(self%peak_memory_bytes,self%memory_bytes())
+        call status_set(status,FORTSPARSE_OK,'')
+        return
+80      self%peak_memory_bytes=max(self%peak_memory_bytes,self%memory_bytes())
+        call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'LU target-panel allocation failed')
+        return
+90      call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'LU target-panel byte overflow')
+    end subroutine panel_storage
+@REAL_PANEL_END@
 
     subroutine order_row_singletons(self,col_ptr,row_idx,values)
         ! Standard singleton preprocessing. A row with one remaining original
@@ -802,11 +1007,23 @@ contains
         ! overhead remain process-RSS quantities rather than payload claims.
         bytes=0_i8
 @MEMORY@
+@REAL_PANEL_BEGIN@
+        if (allocated(self%panel)) bytes=bytes+8_i8*size(self%panel,kind=i8)
+        if (allocated(self%panel_coefficient)) &
+            bytes=bytes+8_i8*size(self%panel_coefficient,kind=i8)
+        if (allocated(self%panel_mask)) bytes=bytes+ib*size(self%panel_mask,kind=i8)
+@REAL_PANEL_END@
     end function memory_bytes
 
     subroutine free(self)
         class(@TYPE@), intent(inout) :: self
 @FREE@
+@REAL_PANEL_BEGIN@
+        if (allocated(self%panel)) deallocate(self%panel)
+        if (allocated(self%panel_coefficient)) deallocate(self%panel_coefficient)
+        if (allocated(self%panel_mask)) deallocate(self%panel_mask)
+@REAL_PANEL_END@
+        self%panel_width=1
         self%n=0
         self%ln=0
         self%un=0

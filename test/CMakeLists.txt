@@ -640,3 +640,18 @@ add_test(NAME test_native_lu_compensated COMMAND test_native_lu_compensated)
 set_tests_properties(test_native_lu_compensated PROPERTIES
     LABELS "native;lu;memory;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+
+# Experimental low-level real LU target panels; public defaults stay scalar.
+fortsparse_add_test(test_fortsparse_lu_panel solver/test_fortsparse_lu_panel.f90)
+set_tests_properties(test_fortsparse_lu_panel PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_lu_panel_allocations
+        ../test-cmake/native/test_lu_panel_allocations.f90
+        ../test-cmake/native/lu_panel_alloc_probe.c)
+    target_link_libraries(test_lu_panel_allocations PRIVATE fortsparse)
+    target_link_options(test_lu_panel_allocations PRIVATE "LINKER:--wrap=malloc"
+        "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
+    add_test(NAME test_lu_panel_allocations COMMAND test_lu_panel_allocations)
+    set_tests_properties(test_lu_panel_allocations PROPERTIES
+        LABELS "native;lu;memory;fast" TIMEOUT 1)
+endif()
