@@ -180,6 +180,15 @@ scratch free left 568,336 cached heap bytes; its warm-lifetime equivalent
 raised glibc's mmap threshold. A private page-backed lifetime for that temporary
 is the next measured change; changing global allocator policy is unnecessary.
 
+The private Linux mapping is now implemented, with a portable malloc fallback.
+Nine registered native tests pass, including actual page unmapping, portable
+lifetime checks and injected allocation-failure recovery. All 100 five-trial
+large-3D candidate runs pass. At one thread, warm peak RSS falls from about
+40.5 to 33.4 MiB; two threads use 36.1 MiB. Refactor retains one lifetime and
+its peak remains about 33.0 MiB at one thread. Timings remain variable on the
+shared host: warm one/two/four-thread medians are 66.9/67.8/60.4 ms. This is a
+verified memory improvement, not yet a complete time/memory admission.
+
 ## GPU diagnostic timeline
 
 Nsight Systems traced one cold factorization plus changed-value refactor on

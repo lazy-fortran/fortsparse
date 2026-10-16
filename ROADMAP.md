@@ -37,8 +37,15 @@ status-bearing solve contracts.
 - [x] Backend selection and BLAS discovery, including the fetched-SuperLU
   discovery fix verified through KIN6D.
 
-Native factorization and the generated CPU/GPU kernel pipeline below are new
-work. Existing backend support does not establish native or GPU capability.
+- [x] Native real SPD simplicial reference and blocked factorization, optional
+  AMD/METIS ordering, retained analysis, block RHS and implicit derivatives.
+- [x] Retained FortSym primal/JVP/VJP leaves with generated CPU/CUDA schedules;
+  actual-device correctness checks and context reuse.
+- [x] OpenMP destination tasks grouped by complete elimination subtrees,
+  compact owning factor storage and explicit actual-team statistics.
+
+These implementation checks do not establish performance admission. The frozen
+corpus, external baselines and current per-case results live in `bench/`.
 
 ## One mathematical source, several execution schedules
 
@@ -171,14 +178,14 @@ mathematical implementations.
 
 ## Milestones and exit evidence
 
-- [ ] **M5.0 — Baselines and contracts.** Freeze the first real SPD fixtures,
+- [x] **M5.0 — Baselines and contracts.** Freeze the first real SPD fixtures,
   matrix/derivative/error contracts, raw external-solver baselines and memory
   accounting. Name the consumer and independent correctness oracle for each.
 - [ ] **M5.1 — Generated numerical leaves.** Retain FortSym panel/update and
   residual definitions; generate CPU and CUDA schedules with reusable workspace.
   Exit with reproducible generation, independent value/JVP/VJP checks, actual
   GPU results and matched microbenchmarks for the measured shape distribution.
-- [ ] **M5.2 — Native SPD reference.** Implement a simple simplicial real SPD
+- [x] **M5.2 — Native SPD reference.** Implement a simple simplicial real SPD
   analysis/factor/solve path, permutation handling and nonpositive-pivot
   rejection. Verify factor reuse, block RHS, derivatives and error statuses
   against independent small-matrix and retained-backend oracles.
@@ -197,8 +204,12 @@ mathematical implementations.
 
 Develop M5.1 and the SPD reference together so a CPU-only prototype does not
 dictate the production architecture. A slow reference is a verifier, not a
-performance admission. The immediate work is M5.0: obtain complete baselines
-for a bounded real SPD corpus and use its measured shapes to select M5.1 leaves.
+performance admission. The active work is M5.3 admission on the frozen SPD
+corpus, including the public HB/bcsstk09 structural stiffness matrix. Generated
+leaves and the CPU/CUDA engines run; remaining measured losses determine further
+optimization. CPU and GPU admission remain separate. Explicit AMD/ND and thread
+configurations are measured independently; a case-specific tuned win does not
+establish that AUTO or the default ordering always wins.
 
 ## Ownership and retained work
 
