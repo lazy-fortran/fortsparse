@@ -1,0 +1,73 @@
+{
+  "scope": "20 ordinary plus2separateinstrumenteddiagnostics; original measured source pins, not retimed canonical integration",
+  "measured_sources": {
+    "baseline": "8d7f6341cef5ba3a3bd036afe4f1267a4810e29b",
+    "candidate": "fda5cbd027d2f88ef8ad6b99fb14a3fba0c23266"
+  },
+  "public_patch_integration": "4fd03efc9397be1c80cf6f2cebab49ef614f45a8",
+  "raw_archive": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-real-deadpage-current-ab",
+  "raw_sha256": {
+    "attempts.jsonl": "0828d17ede0c949def0e942f3f83df2c04015d6df925ea2ab7c8eeb30652b4b6",
+    "diagnostics.jsonl": "a94270d37977f050b2e667d75f6683064961e5cd6d51ef87ff8f10e7b4766741",
+    "summary.json": "d5a3b7e8393c0ab866ff8b1208dc59e4c9042e01434eeb5a51adc963319c6f46",
+    "manifest.json": "f4aefe1db3e2a3564eafcbef239b01b08114f49d7119d962f8594d302ddd48ca",
+    "run.py": "85557b4af4054b6b4598820ca79f4d5b2c2be3640e8dd191aa6825c8428f50b9",
+    "freeze.py": "e1102c91032472a113030d79f08823f19b9291bef7430240d5a2877665caafd5",
+    "advice_counter.c": "2b20db56c1c779ef923ad0b78af0f3b80d5f3e005a44558adfa1e530d122251b",
+    "observer-qualification.json": "f45b7f2cb6774c218ec266673948a3aca44ad4132aa12577ca56f50d2e2aad92"
+  },
+  "ordinary_binary_sha256": {
+    "baseline": "a11319dd732691cdb21da33a68d89bafe217f070a0972d5bd3f9014ed843c6cc",
+    "candidate": "f4798066cb09414460380f4e53978adf35f61b502fc5a91742e57a1d5b57b4ef"
+  },
+  "diagnostic_binary_sha256": "7f93db0554a43f2e2bbd3946153269f9e73d603415efa5971b2aba0867f3b821",
+  "exact_candidate_core_archive_sha256": "3168b0d46cad0017e24f9aa62f5baa937247f8ec0e62b91814476f83381bc306",
+  "observer": {
+    "binary": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-real-deadpage-current-ab/measure",
+    "sha256": "e3e0692499cc35e0863bae67aab8476345ee2c126ee8980b1ca75cfafcf5ebda",
+    "qualification_receipt_sha256": "f45b7f2cb6774c218ec266673948a3aca44ad4132aa12577ca56f50d2e2aad92",
+    "qualification": "reused exact qualified ELF; child and observer affinity validated by observer=30; original qualification includes noninflated-RSS and watchdog/reaping oracle"
+  },
+  "source_input_sha256": {
+    "bench/native_families/fixtures.f90": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
+    "bench/native_families/bench_native_families.f90": "8ff0e7dd18808cace0a9d5dde2c51241457e7f70a3e1438496d3a017ed1eb3aa",
+    "bench/native_families/records.f90": "317648693e1568c0034bf773d648328599e3c315bf3c26521f256672435ee621",
+    "bench/process_metrics.c": "6445189c179b92d535598c5e2465e4a255f695c7a34a12268678bb97876f1be8",
+    "bench/fixtures/neo2-mini5/matrix.mtx": "35ffecb5c9c11451c5bf20e8c606a9f941f5e3600d815abd3bc7170acfe29d64"
+  },
+  "build_flags": {
+    "CMAKE_BUILD_TYPE": "Release",
+    "CMAKE_C_COMPILER": "/usr/bin/cc",
+    "CMAKE_C_FLAGS_RELEASE": "-O3 -march=znver3 -DNDEBUG",
+    "CMAKE_Fortran_COMPILER": "/usr/bin/f95",
+    "CMAKE_Fortran_FLAGS_RELEASE": "-O3 -march=znver3 -DNDEBUG",
+    "FORTSPARSE_ENABLE_AMD": "ON",
+    "FORTSPARSE_ENABLE_DEVICE_OFFLOAD": "OFF",
+    "FORTSPARSE_ENABLE_ENZYME": "OFF",
+    "FORTSPARSE_ENABLE_METIS": "OFF",
+    "FORTSPARSE_ENABLE_MUMPS": "OFF",
+    "FORTSPARSE_ENABLE_NATIVE_CUDA": "OFF",
+    "FORTSPARSE_ENABLE_OPENMP": "ON",
+    "FORTSPARSE_ENABLE_SUPERLU": "OFF",
+    "FORTSPARSE_ENABLE_UMFPACK_IPC": "OFF"
+  },
+  "matched_library_closure": {
+    "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+    "/usr/lib/libgomp.so.1.0.0": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+    "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+    "/usr/lib/libgfortran.so.5.0.0": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+    "/usr/lib/libm.so.6": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+    "/usr/lib/libgcc_s.so.1": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+    "/usr/lib/libc.so.6": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+    "/usr/lib/ld-linux-x86-64.so.2": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+    "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad"
+  },
+  "postexecution_checks": {
+    "ordinary_successes": 20,
+    "ordinary_failures": 0,
+    "diagnostic_successes": 2,
+    "ordinary_process_rss_equals_driver_postexec_hwm_all20": true,
+    "all10_pairs_fill_payload_errors_reuse_identical": true,
+    "all_frozen_binary_hashes_unchanged": true
+  }
+}

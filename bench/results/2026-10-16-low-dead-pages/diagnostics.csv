@@ -1,0 +1,3 @@
+workload,status,returncode,diagnostic_binary_sha256,watchdog_wall_s,timing_metrics_excluded,helper_calls,eligible_payload_calls,advice_calls,cumulative_advised_bytes,failures,unrelated_calls,invalid_interior_spans,errno_counts
+rhs8,ok,0,7f93db0554a43f2e2bbd3946153269f9e73d603415efa5971b2aba0867f3b821,3,True,634,50,50,88064000,0,0,0,{}
+refactor,ok,0,7f93db0554a43f2e2bbd3946153269f9e73d603415efa5971b2aba0867f3b821,3,True,634,50,50,88064000,0,0,0,{}
