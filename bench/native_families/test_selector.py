@@ -6,7 +6,7 @@ import json
 import os
 import sys
 import unittest
-from run import select_calibration_level, validate_selected_levels, invoke
+from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, binary_name
 from report import summarize
 
 
@@ -86,6 +86,29 @@ class ExternalSelection(unittest.TestCase):
         return dict(mode="external_only", fixture_source_sha256="frozen-fixture",
                     levels={"drift-real": 64}, backends=peers or self.peers,
                     threads=self.threads, trials=self.trials)
+
+    def test_direct_and_ipc_umfpack_are_distinct_required_comparators(self):
+        peers = ["umfpack", "umfpack-direct"]
+        row = dict(family="drift-real", level=16, threads=1, trial=0,
+                   status="ok", returncode=0, process_wall_s=0.1,
+                   workload="rhs8", operation="N", variant="training")
+        ipc = dict(row, backend="umfpack")
+        direct = dict(row, backend="umfpack-direct")
+        self.assertIsNone(select_calibration_level([ipc], "drift-real", [16],
+                          peers, [1], 1)[0])
+        self.assertEqual(select_calibration_level([ipc, direct], "drift-real",
+                         [16], peers, [1], 1)[0], 16)
+        self.assertIn("umfpack-direct", EXTERNAL)
+        self.assertNotEqual(binary_name("umfpack"), binary_name("umfpack-direct"))
+
+    def test_old_selection_does_not_gain_the_new_comparator_scope(self):
+        rows = sum((self.sample(level) for level in self.candidates), [])
+        manifest = self.manifest()
+        manifest["required_external_backends"] = self.peers+["umfpack-direct"]
+        with self.assertRaisesRegex(ValueError, "omits declared"):
+            validate_selected_levels(self.selection(), manifest, ["drift-real"], rows)
+        self.assertEqual(validate_selected_levels(self.selection(), manifest,
+                         ["drift-real"], rows, diagnostic=True), "diagnostic_subset")
 
     def test_largest_complete_external_level(self):
         rows = sum((self.sample(level) for level in self.candidates), [])

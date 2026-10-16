@@ -137,8 +137,8 @@ if(FORTSPARSE_ENABLE_NATIVE_CUDA)
 endif()
 
 # The UMFPACK (GPL) backend lives entirely in a separate helper executable. It
-# is the only target that links UMFPACK; libfortsparse never does. The library
-# reaches it out-of-process over shared memory and named semaphores.
+# and optional standalone GPL benchmarks link UMFPACK; libfortsparse never does.
+# The library reaches its helper over shared memory and named semaphores.
 #
 # System path: built only when find_package locates UMFPACK, so a host without
 # it still gets the library. Fetched path: fetch and build the
