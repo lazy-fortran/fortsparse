@@ -1,0 +1,313 @@
+{
+  "public_manifest": {
+    "scope": "ordinary fresh-process interleaved A/B, CPU1, native AMD, no helper",
+    "source_baseline": "3b9384b",
+    "source_candidate": "0cb6c5c218481548f8bcd8cf40f2817162602396",
+    "environment_extra": {
+      "LD_LIBRARY_PATH": "unset"
+    },
+    "trials": 5,
+    "baseline_runtime_difference": "Both have no native RUNPATH and resolve the same system AMD/config/OpenBLAS runtime; no LD_LIBRARY_PATH override. Baseline3b9384b and candidate0cb6c5c share adbe58a CSV schema.",
+    "binaries": {
+      "baseline": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/memory-baseline-3b9384b/bin/bench_native_families",
+        "sha256": "58cd1e9bc62a9f1ba110b60613dadc70b505e4fa52b4ed43075bd5b264b4578d",
+        "ldd": "\tlinux-vdso.so.1 (0x00007f8101ed3000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007f8101de3000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007f80febe0000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f8101d76000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007f8101d65000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f80fe200000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f80fead8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f8101d2d000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f80fde00000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f8101ed5000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007f80fea1a000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007f8101d25000)\n"
+      },
+      "candidate": {
+        "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-candidate/bin/bench_native_families",
+        "sha256": "beba2a8e345329fd7d9ac6187f4160e3f58d913b34d85466583fb4a606d4d658",
+        "ldd": "\tlinux-vdso.so.1 (0x00007f14b8f23000)\n\tlibsuperlu.so.7 => /usr/lib/libsuperlu.so.7 (0x00007f14b8764000)\n\tlibopenblas.so.0 => /usr/lib/libopenblas.so.0 (0x00007f14b5d48000)\n\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f14b5cdb000)\n\tlibamd.so.3 => /usr/lib/libamd.so.3 (0x00007f14b8ebe000)\n\tlibgfortran.so.5 => /usr/lib/libgfortran.so.5 (0x00007f14b5400000)\n\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f14b52f8000)\n\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f14b5ca5000)\n\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f14b5000000)\n\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f14b8f25000)\n\tlibblas.so.3 => /usr/lib/libblas.so.3 (0x00007f14b4f42000)\n\tlibsuitesparseconfig.so.7 => /usr/lib/libsuitesparseconfig.so.7 (0x00007f14b8eb4000)\n"
+      }
+    },
+    "library_sha256": {
+      "/usr/lib/libsuperlu.so.7.0.1": "d041e76db9867254de1c32fdda16ebbc60948670cbcf5d6dc23f47b4bbd993d2",
+      "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+      "/usr/lib/libgomp.so.1.0.0": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+      "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+      "/usr/lib/libgfortran.so.5.0.0": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+      "/usr/lib/libm.so.6": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+      "/usr/lib/libgcc_s.so.1": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+      "/usr/lib/libc.so.6": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+      "/usr/lib/ld-linux-x86-64.so.2": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+      "/usr/lib/libblas.so.3.12.0": "f55be1fca60044a3611ad918a9049c5429be30310c34d11f31727ea62b010fe5",
+      "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad"
+    },
+    "source_baseline_full": "3b9384b49a4ac6a7dba2ea87dc22529edff1be69",
+    "paired_payload_delta": "4*n bytes in all40matchedpairs",
+    "matched_factor_fill": true
+  },
+  "public_raw": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-ab/attempts.jsonl",
+    "sha256": "aead4dc800e241f44d6f8c5d4ce2d97f3d1d6bd0f38606b4c59f5cd9bacba272"
+  },
+  "public_runner": {
+    "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-ab/run_ab.py",
+    "sha256": "66cf4e842b9481cd87e910a4888976f7971cbf7df5e163362abc23880a61b5c0"
+  },
+  "private_aggregate": {
+    "fixture_id": "neo2-lorentz-tag6-4856-v1",
+    "raw_path": "/mnt/storage/data2/sparse-dev-private/neo2-lorentz-tag6-2026-10-16/pruning-ab-3b9384b-0cb6c5c/attempts.jsonl",
+    "raw_sha256": "d4cbc54d083232bb41eab3d90b17c4b71d7f2ea2a38e41575b847162b9e9600b",
+    "script_sha256": "70b873a237aa4cfd6b52e804ceaeff6f2f2f94fbf60176c9a12ce44bf5ed74d4",
+    "frozen_policy_sha256": "c03da85fc3dfae66b8c09874a69faf78d10de0d9b368b18d6b91813046a42d54",
+    "fixture_manifest_sha256": "08741c8f0261d20ff2d04b5a2c87706c9f6c9aebe5d6047304656a5ffdfa4516",
+    "qualification_receipt_sha256": {
+      "baseline": [
+        "311d5cc17e8c90c87c9f4b98cf66f9d7ab94a300c0c86fbaa264d5b0f534bbb9"
+      ],
+      "pruned": [
+        "d5931a4c2626f18987de6e0e7a1d9b5f93f3b117187b525dfbda2277ac510443"
+      ]
+    }
+  },
+  "profile_sources": [
+    {
+      "version": "baseline",
+      "case": "drift-real-128-rhs8",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-rhs8-report.txt",
+          "sha256": "5da604fd0c05f4ff6a2563b33d37a162a78afff8154fc42ccb89783f41eda408"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-rhs8.stderr",
+          "sha256": "5c24a5073ad6b880ae2ca7bcd780e78b17c640892c50fd841b702a40d76177b6"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-rhs8-replay.sh",
+          "sha256": "732873b6594d68caa8eb21bc518dc86c7312c6e0acac69a579578c8229f46716"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-rhs8.data",
+          "sha256": "b2574b4d76a69a2f8662e2ba0979377b4050fadb2b902277a1eba103be240db9"
+        }
+      ]
+    },
+    {
+      "version": "baseline",
+      "case": "drift-real-128-refactor",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-refactor-report.txt",
+          "sha256": "e891e96775ba330742cdf4f40d9d5815368370c0d72d526b14d418159b298546"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-refactor.stderr",
+          "sha256": "68e3f4806c15ef3e5c3cbfc9255ba08a16fa46dd049f4f31a11749817856c451"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-refactor-replay.sh",
+          "sha256": "5a13e4d35a7ecfbfdc17b8c004658abe8edf9fb9a33b35fd38492439eff48109"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-real-128-refactor.data",
+          "sha256": "a86de7f3696a17634a676d3ceab231a660595f19a0cc883558c621a4b43543c5"
+        }
+      ]
+    },
+    {
+      "version": "baseline",
+      "case": "drift-complex-64-rhs8",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-64-rhs8-report.txt",
+          "sha256": "f396322ee9e179de5de2b2711ecd66b1250df5ca48548cee68fd340cb8d0472c"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-64-rhs8.stderr",
+          "sha256": "8a884f2efa79411af9f5db91b1128d1be5f284a5a36414069faab8417c17cdfe"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-64-rhs8-replay.sh",
+          "sha256": "0f248c3b5cd8b2ba7b4e74d045112d0a01e5347fc7b9d9527e9579b9dfba5fd8"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-64-rhs8.data",
+          "sha256": "3f76834bcfe1982ba7286c7d479746e737201a419fc7bf5d4c4df0952fbf5d30"
+        }
+      ]
+    },
+    {
+      "version": "baseline",
+      "case": "drift-complex-128-refactor",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-128-refactor-report.txt",
+          "sha256": "a62d625347aca5dbd9684477e44dbf4608a28817b115e264af120a6be4931be1"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-128-refactor.stderr",
+          "sha256": "5052129d5a3b979bccbe85d350c28b71f36dcb657a95606385a1d1fca311ddec"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-128-refactor-replay.sh",
+          "sha256": "09e2bc5ed800287860afa6a10262852c5661bf1f7d5f8110bb8c383edfd41869"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-profiles/drift-complex-128-refactor.data",
+          "sha256": "19abb54fee6eccd60c764847ec4825eb99cbc67ac52a73acc4e3012f9e190c6c"
+        }
+      ]
+    },
+    {
+      "version": "candidate",
+      "case": "drift-real-128-rhs8",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-rhs8-report.txt",
+          "sha256": "3f4ce12b82f8dd6b0c3c43637254bc3b6f5d03de85a756de234f34ed9940b6ae"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-rhs8.stderr",
+          "sha256": "939383c41de77b1306b340f0104e22a63718b16ebf737e1e7b137dde3118243a"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-rhs8-replay.sh",
+          "sha256": "b89f6e66ae126fc0ed5c2458d0068959d6fab8b2c42cfb2c95f82c0bfe64a15c"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-rhs8.data",
+          "sha256": "ace9e775d44691ab06a9f3831196a312459dce7bd8df8001ac6ff90da2f13048"
+        }
+      ]
+    },
+    {
+      "version": "candidate",
+      "case": "drift-real-128-refactor",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-refactor-report.txt",
+          "sha256": "a606ceeeea6b720b35794144b3f82238e7ceabc738cbed66c733d5ef0c3cf4ec"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-refactor.stderr",
+          "sha256": "142ce0fe8a9ef35eeb881bdf9df33dbaf6eb276753d99f1cd2970c0c6b330de8"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-refactor-replay.sh",
+          "sha256": "14ac120229735cd92c43c5e90853fa281c2fe68d6e3854f5f33e65cab8b173aa"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-real-128-refactor.data",
+          "sha256": "52401d6abea60afe40601da09da1bf7b2004d41c036db0046a20480760f64206"
+        }
+      ]
+    },
+    {
+      "version": "candidate",
+      "case": "drift-complex-64-rhs8",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-64-rhs8-report.txt",
+          "sha256": "4babb10f75bdd377f7790b4a48a7903513d2ca9b1ebdc2ee1fe60921cb69161e"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-64-rhs8.stderr",
+          "sha256": "18aa82c5ffd361c69df536eb1e8364ff3745ad9db8a4f8b17f2197b66a5f1e81"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-64-rhs8-replay.sh",
+          "sha256": "dd0ae1efa4e3d5ffa312d6cc0e525953248e178e3d22c5de935ab71ae558eec2"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-64-rhs8.data",
+          "sha256": "6c199b6b1bebc7a0398c2cf5ccfa212cd69f61cab071809b70b375c02da80ffe"
+        }
+      ]
+    },
+    {
+      "version": "candidate",
+      "case": "drift-complex-128-refactor",
+      "files": [
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-128-refactor-report.txt",
+          "sha256": "28915a7b7b3247e4b7b49a075504caea8524a0cf4d9974e67f50edc79c4781cd"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-128-refactor.stderr",
+          "sha256": "800108a53f7a9e885aa2102521a6d17d7450f694ba53e84676ade16708607a26"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-128-refactor-replay.sh",
+          "sha256": "1730564f5ea48f07cfb4d7b0e791875802abd2087342a738119b99a0dc42598d"
+        },
+        {
+          "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/witnessed-pruning-profiles/drift-complex-128-refactor.data",
+          "sha256": "b29dcc65984e2155de8ac9c62d126f4b820e109886943924f12580953e3966a4"
+        }
+      ]
+    }
+  ],
+  "hardware": {
+    "cpu": "AMD Ryzen 9 5950X",
+    "physical_cores": 16,
+    "smt": 2,
+    "numa_nodes": 1
+  },
+  "ordinary_recipe": {
+    "backend": "native-amd",
+    "families_levels": [
+      [
+        "drift-real",
+        128
+      ],
+      [
+        "drift-complex",
+        64
+      ]
+    ],
+    "variants": [
+      "training",
+      "heldout"
+    ],
+    "workloads": [
+      "rhs8",
+      "refactor"
+    ],
+    "operation": "N",
+    "trials": 5,
+    "affinity": [
+      0
+    ],
+    "watchdog_s": 0.9,
+    "environment": {
+      "OMP_NUM_THREADS": "1",
+      "OPENBLAS_NUM_THREADS": "1",
+      "OMP_PLACES": "cores",
+      "OMP_PROC_BIND": "close",
+      "MKL_NUM_THREADS": "1",
+      "MKL_DYNAMIC": "FALSE",
+      "MKL_THREADING_LAYER": "GNU"
+    },
+    "interleave": "Zero-based even trials baseline,candidate; odd trials candidate,baseline; cases in listed Cartesian-product order.",
+    "command": "bench_native_families native-amd FAMILY LEVEL 1 WORKLOAD N VARIANT bench/fixtures/neo2-mini5/matrix.mtx",
+    "compiler_flags": "-O3 -march=znver3; unchanged mathematical/compiler arithmetic policy",
+    "cmake_package_pins": {
+      "AMD_DIR": "/usr/lib/cmake/AMD",
+      "SuiteSparse_config_DIR": "/usr/lib/cmake/SuiteSparse_config"
+    }
+  },
+  "profile_recipe": {
+    "event": "cycles:u",
+    "frequency_hz": 1999,
+    "call_graph": "dwarf,8192",
+    "affinity": [
+      0
+    ],
+    "kind": "Nonexclusive instrumented diagnostic; replay counts differ; not ordinary timing.",
+    "command": "perf record -F 1999 -e cycles:u -g --call-graph dwarf,8192 -o DATA -- bash REPLAY.sh"
+  },
+  "acceptance": {
+    "attempts": 90,
+    "passed": 90,
+    "public_backward_error_max": 1.0509085146029484e-15,
+    "public_forward_error_max": 2.6789522848988178e-15
+  },
+  "pruning_source": "7db6a1aef86d2c65b21c95d39bbe5251fd0c1c13",
+  "integrated_source": "7e1f123",
+  "fortsym_revision": "7e8ef7abdd90c49bb5f75e2c119e7d181656bcc6",
+  "timing_scope": "Public and private child wall covers process lifetime; completed CPU is wait4 user+system. Private exact audit timed separately.",
+  "unavailable": "Blank metric values are unavailable (including negative peak sentinel); not zero.",
+  "reproduction": "See report.md for commands, interleaving, runtime and privacy scope."
+}

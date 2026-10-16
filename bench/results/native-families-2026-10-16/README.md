@@ -67,3 +67,10 @@ python3 bench/native_families/report_front.py \
   --calibration /home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/openblas-calibration/calibration_selection.json \
   --output /tmp/fortsparse-five-peer-report --plots
 ```
+
+`witnessed-pruning/` records the accepted generated LU reach-graph optimization:
+80 interleaved public A/B attempts and ten private consumer attempts, all passing.
+It retains complete subprocess wall, completed CPU, RSS, factor phases and the
+exact additional 4*n owned bytes. Public medians improve; private factor time
+improves while whole-child ranges overlap. The checkpoint includes graph-closure
+oracles and sampled-profile provenance, with no new external-frontier claim.
