@@ -1,0 +1,14 @@
+{
+  "name": "NVIDIA cuDSS",
+  "version": "0.8.0.10",
+  "cuda_major": 13,
+  "archive_url": "https://developer.download.nvidia.com/compute/cudss/redist/libcudss/linux-x86_64/libcudss-linux-x86_64-0.8.0.10_cuda13-archive.tar.xz",
+  "license": "NVIDIA Math Libraries SDK Agreement; proprietary external comparator, no core linkage or vendor redistribution",
+  "archive_sha256": "ba18f5fd80dcbbe905d158caac5b3061d848442bb5abd477b5f296b4257a4937",
+  "local_provenance": "sdk/cudss/0.8.0.10-cuda13/provenance.json",
+  "primary_documentation": [
+    "https://docs.nvidia.com/cuda/cudss/types.html",
+    "https://docs.nvidia.com/cuda/cudss/advanced_features.html",
+    "https://docs.nvidia.com/cuda/cudss/license.html"
+  ]
+}
