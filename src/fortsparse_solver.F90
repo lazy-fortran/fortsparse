@@ -520,14 +520,14 @@ contains
         call solver%backend%solve_complex_block(B, X, status)
     end subroutine sparse_solve_block_complex
 
-    ! Factor fill, peak factorization memory, flops and threads of the current
-    ! factorization, for backends that report them (MUMPS).
+    ! Last factorization attempt, including a rejected UMFPACK memory estimate.
+    ! Unknown quantities remain -1; availability depends on the backend.
     subroutine sparse_factor_stats(solver, stats, status)
         type(sparse_solver_t),       intent(inout) :: solver
         type(sparse_factor_stats_t), intent(out)   :: stats
         type(fortsparse_status_t),   intent(out)   :: status
 
-        if (.not. solver%factored) then
+        if (.not. allocated(solver%backend)) then
             call not_factored(status)
             return
         end if

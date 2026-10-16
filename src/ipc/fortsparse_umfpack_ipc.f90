@@ -10,15 +10,17 @@ module fortsparse_umfpack_ipc
         c_char, c_int, c_int32_t, c_int64_t, c_double, c_f_pointer, c_loc, &
         c_null_char, c_size_t
     use fortsparse_kinds, only: dp, i8
-    use fortsparse_backend, only: sparse_backend_t
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX, &
-        FORTSPARSE_NOT_FACTORED
+        FORTSPARSE_NOT_FACTORED, FORTSPARSE_RESOURCE_LIMIT
     use fortsparse_ipc_proto, only: shm_header_t, &
         OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, OP_SOLVE_COMPLEX, &
-        ST_OK, ST_SINGULAR, find_helper
+        OP_CAPABILITIES, &
+        ST_OK, ST_SINGULAR, ST_RESOURCE_LIMIT, find_helper
     implicit none
     private
 
@@ -38,6 +40,7 @@ module fortsparse_umfpack_ipc
         integer     :: pool_next = 0 ! next free pool slot
         integer     :: n = 0
         logical     :: is_complex = .false.
+        type(sparse_factor_stats_t) :: stats
     contains
         procedure :: factor_real => umf_factor_real
         procedure :: factor_complex => umf_factor_complex
@@ -49,6 +52,7 @@ module fortsparse_umfpack_ipc
         procedure :: solve_complex_inplace => umf_solve_complex_inplace
         procedure :: vector => umf_vector
         procedure :: free => umf_free
+        procedure :: factor_stats => umf_stats
         final :: umf_final
     end type umfpack_ipc_backend_t
 
@@ -140,6 +144,7 @@ contains
         type(shm_header_t), pointer :: h
         integer(i8) :: o_cp, o_ri, o_ax, o_b, o_x, o_pool, total
 
+        self%stats = sparse_factor_stats_t()
         if (nrow /= ncol) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "umfpack ipc: matrix must be square")
@@ -154,6 +159,8 @@ contains
         h%refine = merge(1_c_int32_t, 0_c_int32_t, refine)
         h%is_complex = 0_c_int32_t
         call set_offsets(h, o_cp, o_ri, o_ax, 0_i8, o_b, 0_i8, o_x, 0_i8, total)
+        call configure_factor(self, h, status)
+        if (status%code /= FORTSPARSE_OK) return
         call write_index(self%sess, o_cp, col_ptr, ncol + 1)
         call write_index(self%sess, o_ri, row_idx, nz)
         call write_real(self%sess, o_ax, val(1:nz))
@@ -178,6 +185,7 @@ contains
         type(shm_header_t), pointer :: h
         integer(i8) :: o_cp, o_ri, o_ax, o_az, o_b, o_bz, o_x, o_xz, total
 
+        self%stats = sparse_factor_stats_t()
         if (nrow /= ncol) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "umfpack ipc: matrix must be square")
@@ -193,6 +201,8 @@ contains
         h%refine = merge(1_c_int32_t, 0_c_int32_t, refine)
         h%is_complex = 1_c_int32_t
         call set_offsets(h, o_cp, o_ri, o_ax, o_az, o_b, o_bz, o_x, o_xz, total)
+        call configure_factor(self, h, status)
+        if (status%code /= FORTSPARSE_OK) return
         call write_index(self%sess, o_cp, col_ptr, ncol + 1)
         call write_index(self%sess, o_ri, row_idx, nz)
         call write_split(self%sess, o_ax, o_az, val(1:nz))
@@ -414,8 +424,19 @@ contains
         call header_of(self%sess, h)
         h%opcode = opcode
         st = fsparse_ipc_call(self%sess)
+        if (opcode == OP_FACTOR_REAL .or. opcode == OP_FACTOR_COMPLEX) then
+            if (h%factor_protocol /= 2_c_int64_t) then
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    "umfpack ipc: incompatible helper factor protocol")
+                return
+            end if
+            call capture_factor_stats(self, h)
+        end if
         if (st == ST_OK) then
             call status_set(status, FORTSPARSE_OK, "")
+        else if (st == ST_RESOURCE_LIMIT) then
+            call status_set(status, FORTSPARSE_RESOURCE_LIMIT, &
+                "umfpack ipc: symbolic peak estimate exceeds memory budget")
         else if (st == ST_SINGULAR) then
             call status_set(status, FORTSPARSE_SINGULAR, &
                 "umfpack ipc: matrix is singular")
@@ -424,6 +445,72 @@ contains
                 "umfpack ipc: helper reported an error")
         end if
     end subroutine run
+
+    ! A factor request must acknowledge the extended protocol before it can
+    ! claim that pivot controls or the pre-numeric resource gate were honored.
+    subroutine configure_factor(self, h, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        type(shm_header_t), intent(inout) :: h
+        type(fortsparse_status_t), intent(out) :: status
+
+        self%stats = sparse_factor_stats_t()
+        if (.not. ieee_is_finite(self%options%pivot_tolerance)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, "invalid pivot tolerance")
+            return
+        end if
+        if (self%options%pivot_tolerance > 1.0_dp .or. &
+            self%options%memory_budget_bytes < 0_i8) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, "invalid factor controls")
+            return
+        end if
+        ! Negotiate before any FACTOR request: old helpers reject this unknown
+        ! opcode without entering numeric, so they cannot silently bypass a gate.
+        h%opcode = OP_CAPABILITIES
+        h%factor_protocol = 1
+        if (fsparse_ipc_call(self%sess) < 0_c_int) then
+            call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
+                "umfpack ipc: helper capability exchange failed")
+            return
+        end if
+        if (h%status /= ST_OK .or. h%factor_protocol /= 2_c_int64_t) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "umfpack ipc: helper lacks factor controls")
+            return
+        end if
+        h%factor_protocol = 1_c_int64_t
+        h%pivot_tolerance = self%options%pivot_tolerance
+        h%memory_budget_bytes = self%options%memory_budget_bytes
+        h%symbolic_peak_bytes = -1_c_int64_t
+        h%estimated_peak_bytes = -1_c_int64_t
+        h%numeric_peak_bytes = -1_c_int64_t
+        h%effective_pivot_tolerance = -1.0_c_double
+        h%numeric_started = 0_c_int64_t
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine configure_factor
+
+    subroutine capture_factor_stats(self, h)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        type(shm_header_t), intent(in) :: h
+
+        self%stats%symbolic_peak_bytes = h%symbolic_peak_bytes
+        self%stats%estimated_peak_bytes = h%estimated_peak_bytes
+        self%stats%numeric_peak_bytes = h%numeric_peak_bytes
+        self%stats%ipc_bytes = self%mapped
+        self%stats%effective_pivot_tolerance = h%effective_pivot_tolerance
+        self%stats%numeric_started = h%numeric_started /= 0_c_int64_t
+        if (h%numeric_peak_bytes >= 0_c_int64_t) &
+            self%stats%factor_mem_mb = real(h%numeric_peak_bytes, dp)/1.0e6_dp
+    end subroutine capture_factor_stats
+
+    ! Last-attempt statistics remain available after a rejected resource gate.
+    subroutine umf_stats(self, stats, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        type(sparse_factor_stats_t), intent(out) :: stats
+        type(fortsparse_status_t), intent(out) :: status
+
+        stats = self%stats
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine umf_stats
 
     ! Bind the protocol header at offset 0 of the mapped region.
     subroutine header_of(sess, h)

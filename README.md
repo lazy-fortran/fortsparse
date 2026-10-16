@@ -265,6 +265,30 @@ strongly coupled patterns): METIS costs up to ten times the AMD analysis and
 gains little fill on 2D meshes, but halves or quarters the factorization in
 3D. `FORTSPARSE_ORDER_AMD` and `FORTSPARSE_ORDER_ND` still force either.
 
+### UMFPACK pivot and memory controls
+
+For `FORTSPARSE_BACKEND_UMFPACK_IPC`, negative
+`solver%options%pivot_tolerance` keeps UMFPACK's native defaults. A value in
+`[0,1]` sets both its ordinary and symmetric diagonal pivot thresholds; `1`
+requests partial pivoting without favoring a smaller diagonal entry.
+
+`solver%options%memory_budget_bytes` defaults to zero (no gate). With a
+positive budget the helper runs symbolic analysis, then rejects a larger
+UMFPACK peak estimate with `FORTSPARSE_RESOURCE_LIMIT` **before numeric
+factorization**. This is an estimate gate, not a hard allocation cap. It
+excludes caller matrices, CSC arrays, IPC mapping and operating-system/runtime
+costs; callers must reserve these separately. A compatible helper is negotiated
+before sending any factor request, so a stale helper cannot bypass the gate.
+
+`sparse_factor_stats` also works after this rejection. Its
+`symbolic_peak_bytes`, `estimated_peak_bytes` and `numeric_peak_bytes` are
+UMFPACK's reported Unit counts converted to bytes; `ipc_bytes` is the separate
+shared mapping allocation. `numeric_started` distinguishes rejected attempts;
+`effective_pivot_tolerance` records the ordinary threshold passed to UMFPACK.
+Unknown statistics remain `-1`. A rejected factor leaves the solver unfactored;
+a subsequent call with a sufficient budget can reuse the solver normally.
+These options are currently ignored by other backends.
+
 ## MUMPS backend
 
 `FORTSPARSE_BACKEND_MUMPS` is the backend for large SPD finite-element systems
