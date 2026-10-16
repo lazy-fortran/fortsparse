@@ -90,3 +90,10 @@ owning generator and regenerate numerical leaves; keep sparse topology and
 hardware schedules in FortSparse. Recheck CPU accuracy/performance after shared
 generator changes. Publish plots through slopbox, retaining recipes and compact
 numeric/provenance evidence in Git, never generated images or large traces.
+
+GPU offload evidence may also come from an exact-binary, exact-configuration
+Nsight capture, validated offline against retained SQLite process/device/kernel
+events. Keep trace verification separate from vendor counter fields and retain
+the capture assertions and their limits. See
+[`gpu/OFFLOAD_PROVENANCE.md`](gpu/OFFLOAD_PROVENANCE.md) for the receipt schema
+and analyzer command. Diagnostic trace timings never join ordinary trials.
