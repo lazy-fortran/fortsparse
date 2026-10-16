@@ -137,6 +137,38 @@ preferred diagonal for real/complex GENERAL LU without changing the original
 matrix. It recomputes matching on numeric refactors and charges its graph/maps
 to the host payload cap. The default policy is unchanged.
 
+## Sylvester inertia
+
+`sparse_inertia(solver, n_negative, n_zero, n_positive, reliability, status)`
+and the `inertia_*` fields of `sparse_factor_stats_t` report the inertia of
+the last native symmetric factorization from its actual pivots: 1x1 pivot
+signs, and for each 2x2 block the signs of both eigenvalues (formed after
+scaling by the largest block entry, the smaller one as `det/larger`, so
+neither cancels). By Sylvester's law this is the inertia of the matrix that
+was exactly factored. For a pencil `K - sigma*M` with SPD `M`, `n_negative`
+counts generalized eigenvalues below `sigma`. Same-pattern `sparse_refactor`
+over many shifts reuses the pattern and initial order and repivots afresh.
+
+`reliability` (`FORTSPARSE_INERTIA_*`) is `RELIABLE` when every nonzero pivot
+eigenvalue exceeds `inertia_tolerance = n*eps*g`, where `g` is the largest
+magnitude of an input entry or of any formed Schur-complement entry (a
+growth-scaled norm). Otherwise it is `UNCERTAIN` (counts still returned;
+`inertia_uncertain` eigenvalues lie at or below the threshold and
+`inertia_min_pivot` is the smallest magnitude). Exactly zero pivot columns
+are eliminated as zero 1x1 pivots: the factorization returns `SINGULAR`,
+solves are refused, and inertia is still returned with `n_zero > 0` and
+`reliability = SINGULAR`. The threshold is a backward-error heuristic, not a
+rigorous enclosure: `RELIABLE` counts belong to the factored floating matrix
+and agree with `A` only when its eigenvalues are separated from zero by more
+than the backward error.
+
+Supported families: real LDLT, complex Hermitian LDLH (real pivots) and
+Cholesky (real SPD and complex HPD report `(0, 0, n)` on success). LU
+(including the supernodal LU, whose static pivot perturbation can change the
+inertia), complex transpose-symmetric LDLT and external backends return
+`BACKEND_UNAVAILABLE` with `reliability = UNAVAILABLE`. The inertia path never
+perturbs pivots.
+
 ## Optional general LU ordering
 
 For real and complex general matrices, production native LU accepts

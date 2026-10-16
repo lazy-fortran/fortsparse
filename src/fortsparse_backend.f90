@@ -133,6 +133,13 @@ module fortsparse_backend
         integer :: matching_used = -1 ! FORTSPARSE_MATCHING_*
         ! max(log10 range of the row scale, of the column scale).
         real(dp) :: scaling_log10_range = -1.0_dp
+        ! Sylvester inertia of the last native symmetric/Hermitian factor
+        ! (docs/native-cpu.md). Counts are -1 and inertia_status is
+        ! FORTSPARSE_INERTIA_UNAVAILABLE unless the factor family reports it.
+        integer(i8) :: inertia_negative = -1_i8, inertia_zero = -1_i8
+        integer(i8) :: inertia_positive = -1_i8, inertia_uncertain = -1_i8
+        integer :: inertia_status = -1 ! FORTSPARSE_INERTIA_*
+        real(dp) :: inertia_min_pivot = -1.0_dp, inertia_tolerance = -1.0_dp
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t

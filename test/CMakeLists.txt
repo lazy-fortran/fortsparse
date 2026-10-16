@@ -407,6 +407,8 @@ fortsparse_add_test(test_fortsparse_native_ldlt_z
     solver/test_fortsparse_native_ldlt_z.f90)
 set_tests_properties(test_fortsparse_native_ldlt_z PROPERTIES
     LABELS "native;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_inertia solver/test_fortsparse_inertia.f90)
+set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 1)
 # This configure/build check is distinct from ordinary sub-second numerics.
 # It disables sparse dependency discovery/fetching and inspects actual linkage.
 add_test(NAME test_fortsparse_native_only_build
