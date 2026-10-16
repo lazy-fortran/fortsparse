@@ -51,6 +51,10 @@ index-width or allocation-limit capability should be inferred from a solver name
 | SPEC Beltrami, `src/mp00ac.f90:377` | Direct path is dense real LU with condition estimate/refinement; GMRES path builds sparse ILUTP from matrixS/jdMAS/idMAS (`:437`). | Dense primal factor reused for 2 derivative RHS (`:397`); sparse preconditioner reused by GMRES. | DGECON, DGERFS and `rcond>=machprec`; epsILU controls approximation. CSR-like preconditioner inputs inferred from ILUTP call, row-index convention not independently audited. |
 | STELLOPT THRIFT, `THRIFT/Sources/thrift_plasma_solver_mod.f90:1082` | Routine named “sparse” actually calls dense DGESV; `:1116` permutes species-major dense input to band with kl=ku=num_species and calls DGBSV (`:1156`). Density uses DGTSV (`:1068`). | One RHS, no persistent factor reuse established. | NaN/error checks; band result is a structural optimization, not a general sparse consumer. Original dense input remains resident. |
 
+The [single-node follow-up](consumer-single-node.md) traces QL axi/Arnoldi,
+MEPHIT and remaining KIN6D direct/band families. Its newer classifications
+supersede the corresponding discovery-only gaps below; other limits remain.
+
 ## Coverage status and remaining inspection
 
 “Scoped no need” means no general sparse direct requirement was established in
@@ -125,7 +129,8 @@ populate this audit.
 ## Reproducible small fixtures
 
 The manifest lists existing constructors/tests, not new application dumps.
-NEO-2's 5x5 mini example and eight-node spline regression are available without
+NEO-2's [5x5 mini numeric fixture](../bench/fixtures/neo2-mini5/README.md)
+and eight-node spline regression are available without
 a kinetic run. Neither substitutes for a production kinetic fill distribution.
 KIN6D's manufactured GS regression constructs a mesh internally, but its full
 multi-mesh nonlinear runtime was not measured here. MEPHIT/JOREK/M3D-C1/GPEC

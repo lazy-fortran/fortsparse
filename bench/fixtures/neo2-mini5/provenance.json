@@ -1,0 +1,31 @@
+{
+  "id": "neo2-mini5",
+  "kind": "mathematical_numeric_fixture",
+  "source_repository": "https://github.com/itpplasma/NEO-2",
+  "source_revision": "2b8d5c0e9fea7226de1b0decc9951f7d4e769162",
+  "source_file": "COMMON/sparse_mod.f90",
+  "source_lines": {
+    "matrix": "452-466",
+    "rhs": "159-169"
+  },
+  "source_file_sha256": "be4e87240150024d6597c8a633302e94d64c3e73571bdccbe12d94a9662b2c7d",
+  "extraction_date": "2026-10-16",
+  "extraction": "Independently reconstructed exact integer values from the published mini-example definition; no Fortran or solver wrapper implementation copied.",
+  "recipe": "For row index i=1..5 define columns c1=i, c2=5*c1+2, c3=7*c2+2, c4=2*c3+2, c5=9*c4+2. After constructing all columns replace A(2,4), A(3,3), A(4,2) with zero. Set b_i=1.",
+  "matrix_class": "real general nonsymmetric; exact nonzero determinant",
+  "n": 5,
+  "nnz": 22,
+  "indices": "MatrixMarket one-based",
+  "license_context": "NEO-2 repository LICENSE is MIT, copyright 2024 Plasma Physics at ITPcp, TU Graz; retained as LICENSE.source. Only mathematical data and an independently computed oracle are included. Bundled UMFPACK library/wrapper license does not license any copied implementation here because none is copied.",
+  "files": {
+    "matrix.mtx": "35ffecb5c9c11451c5bf20e8c606a9f941f5e3600d815abd3bc7170acfe29d64",
+    "rhs.mtx": "4e9b7868753745b3d36426b1a8a079cff2b96ed0ddb3b3be7b022a1f5030cc1b",
+    "oracle.json": "ae1acc7450676d9c7f4a852453f1d57896e850cd703ff8b418d7a806a0fae2d6",
+    "LICENSE.source": "c75d14e3f95afeec0fd39c954ba8d4a362f085fd2f13a4249feee2f33e16307c"
+  },
+  "limits": [
+    "Not a production kinetic matrix or sparse-fill stress case.",
+    "No application build, solver execution or performance measurement was performed.",
+    "Rational oracle is mathematical; floating-point acceptance must use scale-aware residual/forward checks rather than decimal-string equality."
+  ]
+}
