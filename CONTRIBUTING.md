@@ -45,6 +45,20 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
+On macOS with Homebrew, CMake may select LLVM `flang`; the UMFPACK-IPC tests
+fail under it. Select GNU Fortran explicitly and use the Homebrew libraries:
+
+```
+FC=gfortran-16 cmake -S . -B build -G Ninja -DFORTSPARSE_USE_SYSTEM_DEPS=ON \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix openblas);$(brew --prefix suitesparse);$(brew --prefix superlu);$(brew --prefix metis);$(brew --prefix libomp)"
+```
+
+The first run after linking can exceed the one-second test timeouts while
+macOS scans new executables; rerun before diagnosing. Homebrew gfortran 16.1
+on arm64 miscompiles `-fcheck=bounds` in the supernodal update (a clobbered
+`self` register); use a Linux build for bounds-checked supernodal runs.
+Linux-only tests and all reference benchmarks are not built on macOS.
+
 `fpm` also works via `fo`, and sees only `src/`, so it builds the MIT library
 and SuperLU and never the helper. Run `fo` (no arguments) for the full
 pipeline: static analysis, build, test, lint, format check.

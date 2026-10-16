@@ -68,12 +68,13 @@ FortSparse correctness or coverage work.
 1. **Close CPU correctness and ownership gaps.** Inventory each real consumer's
    missing operation against [native CPU support](docs/native-cpu.md). Repair
    reproducible original-matrix, transpose/adjoint, pivot, reuse, derivative and
-   exhaustion defects before optimizing. Specify and implement safe ownership
-   for public solver contexts: intrinsic assignment currently aliases native
-   user workspaces and opaque external handles. Cover the actual copy or
-   transfer operations the contract permits, including failure and finalization;
-   low-level factor-copy tests do not establish whole-context safety. Retain
-   independent known-solution oracles and explicit unsupported paths.
+   exhaustion defects before optimizing. Public solver contexts now have an
+   explicit copy contract (`sparse_copy` and defined assignment): native CPU
+   factors are deep-copied under the destination host cap; external and CUDA
+   factors are not copied and leave an unfactored destination. gfortran 16
+   does not invoke the defined assignment for a `sparse_solver_t` component of
+   an enclosing derived type, so such components must be copied explicitly.
+   Retain independent known-solution oracles and explicit unsupported paths.
 2. **Bound consumer qualification work.** Apply the NEO-2 stop rule below before
    further golden investigation. Diagnose FortFEM's two failing CI checks and
    KAMEL's golden/Linux/macOS failures, distinguishing baseline failures from
@@ -492,10 +493,10 @@ mathematical implementations.
 - [ ] **M6.6: consumer integration and CPU independence.** Consumer-required
   sparse preconditioners (Krylov remains in FortNum), native configuration tests
   without external sparse solvers, representative/held-out admission evidence,
-  cluster-memory predictions and migration documentation. Close the explicit
-  context-ownership/copy contract: intrinsic public solver assignment can alias
-  native user workspaces and opaque external handles; low-level allocatable
-  factor-copy tests do not establish safe whole-context copying. Expand index width
+  cluster-memory predictions and migration documentation. The whole-context
+  copy contract is implemented and tested for every native CPU family and the
+  SuperLU/UMFPACK-IPC handles; MUMPS and CUDA copies are compile-checked
+  only on hosts without those builds. Expand index width
   when the consumer inventory demonstrates a requirement.
   Native real CSR [ILUTP](docs/ilutp.md) with explicit fill caps, column pivots,
   bounded payload and allocation-free retained normal apply is implemented.
