@@ -3,6 +3,8 @@
 Hashed private real consumer matrices use the bounded `real-mm`/`rhs4`
 [adapter and independent audit](PRIVATE_REAL_FIXTURES.md). Numeric inputs and
 candidate solutions stay outside Git; the original frozen corpus below is unchanged.
+The separate [complex consumer adapter](PRIVATE_COMPLEX_FIXTURES.md) uses an
+explicit physical1/known1 contract and bounded independent Euclidean audit.
 
 These benchmark-only fixtures cover real LU, complex LU, complex Hermitian
 positive-definite Cholesky and real symmetric-indefinite LDLT. They complement

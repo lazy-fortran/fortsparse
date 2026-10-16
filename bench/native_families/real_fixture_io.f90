@@ -1,5 +1,5 @@
 module native_family_real_io
-    ! Benchmark-only, canonical real MatrixMarket interchange. No solver or BLAS.
+    ! Benchmark-only, canonical real/complex MatrixMarket. No solver or BLAS.
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     use, intrinsic :: iso_fortran_env, only: iostat_end
     use native_family_fixtures, only: dp, family_fixture_t, make_family_fixture, &
@@ -7,6 +7,7 @@ module native_family_real_io
     implicit none
     private
     public :: read_real_csc, read_real_array, write_real_array
+    public :: read_complex_csc, read_complex_array, write_complex_array
     public :: load_benchmark_fixture, load_benchmark_rhs, export_real_solution
 contains
     integer function words(line) result(count)
@@ -161,6 +162,138 @@ contains
         if (io /= 0) status = 2
     end subroutine
 
+    subroutine read_complex_csc(path, n, ptr, row, val, status)
+        character(*), intent(in) :: path
+        integer, intent(out) :: n, status
+        integer, allocatable, intent(out) :: ptr(:), row(:)
+        complex(dp), allocatable, intent(out) :: val(:)
+        character(1024) :: line
+        integer :: unit, io, nr, nc, nz, p, i, j, last_i, last_j, col
+        real(dp) :: vr, vi
+        n = 0
+        status = 2
+        open (newunit=unit, file=path, status='old', action='read', iostat=io)
+        if (io /= 0) return
+        read (unit, '(a)', iostat=io) line
+        if (io /= 0) goto 900
+        if (trim(line) /= '%%MatrixMarket matrix coordinate complex general') goto 900
+        call data_line(unit, line, io)
+        if (io /= 0) goto 900
+        if (words(line) /= 3) goto 900
+        read (line, *, iostat=io) nr, nc, nz
+        if (io /= 0) goto 900
+        if (nr < 1 .or. nr /= nc .or. nz < 0) goto 900
+        if (nr == huge(nr) .or. nz == huge(nz)) goto 900
+        allocate (ptr(nr + 1), row(nz), val(nz), stat=io)
+        if (io /= 0) goto 900
+        ptr(1) = 1
+        col = 1
+        last_i = 0
+        last_j = 0
+        do p = 1, nz
+            call data_line(unit, line, io)
+            if (io /= 0) goto 900
+            if (words(line) /= 4) goto 900
+            read (line, *, iostat=io) i, j, vr, vi
+            if (io /= 0) goto 900
+            if (i < 1 .or. i > nr .or. j < 1 .or. j > nc) goto 900
+            if (.not. ieee_is_finite(vr) .or. .not. ieee_is_finite(vi)) goto 900
+            val(p) = cmplx(vr, vi, dp)
+            if (j < last_j) goto 900
+            if (j == last_j) then
+                if (i <= last_i) goto 900
+            end if
+            do while (col < j)
+                ptr(col + 1) = p
+                col = col + 1
+            end do
+            row(p) = i
+            last_i = i
+            last_j = j
+        end do
+        do while (col <= nc)
+            ptr(col + 1) = nz + 1
+            col = col + 1
+        end do
+        ! Reject surplus numeric records as well as truncated files.
+        call data_line(unit, line, io)
+        if (io /= iostat_end) goto 900
+        n = nr
+        status = 0
+900     close (unit)
+        if (status /= 0) then
+            if (allocated(ptr)) deallocate (ptr)
+            if (allocated(row)) deallocate (row)
+            if (allocated(val)) deallocate (val)
+        end if
+    end subroutine
+
+    subroutine read_complex_array(path, values, status)
+        character(*), intent(in) :: path
+        complex(dp), allocatable, intent(out) :: values(:, :)
+        integer, intent(out) :: status
+        character(1024) :: line
+        integer :: unit, io, nr, nc, i, j
+        real(dp) :: vr, vi
+        status = 2
+        open (newunit=unit, file=path, status='old', action='read', iostat=io)
+        if (io /= 0) return
+        read (unit, '(a)', iostat=io) line
+        if (io /= 0) goto 900
+        if (trim(line) /= '%%MatrixMarket matrix array complex general') goto 900
+        call data_line(unit, line, io)
+        if (io /= 0) goto 900
+        if (words(line) /= 2) goto 900
+        read (line, *, iostat=io) nr, nc
+        if (io /= 0) goto 900
+        if (nr < 1 .or. nc < 1) goto 900
+        if (nr > huge(nr)/nc) goto 900
+        allocate (values(nr, nc), stat=io)
+        if (io /= 0) goto 900
+        do j = 1, nc
+            do i = 1, nr
+                call data_line(unit, line, io)
+                if (io /= 0) goto 900
+                if (words(line) /= 2) goto 900
+                read (line, *, iostat=io) vr, vi
+                if (io /= 0) goto 900
+                if (.not. ieee_is_finite(vr) .or. .not. ieee_is_finite(vi)) goto 900
+                values(i, j) = cmplx(vr, vi, dp)
+            end do
+        end do
+        call data_line(unit, line, io)
+        if (io /= iostat_end) goto 900
+        status = 0
+900     close (unit)
+        if (status /= 0) then
+            if (allocated(values)) deallocate (values)
+        end if
+    end subroutine
+
+    subroutine write_complex_array(path, values, status)
+        character(*), intent(in) :: path
+        complex(dp), intent(in) :: values(:, :)
+        integer, intent(out) :: status
+        integer :: unit, io, i, j
+        status = 2
+        if (.not. all(ieee_is_finite(real(values, dp)))) return
+        if (.not. all(ieee_is_finite(aimag(values)))) return
+        open (newunit=unit, file=path, status='new', action='write', iostat=io)
+        if (io /= 0) return
+        write (unit, '(a)', iostat=io) '%%MatrixMarket matrix array complex general'
+        if (io == 0) write (unit, *, iostat=io) size(values, 1), size(values, 2)
+        do j = 1, size(values, 2)
+            do i = 1, size(values, 1)
+                if (io /= 0) exit
+                write (unit, '(2(es26.17e3,1x))', iostat=io) &
+                    real(values(i, j), dp), aimag(values(i, j))
+            end do
+        end do
+        if (io == 0) status = 0
+        close (unit, iostat=io)
+        if (io /= 0) status = 2
+    end subroutine
+
     subroutine load_benchmark_fixture(name, level, heldout, a, source_path)
         character(*), intent(in) :: name, source_path
         integer, intent(in) :: level
@@ -168,6 +301,14 @@ contains
         type(family_fixture_t), intent(out) :: a
         real(dp), allocatable :: values(:)
         integer :: status
+        if (name == 'complex-mm') then
+            call read_complex_csc(source_path//'/matrix.mtx', a%n, a%ptr, &
+                                  a%row, a%val, status)
+            if (status /= 0) error stop 'invalid canonical complex MatrixMarket CSC'
+            a%is_complex = .true.
+            a%mtype = 13
+            return
+        end if
         if (name /= 'real-mm') then
             call make_family_fixture(name, level, heldout, a, source_path)
             return
@@ -185,7 +326,20 @@ contains
         logical, intent(in) :: heldout
         complex(dp), intent(out) :: b(:, :), x(:, :)
         real(dp), allocatable :: values(:, :)
+        complex(dp), allocatable :: zvalues(:, :)
         integer :: status
+        if (name == 'complex-mm') then
+            if (operation < 0 .or. operation > 2 .or. nrhs /= 2) &
+                error stop 'complex-mm requires rhs2 and N/T/H'
+            ! The fixture explicitly declares the operator of these stored RHS.
+            call read_complex_array(source_path//'/rhs.mtx', zvalues, status)
+            call require_complex_shape()
+            b = zvalues
+            call read_complex_array(source_path//'/centers.mtx', zvalues, status)
+            call require_complex_shape()
+            x = zvalues
+            return
+        end if
         if (name /= 'real-mm') then
             call known_rhs(a, name, nrhs, heldout, operation, b, x)
             return
@@ -205,6 +359,12 @@ contains
         call require_shape(1)
         x(:, 4:) = cmplx(values, 0.0_dp, dp)
     contains
+        subroutine require_complex_shape()
+            if (status /= 0) error stop 'invalid complex MatrixMarket RHS/centers'
+            if (size(zvalues, 1) /= a%n .or. size(zvalues, 2) /= nrhs) &
+                error stop 'complex MatrixMarket RHS/centers shape mismatch'
+        end subroutine
+
         subroutine require_shape(columns)
             integer, intent(in) :: columns
             if (status /= 0) error stop 'invalid MatrixMarket RHS/reference'
@@ -218,13 +378,17 @@ contains
         complex(dp), intent(in) :: x(:, :)
         character(4096) :: path
         integer :: status
-        if (name /= 'real-mm') return
+        if (name /= 'real-mm' .and. name /= 'complex-mm') return
         call get_environment_variable('FORTSPARSE_BENCH_SOLUTION', path, &
                                       status=status)
         if (status /= 0 .or. len_trim(path) == 0) &
-            error stop 'real-mm requires independent-audit solution export path'
-        if (any(aimag(x) /= 0.0_dp)) error stop 'real-mm complex solution'
-        call write_real_array(trim(path), real(x, dp), status)
+            error stop 'MatrixMarket fixture requires independent-audit export path'
+        if (name == 'complex-mm') then
+            call write_complex_array(trim(path), x, status)
+        else
+            if (any(aimag(x) /= 0.0_dp)) error stop 'real-mm complex solution'
+            call write_real_array(trim(path), real(x, dp), status)
+        end if
         if (status /= 0) error stop 'MatrixMarket solution export failed'
     end subroutine
 end module native_family_real_io

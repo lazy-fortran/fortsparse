@@ -104,12 +104,14 @@ program bench_native_families_umfpack
     r%nrhs = 1
     select case (trim(r%workload))
     case ('rhs1', 'refactor', 'warm')
+    case ('rhs2')
+        r%nrhs = 2
     case ('rhs4')
         r%nrhs = 4
     case ('rhs8')
         r%nrhs = 8
     case default
-        error stop 'workload must be rhs1/rhs4/rhs8/refactor/warm'
+        error stop 'workload must be rhs1/rhs2/rhs4/rhs8/refactor/warm'
     end select
     call load_benchmark_fixture(trim(r%family), r%level, heldout, a, trim(mini5_path))
     r%n = a%n

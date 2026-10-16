@@ -178,3 +178,37 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET fortsparse_umfpack_helper
         LABELS "benchmark;umfpack;memory;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+if(FORTSPARSE_BUILD_TESTING)
+    add_executable(test_native_family_complex_io test_complex_fixture_io.f90)
+    target_link_libraries(test_native_family_complex_io PRIVATE fortsparse_family_fixtures)
+    add_test(NAME native_family_complex_io COMMAND test_native_family_complex_io)
+    set_tests_properties(native_family_complex_io PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME native_family_complex_audit COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_CURRENT_SOURCE_DIR}/test_complex_fixture.py")
+        set_tests_properties(native_family_complex_audit PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+        foreach(_peer native superlu umfpack mumps umfpack-direct umfpack-direct-noir intel-pardiso)
+            set(_complex_driver bench_native_families)
+            if(_peer STREQUAL "superlu" AND NOT FORTSPARSE_ENABLE_SUPERLU)
+                continue()
+            elseif(_peer STREQUAL "umfpack" AND NOT FORTSPARSE_BUILD_HELPER)
+                continue()
+            elseif(_peer STREQUAL "mumps" AND NOT FORTSPARSE_ENABLE_MUMPS)
+                continue()
+            elseif(_peer MATCHES "^umfpack-direct")
+                set(_complex_driver bench_native_families_umfpack)
+            elseif(_peer STREQUAL "intel-pardiso")
+                set(_complex_driver bench_native_families_pardiso)
+            endif()
+            if(TARGET ${_complex_driver})
+                add_test(NAME "native_family_complex_${_peer}"
+                    COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_complex_fixture.py"
+                        $<TARGET_FILE:${_complex_driver}> "${_peer}")
+                set_tests_properties("native_family_complex_${_peer}" PROPERTIES
+                    LABELS "benchmark;fast" TIMEOUT 1 SKIP_RETURN_CODE 77
+                    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
+            endif()
+        endforeach()
+    endif()
+endif()
