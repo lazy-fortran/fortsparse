@@ -3,7 +3,7 @@ program bench_native_families
                    sparse_factor, sparse_solve_block_op, sparse_refactor, sparse_free, &
                    sparse_factor_stats, sparse_factor_stats_t, FORTSPARSE_SYM_GENERAL, &
                    FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
-                   FORTSPARSE_ORDER_AMD
+                   FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW, i8
     use native_family_fixtures, only: dp, family_fixture_t, &
                                       fixture_backward_error, wall_time
     use native_family_real_io, only: load_benchmark_fixture, load_benchmark_rhs, &
@@ -24,7 +24,7 @@ program bench_native_families
     character(1024) :: mini5_path
     real(dp) :: total_start, cpu_start, start, cpu_end
     logical :: heldout
-    integer :: operation, j
+    integer :: operation, j, ios, env_status
 
     total_start = wall_time()
     call cpu_time(cpu_start)
@@ -58,13 +58,24 @@ program bench_native_families
         solver%backend_id = 2
     case ('mumps')
         solver%backend_id = 3
-    case ('native','native-amd')
+    case ('native','native-amd','native-amd-low','native-amd-capped')
         solver%backend_id = 4
-        if (trim(r%backend) == 'native-amd') &
+        if (trim(r%backend) /= 'native') &
             solver%options%ordering = FORTSPARSE_ORDER_AMD
     case default
         error stop 'unknown backend'
     end select
+    if (trim(r%backend)=='native-amd-low') solver%options%memory_policy=FORTSPARSE_MEMORY_LOW
+    if (trim(r%backend)=='native-amd-capped') then
+        call get_environment_variable('FORTSPARSE_BENCH_HOST_LIMIT_BYTES',argument,status=env_status)
+        if (env_status/=0.or.len_trim(argument)==0) error stop 'capped alias requires positive host limit bytes'
+        if (verify(trim(argument),'0123456789')/=0) error stop 'host limit bytes must be a positive decimal i8'
+        read(argument,*,iostat=ios) solver%options%host_memory_limit_bytes
+        if (ios/=0) error stop 'host limit bytes exceeds positive i8 range'
+        if (solver%options%host_memory_limit_bytes<=0_i8) error stop 'host limit bytes must be positive'
+    end if
+    r%memory_policy=solver%options%memory_policy
+    r%host_memory_limit_bytes=solver%options%host_memory_limit_bytes
     r%nrhs = 1
     select case (trim(r%workload))
     case ('rhs1', 'refactor', 'warm')

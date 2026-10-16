@@ -16,11 +16,12 @@ METRICS = ('n', 'nnz', 'nrhs', 'process_wall_s', 'total_s', 'factor_s', 'solve_s
            'prime_factor_s', 'active_threads',
            'native_factor_serial', 'factor_nnz', 'host_peak_bytes',
            'backward_error', 'forward_error')
-BACKENDS = ('native', 'native-amd', 'superlu', 'umfpack', 'mumps', 'intel-pardiso', 'umfpack-direct')
+BACKENDS = ('native', 'native-amd', 'superlu', 'umfpack', 'mumps', 'intel-pardiso', 'umfpack-direct',
+            'native-amd-low', 'native-amd-capped')
 FAMILIES = ('neo2-mini5', 'drift-real', 'drift-complex', 'hpd-chain', 'ldlt-chain')
-# Okabe-Ito palette; marker shapes redundantly identify backends.
-COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9')
-MARKERS = ('o', 'v', 's', '^', 'D', 'P', 'X')
+# Existing seven styles retained; memory aliases add distinct colors and markers.
+COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9', '#882255', '#999933')
+MARKERS = ('o', 'v', 's', '^', 'D', 'P', 'X', '*', 'h')
 
 
 def summarize(attempts):
@@ -30,7 +31,14 @@ def summarize(attempts):
     rows = []
     for key, group in sorted(groups.items()):
         ok = [a for a in group if a['status'] == 'ok' and a.get('returncode', 0) == 0]
-        row = dict(zip(KEYS, key), attempts=len(group), ok=len(ok),
+        configurations = {(a.get('record', {}).get('memory_policy', -1),
+                           a.get('record', {}).get('host_memory_limit_bytes', -1)) for a in group
+                          if a.get('record')}
+        if len(configurations)>1:
+            raise ValueError("mixed memory policy/cap in one benchmark group")
+        policy,cap = next(iter(configurations),(-1,-1))
+        row = dict(zip(KEYS, key), memory_policy=policy,host_memory_limit_bytes=cap,
+                   attempts=len(group), ok=len(ok),
                    timeouts=sum(a['status'] == 'timeout' for a in group),
                    failures=len(group)-len(ok)-sum(a['status'] == 'timeout' for a in group),
                    reused_true=sum(a.get('record', {}).get('reused') == 'T' for a in ok))
@@ -50,12 +58,19 @@ def summarize(attempts):
     return rows
 
 
+def available_backends(rows):
+    unknown = {r['backend'] for r in rows}-set(BACKENDS)
+    if unknown:
+        raise ValueError("plot backend has no declared style: "+", ".join(sorted(unknown)))
+    return [b for b in BACKENDS if any(r['backend']==b for r in rows)]
+
+
 def render(rows, out, timeout, cpu_model, front_note='no frontier admission'):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     plt.rcParams.update({'font.size': 10, 'axes.titlesize': 11, 'axes.labelsize': 10})
-    available = [b for b in BACKENDS if any(r['backend'] == b for r in rows)]
+    available = available_backends(rows)
     families = [f for f in FAMILIES if any(r['family'] == f for r in rows)]
     native_teams = sorted({int(r['active_threads_'+bound]) for r in rows
                            if r['backend'].startswith('native') and
@@ -242,7 +257,9 @@ def report(attempts, rows, provenance, source_hash, cpu_scope, cpu_model):
                  '- Completed workflow CPU uses wait4 user+system usage, including reaped '
                  'helper CPU and termination. Helper CPU must not be added again. Parent '
                  'pre-CSV cumulative CPU and main interval remain separate in the CSV.',
-                 '- Native AMD attributed peak bytes are unavailable (-1), never zero. '
+                 '- Uncapped native AMD attributed peak bytes are unavailable (-1), never zero. '
+                 'LOW/capped aliases retain their explicit policy/cap in CSV; owned payload '
+                 'is separate from RSS. '
                  'Parent VmHWM is a process RSS measurement, not attributed factor memory.']
     text += [
         '- Native records report one active factor thread at every requested budget. '

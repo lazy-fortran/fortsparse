@@ -9,7 +9,8 @@ import subprocess
 import time
 
 from real_fixture_audit import PrivateFixture, sha256
-from run import EXTERNAL, NATIVE, ROOT, binary_name, invoke, physical_cores, matched_points
+from run import (EXTERNAL, NATIVE, ROOT, binary_name, invoke, physical_cores, matched_points,
+                 positive_i8, memory_environment, record_memory_configuration)
 
 HERE = Path(__file__).resolve().parent
 
@@ -73,7 +74,7 @@ def verify_qualification(paths, fixture, build):
     return hashes
 
 
-def attempt(backend, build, stage, output, fixture, threads, cores, timeout):
+def attempt(backend, build, stage, output, fixture, threads, cores, timeout, host_limit_bytes=None):
     binary = binary_path(build, backend)
     result = dict(backend=backend, binary=str(binary), status="unavailable")
     if not binary.is_file():
@@ -88,7 +89,9 @@ def attempt(backend, build, stage, output, fixture, threads, cores, timeout):
     if backend not in ("intel-pardiso", "umfpack-direct"):
         args.insert(0, backend)
     receipt = invoke(binary, args, threads, cores, timeout,
-                     extra_env={"FORTSPARSE_BENCH_SOLUTION": str(candidate)})
+                     extra_env={"FORTSPARSE_BENCH_SOLUTION": str(candidate),
+                                **memory_environment(backend,host_limit_bytes)})
+    record_memory_configuration(receipt,backend,host_limit_bytes)
     result["process_receipt"] = receipt
     if backend == "umfpack":
         result["aggregate_memory"] = "unknown; parent/helper RSS must not be summed"
@@ -120,6 +123,8 @@ def main():
     parser.add_argument("--mode", choices=("prepare", "qualify", "native", "measure"),
                         default="prepare")
     parser.add_argument("--backend", choices=NATIVE)
+    parser.add_argument("--native-host-limit-bytes", type=positive_i8,
+                        help="required positive i8 cap for native-amd-capped")
     parser.add_argument("--qualification", type=Path, nargs="+")
     parser.add_argument("--backends", default=",".join(EXTERNAL),
                         help="external qualification subset; native admission requires all five")
@@ -137,6 +142,8 @@ def main():
         parser.error("execution requires the controller's coordinated window note")
     if args.mode in ("native", "measure") and (not args.backend or not args.qualification):
         parser.error("native execution requires explicit backend and passing external qualification")
+    if args.mode in ("native", "measure") and args.backend=="native-amd-capped" and args.native_host_limit_bytes is None:
+        parser.error("native-amd-capped requires --native-host-limit-bytes")
     if args.trials < 1:
         parser.error("positive fresh-process trial count required")
     if args.mode != "measure" and args.thread_sweep is not None:
@@ -176,6 +183,7 @@ def main():
         comparison_scope=(list(EXTERNAL)+[args.backend] if args.mode == "measure"
                           else peers if args.mode == "qualify" else [args.backend]),
         requested_thread_budgets=budgets,
+        requested_native_host_limit_bytes=args.native_host_limit_bytes,
         fresh_process_trials=args.trials if args.mode == "measure" else 1,
         comparison_policy="Numerical gates unchanged; existing five-peer family "
         "comparison scope includes direct and IPC UMFPACK separately.",
@@ -197,7 +205,7 @@ def main():
                 folder = args.output / f"threads-{nt}-trial-{trial}-{backend}"
                 folder.mkdir(mode=0o700)
                 result = attempt(backend, build, stage, folder, fixture,
-                                 nt, available_cores[:nt], args.timeout)
+                                 nt, available_cores[:nt], args.timeout, args.native_host_limit_bytes)
                 result.update(threads=nt, trial=trial)
                 raw.write(json.dumps(result)+"\n")
                 raw.flush()
@@ -207,7 +215,7 @@ def main():
     elif args.mode != "prepare":
         for backend in backends:
             document["attempts"].append(attempt(backend, build, stage, args.output,
-                fixture, args.threads, available_cores[:args.threads], args.timeout))
+                fixture, args.threads, available_cores[:args.threads], args.timeout, args.native_host_limit_bytes))
     document["status"] = ("prepared" if args.mode == "prepare" else "pass"
         if all(a["status"] == "pass" for a in document["attempts"]) else "failed")
     document["adapter_wall_s"] = time.perf_counter()-start

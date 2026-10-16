@@ -140,14 +140,16 @@ class CampaignTests(unittest.TestCase):
                 manifest = {"id": "public-test"}
                 manifest_sha256, policy_sha256 = "matrix", "policy"
             launched = []
-            def child(backend, build, stage, folder, fixture, threads, cores, timeout):
+            def child(backend, build, stage, folder, fixture, threads, cores, timeout, host_limit_bytes=None):
+                self.assertEqual(host_limit_bytes,2**63-1)
                 launched.append((backend, threads, tuple(cores), folder))
                 return dict(backend=backend,
                             status="timeout" if len(launched) == 1 else "pass")
             argv = ["run_private_real.py", "--fixture", str(path/"fixture.json"),
                     "--policy-sha256", "policy", "--build", str(path/"build"),
                     "--output", str(path/"output"), "--mode", "measure",
-                    "--backend", "native-amd", "--qualification", str(path/"qual.json"),
+                    "--backend", "native-amd-capped", "--native-host-limit-bytes", str(2**63-1),
+                    "--qualification", str(path/"qual.json"),
                     "--thread-sweep", "1,2", "--trials", "2", "--window-note", "unit test"]
             def stage(fixture, output):
                 output.mkdir()
@@ -162,6 +164,7 @@ class CampaignTests(unittest.TestCase):
             receipt = json.loads((path/"output/receipt.json").read_text())
             raw = [json.loads(s) for s in (path/"output/attempts.jsonl").read_text().splitlines()]
             self.assertEqual(receipt["status"], "failed")
+            self.assertEqual(receipt["requested_native_host_limit_bytes"],2**63-1)
             self.assertEqual(len(raw), 24)
             self.assertEqual(sum(a["status"] == "timeout" for a in raw), 1)
             self.assertEqual(receipt["attempts"], raw)
@@ -170,7 +173,7 @@ class CampaignTests(unittest.TestCase):
                 for trial in (0, 1):
                     self.assertEqual({a["backend"] for a in raw
                                       if a["threads"] == nt and a["trial"] == trial},
-                                     set(EXTERNAL)|{"native-amd"})
+                                     set(EXTERNAL)|{"native-amd-capped"})
             self.assertTrue(all(c == (2,) if nt == 1 else c == (2, 4)
                                 for _, nt, c, _ in launched))
 
