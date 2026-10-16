@@ -57,6 +57,12 @@ def render(rows, out, timeout, cpu_model, front_note='no frontier admission'):
     plt.rcParams.update({'font.size': 10, 'axes.titlesize': 11, 'axes.labelsize': 10})
     available = [b for b in BACKENDS if any(r['backend'] == b for r in rows)]
     families = [f for f in FAMILIES if any(r['family'] == f for r in rows)]
+    native_teams = sorted({int(r['active_threads_'+bound]) for r in rows
+                           if r['backend'].startswith('native') and
+                           r.get('active_threads_count', 0) for bound in ('min', 'max')})
+    team_label = '/'.join(map(str, native_teams)) or 'unknown'
+    external_team_label = ('unknown' if not any(r.get('active_threads_count', 0)
+        for r in rows if not r['backend'].startswith('native')) else 'see numeric CSV')
 
     def figure(name, title, panels, variant='training', logarithmic=True):
         fig, axes = plt.subplots(2, len(families),
@@ -178,7 +184,7 @@ def render(rows, out, timeout, cpu_model, front_note='no frontier admission'):
                        for b in available if b != 'umfpack']
             fig.legend(handles=handles, loc='lower center', ncol=len(handles))
             fig.suptitle(f'{variant}: time/RSS diagnostic; {front_note}\n'
-                         'Native factor team=1; external teams unknown; '
+                         f'Native factor team={team_label}; external teams {external_team_label}; '
                          'UMFPACK IPC aggregate RSS unknown: no point shown')
             fig.tight_layout(rect=(0, 0.05, 1, 0.93))
             fig.savefig(out/f'time-rss-{variant}.png', dpi=150)

@@ -56,20 +56,32 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def describe(attempts, rows, fronts, calibration, inputs):
+def describe(attempts, rows, fronts, calibration, inputs, revision, calibration_attempts):
+    calibration_status = collections.Counter(a['status'] for a in calibration_attempts)
+    rejections = [a for a in calibration_attempts if a['status'] != 'ok'
+                  or a['returncode'] != 0 or a['process_wall_s'] >= .5]
+    families = sorted({r['family'] for r in rows})
+    operations = ','.join(sorted({r['operation'] for r in rows}))
+    workloads = ','.join(sorted({r['workload'] for r in rows}))
+    native_teams = sorted({int(a['record']['active_threads']) for a in attempts
+                           if a['backend'].startswith('native')})
+    unknown_peaks = sorted({r['backend'] for r in rows
+                            if r['backend'].startswith('native') and not r['host_peak_bytes_count']})
     text = ['# Five-peer completed CPU/RSS checkpoint', '',
         f'{len(attempts)} completed attempts; {len(rows)} five-trial configuration groups. '
-        'Source c6fa39b; native indexed AMD LU for drift, native HPD/LDLT references for chains. '
+        f'Source `{revision}`. Native backend labels: '+
+        ', '.join(sorted({r['backend'] for r in rows if r['backend'].startswith('native')}))+'. '
         'All process CPU uses completed wait4 user+system counters including reaped helpers.', '',
         'Five external peers: SuperLU, UMFPACK IPC, standalone direct UMFPACK, MUMPS '
         'and Intel oneMKL PARDISO. Requested physical thread budgets are 1/2/4/8/16. '
-        'Native active factor team is one; external active teams remain unknown.', '',
-        'External-only calibration retained 2,052 successful attempts. Complex drift '
-        'level128 was rejected by the strict <0.5s process-wall gate (UMFPACK IPC '
-        'approximately 0.747s), not a numerical failure. Candidate scan stopped at '
-        'rejection; higher or remaining configurations were not inferred to pass. '
-        'The frozen selected complex fixture is n=4,096; other three families are '
-        'n=16,384. Earlier 16k complex diagnostics remain separate.', '',
+        f'Native active factor teams reported: {native_teams}. External active teams '
+        'are retained separately in the numeric CSV; negative values mean unknown.', '',
+        f'External-only calibration retained {len(calibration_attempts):,} attempts: '+
+        ', '.join(f'{count} {status}' for status, count in calibration_status.items())+
+        f'. Rejected observations under the strict <0.5s process-wall/status gate: '
+        f'{len(rejections)}. Rejected observations and unmeasured candidate tails '
+        'are retained; their success is never inferred. Earlier differently sized '
+        'diagnostics remain separate.', '',
         'The following counts compare each of five native requested-thread configurations '
         'with all 25 external peer/thread configurations at the same family, actual size, '
         'workload, variant and operation:', '',
@@ -100,16 +112,22 @@ def describe(attempts, rows, fronts, calibration, inputs):
         'the native minimum values. Such a result requires known single-process RSS.',
         '- Nondominance is a time/memory tradeoff, distinct from matching or beating '
         'the same best comparator on both axes. This report does not promote a library '
-        'default or claim broad production/frontier completion. It covers four structural '
-        'fixtures, normal solves, cold RHS8 and same-pattern refactor workflows only.',
+        f'default or claim broad production/frontier completion. It covers {len(families)} '
+        f'fixture families, operations {operations}, workloads {workloads} only.',
         '- CPU and elapsed front assessments are separate. The refactor workflow includes '
         'prime factorization. The numeric CSV separates timed analysis, factor, numeric, '
         'solve and refactor calls from complete subprocess wall and CPU.',
-        '- Native attributed peak bytes remain unavailable for AMD LU; process VmHWM '
-        'is valid RSS evidence and must not be called attributed factor memory. Unknown '
-        'numeric summaries have count zero and must not be plotted as zero.',
+        f'- Native labels with unavailable attributed peak bytes: {unknown_peaks}. '
+        'Process VmHWM is valid RSS evidence and must not be called attributed factor '
+        'memory. Unknown summaries have count zero and must not be plotted as zero.',
         '- Five-peer selection differs from the older four-peer diagnostic. No '
         'cross-checkpoint speedup at different sizes or host loads is inferred.']
+    text += ['', 'Calibration rejections:', '']
+    text += [f'- {a["family"]}, level {a["level"]}, {a["backend"]}, '
+             f'{a["threads"]} threads, trial {a["trial"]}: status {a["status"]}, '
+             f'process wall {a["process_wall_s"]:.6f}s.' for a in rejections]
+    if not rejections:
+        text += ['- None.']
     loads = [a['background_load_before'][0] for a in attempts]
     text += [f'- Pre-launch one-minute host load: {min(loads):.3f}–{max(loads):.3f}. '
              'Affinity and controller quiescence retain ordinary resident services; '
@@ -137,6 +155,8 @@ def main():
     if len({p['source_revision'] for p in provenance}) != 1:
         parser.error('combined inputs must share a frozen source revision')
     selection = json.loads(args.calibration.read_text())
+    calibration_attempts = [json.loads(l) for l in
+        (args.calibration.parent/'attempts.jsonl').read_text().splitlines() if l]
     if set(selection['backends']) != set(PEERS):
         parser.error('five-peer selection required')
     if any(a['level'] != selection['levels'][a['family']] for a in attempts):
@@ -153,14 +173,13 @@ def main():
             writer = csv.DictWriter(handle, fieldnames=list(data[0]))
             writer.writeheader()
             writer.writerows(data)
-    (args.output/'report.md').write_text(describe(attempts, rows, fronts, args.calibration, args.inputs))
+    (args.output/'report.md').write_text(describe(attempts, rows, fronts, args.calibration, args.inputs,
+        provenance[0]['source_revision'], calibration_attempts))
     (args.output/'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n')
     (args.output/'calibration_selection.json').write_text(json.dumps(selection, indent=2)+'\n')
     receipts = [p/name for p in args.inputs for name in ('attempts.jsonl', 'provenance.json')]
     receipts += [args.calibration, args.calibration.parent/'attempts.jsonl',
                  args.calibration.parent/'provenance.json']
-    calibration_attempts = [json.loads(l) for l in
-        (args.calibration.parent/'attempts.jsonl').read_text().splitlines() if l]
     rejections = [{k: a[k] for k in ('family', 'backend', 'level', 'threads',
                                     'trial', 'status', 'process_wall_s')}
                   for a in calibration_attempts if a['status'] != 'ok'
