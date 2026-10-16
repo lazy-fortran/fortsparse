@@ -173,8 +173,9 @@ LU accounts for reuse overlap; ordered SPD accounts for analysis, panels and
 original-matrix refinement.
 Bounded panels count descriptors, graph/task
 scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
-workspace. Compact natural SPD has exact payload planning. Ordered SPD planning,
-ND/CUDA caps and wider production planning remain unimplemented; strict unsupported requests fail
+workspace. Compact natural SPD and explicit-AMD LOW_MEMORY SPD have exact
+payload planning, including ordering and symbolic-count phase peaks. Blocked
+planning, ND/CUDA caps and wider production planning remain unimplemented; strict unsupported requests fail
 explicitly. See [memory contracts](docs/memory.md). This does not complete M6.1
 or confer performance admission.
 

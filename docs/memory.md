@@ -51,9 +51,13 @@ leaves an unfactored context. Caller storage, fixed descriptors, allocator
 overhead and process RSS are excluded. This does not establish SPEC application
 memory or preconditioner performance admission.
 
-The first exact pre-factorization planning API describes the compact real-SPD
-layout; select LOW_MEMORY or NATIVE_REFERENCE. It does not claim to predict
-blocked/ordered/pivot-dependent layouts. Production planning remains roadmap work.
+The pre-factorization planning API describes compact real-SPD layouts. Natural
+ordering supports LOW_MEMORY or NATIVE_REFERENCE. Explicit AMD planning requires
+LOW_MEMORY, including with NATIVE_REFERENCE, and the audited bounded AMD ABI.
+It uses the production permutation and independently counts its symbolic fill.
+Uncapped reference AMD without LOW_MEMORY keeps its existing execution policy;
+its opaque ordering workspace is not planned. Blocked, ND, GPU and
+pivot-dependent planning remain unavailable.
 
 ```fortran
 use fortsparse
@@ -74,7 +78,9 @@ Analysis preserves any retained factorization. Planning scratch shares its cap
 with retained budgeted factors; release them before planning when coexistence
 cannot fit. Existing unbudgeted or other-family factors must be released before
 strict planning. The current fit check conservatively includes retained payload
-alongside the planned new layout. It checks structure/symmetry and
+alongside the planned new layout. An ordered plan reports EXACT_LAYOUT for a
+fresh factor and BOUND when this conservative old-plus-new fit is requested;
+its byte fields describe the new factor, not the sum. It checks structure/symmetry and
 counts fill; it does not prove positive definiteness. The numeric factorization
 still checks every pivot. Planning itself is capped and may fail for insufficient
 graph scratch before a full layout can be calculated. Cap changes apply on the
@@ -92,8 +98,19 @@ original CSC and two checker vectors. The returned plan already includes this
 quota and checks its overlap with planning scratch; do not add it twice.
 See [refinement](native-refinement.md) for the numerical contract.
 
-The factor value array contributes `8*L`. Analysis needs only three integer
-n-vectors while planning, released before factorization. Scalar and block solves
+For explicit AMD with LOW_MEMORY, the retained unrefined compact layout is
+`12*L + 20*m + 48*n + 12` bytes. Add the same refinement quota above. The exact
+peak also considers the audited AMD arena plus its permutation outputs, the
+reordered CSC construction cursor, and the production symbolic-count scratch
+used at n >= 4096. These phases have different lifetimes; `workspace_host_bytes`
+is the peak increment above retained factor plus persistent payload, rather than
+the sum of all transient allocations. The plan runs the actual production AMD
+ordering under the cap, releases that temporary layout after counting, and
+preserves the existing factors and their statistics even on failure.
+
+The factor value array contributes `8*L`. Natural analysis needs three integer
+n-vectors while planning; AMD analysis additionally retains a temporary ordered
+CSC and permutation until counting finishes. Scalar and block solves
 reuse retained scratch without per-call allocations; the real JVP uses its
 caller-owned output as RHS. A backend-owned `sparse_vector` also consumes the
 cap and returns a disassociated pointer if its allocation cannot fit.

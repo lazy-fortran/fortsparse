@@ -34,7 +34,7 @@ module fortsparse_solver
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_native_general, only: native_general_backend_t
     use fortsparse_lu_leaves, only: lu_z_update
-    use fortsparse_native, only: native_backend_t
+    use fortsparse_native, only: native_backend_t, native_plan_ordered_spd
     implicit none
     private
 
@@ -260,7 +260,7 @@ contains
     end subroutine sparse_solve_complex_block_op
 
     subroutine sparse_analyze(solver, A, plan, status, nrhs)
-        ! Plans the exact bounded natural-order CPU SPD layout without
+        ! Plans the bounded compact natural/AMD CPU SPD layout without
         ! factorizing or changing retained factors. Other schedules are explicit.
         type(sparse_solver_t), intent(in) :: solver
         type(csc_t), intent(in) :: A
@@ -276,10 +276,11 @@ contains
             return
         end if
         if (solver%options%symmetry /= FORTSPARSE_SYM_SPD .or. &
-            solver%options%ordering /= FORTSPARSE_ORDER_DEFAULT .or. &
+            (solver%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+             solver%options%ordering /= FORTSPARSE_ORDER_AMD) .or. &
             solver%options%structural_matching .or. solver%options%device /= -1) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'memory analysis: require natural-order CPU SPD layout')
+                'memory analysis: require compact natural/AMD CPU SPD layout')
             return
         end if
         if (solver%backend_id == FORTSPARSE_BACKEND_NATIVE .and. &
@@ -295,24 +296,36 @@ contains
                 'memory analysis: invalid memory limit or policy')
             return
         end if
+        if (solver%options%ordering == FORTSPARSE_ORDER_AMD .and. &
+            solver%options%memory_policy /= FORTSPARSE_MEMORY_LOW) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'memory analysis: AMD planning requires LOW_MEMORY audited ordering')
+            return
+        end if
         budget%limit = solver%options%host_memory_limit_bytes
         if (allocated(solver%backend)) then
-            select type(backend => solver%backend)
-            type is(native_backend_t)
+            select type (backend => solver%backend)
+            type is (native_backend_t)
                 if (.not. backend%bounded_memory) then
-                    call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                        'memory analysis: release unbudgeted factors before strict planning')
+                    call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                        'memory analysis: release unbudgeted factors before planning')
                     return
                 end if
                 budget%current = backend%host_budget%current
                 budget%peak = budget%current
             class default
-                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                     'memory analysis: release other factors before strict planning')
                 return
             end select
         end if
-        call plan_natural_spd_memory(A, plan, status, budget, nrhs, refine=solver%refine)
+        if (solver%options%ordering == FORTSPARSE_ORDER_AMD) then
+            call native_plan_ordered_spd(A, solver%options, solver%refine, &
+                                         budget, plan, status, nrhs)
+        else
+            call plan_natural_spd_memory(A, plan, status, budget, nrhs, &
+                refine=solver%refine)
+        end if
     end subroutine sparse_analyze
 
     ! Factor a real matrix. Ensures the concrete backend, then dispatches.

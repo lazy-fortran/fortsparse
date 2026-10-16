@@ -59,6 +59,12 @@ program test_spd_amd_bounded
                     'AMD-off status')
         call expect(amd_calls() == 0 .and. opaque_calls() == 0, &
                     'unavailable AMD invoked')
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options = factor%options
+        call sparse_analyze(solver, a, plan, status)
+        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE .and. &
+                    .not. plan%fits, &
+                    'unavailable AMD planning did not fail closed')
         stop
     end if
     call checked()
@@ -73,6 +79,7 @@ program test_spd_amd_bounded
     call expect(initial%ordering_used == FORTSPARSE_ORDER_AMD, &
                 'actual AMD ordering')
     call expect(opaque_calls() == 0, 'strict path used opaque AMD')
+    call planning_oracle()
     cap = initial%host_peak_bytes; allocations = calls
     do op = 0, 2
         call factor%solve_real_op(rhs, x, op, status)
@@ -132,7 +139,7 @@ program test_spd_amd_bounded
     call expect(maxval(abs(x - exact)) < 1e-12_dp, &
                 'allocation-failure recovery')
     call factor%free()
-    ! Public planner must not relabel ordered factors as an exact natural plan.
+    ! Public ordered planning reuses actual AMD and preserves retained factors.
     solver%backend_id = FORTSPARSE_BACKEND_NATIVE
     solver%options%symmetry = FORTSPARSE_SYM_SPD
     solver%options%ordering = FORTSPARSE_ORDER_AMD
@@ -140,13 +147,16 @@ program test_spd_amd_bounded
     solver%refine = .true.
     solver%options%host_memory_limit_bytes = 1000000_i8
     call sparse_analyze(solver, a, plan, status)
-    call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'ordered exact plan invented')
+    call checked()
+    call expect(plan%fits .and. plan%prediction_quality == MEMORY_PLAN_EXACT_LAYOUT, &
+                'ordered exact plan unavailable')
     call sparse_factor(solver, a, status)
     call checked()
     call sparse_analyze(solver, a, plan, status)
-    call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE .and. &
-                solver%factored, 'ordered planning changed retained factors')
+    call checked()
+    call expect(plan%fits .and. solver%factored .and. &
+                plan%prediction_quality == MEMORY_PLAN_BOUND, &
+                'ordered planning changed retained factors')
     call sparse_solve(solver, rhs, x, status)
     call checked()
     call expect(maxval(abs(x - exact)) < 1e-12_dp, &
@@ -174,6 +184,161 @@ program test_spd_amd_bounded
     print '(a)', &
         'Strict AMD SPD allocation, recovery, permutation, reuse and refinement pass'
 contains
+    subroutine planning_oracle()
+        type(sparse_solver_t) :: request
+        type(sparse_memory_plan_t) :: predicted
+        type(sparse_factor_stats_t) :: retained_stats, unchanged
+        integer :: backend, refinement, row, col, pivot
+        logical :: filled(n, n)
+        integer(i8) :: expected_peak, retained_bytes
+        integer(c_int64_t) :: measured_calls, measured_live, measured_peak, &
+            failures, failed_index
+        do backend = FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE
+            if (backend /= FORTSPARSE_BACKEND_NATIVE .and. &
+                backend /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) cycle
+            do refinement = 0, 1
+                request%backend_id = backend
+                request%options%symmetry = FORTSPARSE_SYM_SPD
+                request%options%ordering = FORTSPARSE_ORDER_AMD
+                request%options%memory_policy = FORTSPARSE_MEMORY_LOW
+                request%refine = refinement == 1
+                call sparse_analyze(request, a, predicted, status, nrhs=7)
+                call checked()
+                call expect(predicted%fits .and. predicted%max_rhs_batch == 7, &
+                    'AMD RHS plan')
+                call expect(predicted%prediction_quality == &
+                    MEMORY_PLAN_EXACT_LAYOUT, 'AMD layout quality')
+                expected_peak = predicted%peak_host_bytes
+                retained_bytes = predicted%factor_host_bytes + &
+                    predicted%persistent_host_bytes
+                ! Use concrete production backend: excludes the polymorphic object
+                ! descriptor allocated by the public factory, outside payload scope.
+                call factor%free()
+                factor%reference_only = backend == FORTSPARSE_BACKEND_NATIVE_REFERENCE
+                factor%options%host_memory_limit_bytes = expected_peak
+                call begin(0_c_int64_t)
+                call factor%factor_real(a, request%refine, status)
+                call finish(measured_calls, measured_live, measured_peak)
+                call checked()
+                call expect(measured_peak == expected_peak, &
+                    'predicted vs allocator peak')
+                call expect(measured_live == retained_bytes, &
+                    'predicted vs allocator retained')
+                filled = .false.
+                do col = 1, n
+                    do row = 1, n
+                        filled(row, col) = dense(factor%perm(row), &
+                            factor%perm(col)) /= 0.0_dp
+                    end do
+                end do
+                do pivot = 1, n
+                    do col = pivot + 1, n
+                        do row = pivot + 1, n
+                            if (filled(row, pivot) .and. filled(col, &
+                                pivot)) filled(row, col) = .true.
+                        end do
+                    end do
+                end do
+                row = 0
+                do col = 1, n
+                    row = row + count(filled(col:n, col))
+                end do
+                call expect(predicted%symbolic_nnz == row, &
+                    'independent permuted dense fill count')
+                call factor%free()
+                factor%options%host_memory_limit_bytes = expected_peak - 1_i8
+                call factor%factor_real(a, request%refine, status)
+                call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+                    'planned cap minus one factor')
+                call factor%free()
+                request%options%host_memory_limit_bytes = expected_peak - 1_i8
+                call sparse_analyze(request, a, predicted, status)
+                call expect(status%code == FORTSPARSE_RESOURCE_LIMIT .and. &
+                    .not. predicted%fits, &
+                            'planned cap minus one analysis')
+                request%options%host_memory_limit_bytes = expected_peak
+                call sparse_factor(request, a, status)
+                call checked()
+                call sparse_factor_stats(request, retained_stats, status)
+                call checked()
+                call sparse_analyze(request, a, predicted, status)
+                call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+                    'retained overlap gate')
+                call sparse_factor_stats(request, unchanged, status)
+                call checked()
+                call expect(unchanged%host_current_bytes == &
+                    retained_stats%host_current_bytes .and. unchanged%host_peak_bytes == &
+                    retained_stats%host_peak_bytes, 'analysis mutated factor ledger')
+                call sparse_solve(request, rhs, x, status)
+                call checked()
+                call expect(maxval(abs(x - exact)) < 1e-12_dp, &
+                    'failed analysis preserved factor')
+                request%options%host_memory_limit_bytes = expected_peak + retained_bytes
+                call begin(0_c_int64_t)
+                call sparse_analyze(request, a, predicted, status)
+                call finish(measured_calls, measured_live, measured_peak)
+                call checked()
+                call expect(measured_live == 0_i8, 'analysis leaked ordered temporary')
+                call expect(measured_peak + retained_bytes <= &
+                            request%options%host_memory_limit_bytes, &
+                                'old plus actual analysis peak exceeds cap')
+                call expect(predicted%fits .and. &
+                    predicted%prediction_quality == MEMORY_PLAN_BOUND, &
+                            'retained conservative bound')
+                ! The first 13 calls are explicit payload arrays: AMD outputs
+                ! and arena (3), ordered CSC/pattern/cursor (7), count scratch
+                ! (3). GNU finalization then allocates runtime descriptors
+                ! without STAT; these are outside solver payload accounting.
+                failures = 13_c_int64_t
+                call expect(measured_calls >= failures, &
+                    'missing payload allocation observations')
+                do failed_index = 1, failures
+                    call begin(failed_index)
+                    call sparse_analyze(request, a, predicted, status)
+                    call finish(measured_calls, measured_live, measured_peak)
+                    call expect(status%code == FORTSPARSE_OUT_OF_MEMORY .and. &
+                        .not. predicted%fits, &
+                                'planning allocation failure status')
+                    call expect(measured_live == 0_i8, &
+                        'failed analysis leaked temporary')
+                end do
+                call sparse_solve(request, rhs, x, status)
+                call checked()
+                call expect(maxval(abs(x - exact)) < 1e-12_dp, &
+                    'OOM analysis preserved old factor')
+                call sparse_destroy(request)
+            end do
+        end do
+        request%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
+        request%options = factor%options
+        request%options%memory_policy = FORTSPARSE_MEMORY_AUTO
+        call sparse_analyze(request, a, predicted, status)
+        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'opaque reference AMD plan')
+        request%options%memory_policy = FORTSPARSE_MEMORY_LOW
+        request%options%host_memory_limit_bytes = 0_i8
+        call sparse_analyze(request, a, predicted, status, nrhs=-1)
+        call expect(status%code == FORTSPARSE_INVALID_MATRIX, &
+            'negative ordered RHS count')
+        request%options%host_memory_limit_bytes = -1_i8
+        call sparse_analyze(request, a, predicted, status)
+        call expect(status%code == FORTSPARSE_INVALID_MATRIX, 'negative ordered cap')
+        request%options%host_memory_limit_bytes = 0_i8
+        request%options%ordering = FORTSPARSE_ORDER_ND
+        call sparse_analyze(request, a, predicted, status)
+        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'ND planning unsupported')
+        request%options%ordering = FORTSPARSE_ORDER_AMD
+        request%options%device = 0
+        call sparse_analyze(request, a, predicted, status)
+        call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'GPU planning unsupported')
+        factor%reference_only = .false.
+        factor%options%host_memory_limit_bytes = 0_i8
+        call factor%factor_real(a, .false., status)
+        call checked()
+    end subroutine planning_oracle
+
     subroutine checked()
         if (.not. status_ok(status)) then
             print *, status%code, trim(status%msg)
@@ -377,6 +542,8 @@ contains
     subroutine large_count_oracle()
         integer, parameter :: m = 4096
         type(native_backend_t) :: large
+        type(sparse_solver_t) :: request
+        type(sparse_memory_plan_t) :: forecast
         type(csc_t) :: tridiagonal
         real(dp) :: b(m), truth(m), result(m)
         integer :: p, i, j
@@ -398,7 +565,14 @@ contains
         large%options%symmetry = FORTSPARSE_SYM_SPD
         large%options%ordering = FORTSPARSE_ORDER_AMD
         large%options%memory_policy = FORTSPARSE_MEMORY_LOW
-        large%options%host_memory_limit_bytes = 10000000_i8
+        request%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
+        request%options = large%options
+        request%refine = .false.
+        call sparse_analyze(request, tridiagonal, forecast, status)
+        call checked()
+        call expect(forecast%workspace_host_bytes > 0_i8, &
+            'large count scratch not forecast')
+        large%options%host_memory_limit_bytes = forecast%peak_host_bytes
         call begin(0_c_int64_t)
         call large%factor_real(tridiagonal, .false., status)
         call finish(calls, live, peak)
@@ -409,10 +583,28 @@ contains
                     'large independent retained payload')
         call expect(stats%host_peak_bytes == peak, &
                     'large graph-count workspace peak')
+        call expect(forecast%peak_host_bytes == peak, &
+            'large predicted actual allocator peak')
+        call expect(forecast%symbolic_nnz == 2_i8*m - 1_i8, &
+            'large analytic tridiagonal fill')
+        call expect(forecast%factor_host_bytes + &
+                    forecast%persistent_host_bytes == live, &
+                    'large predicted actual retained payload')
         call large%solve_real(b, result, status)
         call checked()
         call expect(maxval(abs(result - truth)) < 1e-12_dp, &
                     'large original tridiagonal oracle')
         call large%free()
+        large%options%host_memory_limit_bytes = forecast%peak_host_bytes - 1_i8
+        call large%factor_real(tridiagonal, .false., status)
+        call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+            'large peak minus one cap')
+        call large%free()
+        request%options%host_memory_limit_bytes = forecast%peak_host_bytes - 1_i8
+        call sparse_analyze(request, tridiagonal, forecast, status)
+        call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+            'large planning peak minus one')
     end subroutine
+
+
 end program test_spd_amd_bounded
