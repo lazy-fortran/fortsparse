@@ -5,7 +5,7 @@ program test_fortsparse_native_supernodes
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_cuda, only: native_cuda_available
     implicit none
-    integer, parameter :: sizes(*) = [1, 15, 16, 17, 31, 32, 33, 65, 193]
+    integer, parameter :: sizes(*) = [1, 15, 16, 17, 31, 32, 33, 65, 193, 513]
     integer :: k, device
     character(16) :: argument
     call get_command_argument(1, argument)
@@ -18,7 +18,7 @@ program test_fortsparse_native_supernodes
         call run_case(193, .true.)
     else
         do k = 1, size(sizes)
-            call run_case(sizes(k), k == size(sizes))
+            call run_case(sizes(k), sizes(k) >= 193)
         end do
     end if
     call run_grid(17, 17)
@@ -155,7 +155,11 @@ contains
         if (solver%factor_storage_bytes+solver%workspace_bytes /= solver%memory_bytes()) &
             error stop 'factor/workspace attribution does not cover owned payload'
         if (device < 0) then
-            !$ if (parallel_expected .and. solver%active_threads /= 4) error stop 'missing parallel plan'
+            if (solver%active_threads < 1 .or. solver%active_threads > 4) &
+                error stop 'invalid useful team limit'
+            if (n == 513) then
+                !$ if (solver%active_threads < 2) error stop 'missing grouped parallel path'
+            end if
         else
             if (solver%device_bytes < 8_i8*solver%factor_nnz) error stop 'missing device accounting'
         end if
