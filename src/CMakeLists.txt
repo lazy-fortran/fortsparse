@@ -10,6 +10,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_backend.f90
     fortsparse_csc.f90
     fortsparse_kinds.f90
+    fortsparse_memory.f90
     fortsparse_solver.F90
     fortsparse_status.f90
     fortsparse_version.f90
