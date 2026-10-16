@@ -25,7 +25,9 @@ Real T and H both select `UMFPACK_At`. The public I4 prototypes are checked by
 the C compiler against the official header. The product helper uses I8 APIs;
 this comparator deliberately measures the I4 counterpart to native factors.
 
-`umfpack_*_defaults` are retained without overrides. Numeric refactor frees the
+`umfpack-direct` retains `umfpack_*_defaults` without overrides (IRSTEP=2 in
+the inspected version). `umfpack-direct-noir` changes only UMFPACK_IRSTEP to
+zero, matching the IPC/native no-refinement solve workflow. Numeric refactor frees the
 old Numeric object and retains Symbolic. RHS8 is eight retained-factor solves.
 Warm workflow destroys the priming context before a fresh symbolic/numeric
 factorization; total wall/CPU includes priming, conversion, checking and cleanup.
@@ -124,3 +126,16 @@ the prefix in `provenance.json` and `consumer-validation.json`. The fresh
 consumer build is `/var/tmp/fortsparse-umfpack-openblas-consumer`; these are local
 smoke checks, not benchmark performance evidence. The recipe-generated C ABI
 probe is GPL-2.0-or-later, like the standalone comparator.
+
+
+The optional eighth CLI argument selects `default` or `no-refinement`; omission
+keeps the original default mode. The latter emits the distinct
+`umfpack-direct-noir` CSV label. Both initial and warm contexts receive the
+selected control. Refactor retains it. The final `umfpack_controls,` JSON line
+records the runtime version, IRSTEP index, independent original-default vector
+and effective vector used by every vendor call. These bounded diagnostics
+remain in raw receipts and are validated by the runners. The vendor routines
+accept Control as const; the snapshot is taken after execution. Accuracy gates
+and general-LU classification remain unchanged. Both configurations enter the
+new six-comparator coverage contract; tuning/admission remains open pending
+calibration and measurements. Historical default results are preserved.

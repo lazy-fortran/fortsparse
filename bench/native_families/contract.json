@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "frozen_date": "2026-10-16",
   "baseline_source_revision": "82a95ae",
   "fixture_source_sha256": "5e7361635e61443887328ac58984f29f823c9a962c2cc52c9ad248aafd335aa8",
@@ -126,7 +126,7 @@
   "scan_limits": {
     "candidate_count_per_scaling_family": 4,
     "maximum_dimension": 16384,
-    "maximum_attempts_all_pass": 2125,
+    "maximum_attempts_all_pass": 2550,
     "maximum_failed_attempts_per_family": 1,
     "process_timeout_s": 0.9,
     "wall_gate_s": 0.5,
@@ -136,6 +136,7 @@
     "superlu",
     "umfpack",
     "umfpack-direct",
+    "umfpack-direct-noir",
     "mumps",
     "intel-pardiso"
   ],
@@ -143,7 +144,7 @@
     "product": "SuiteSparse UMFPACK standalone direct I4 general LU, distinct from FortSparse IPC",
     "driver_license": "GPL-2.0-or-later; benchmark-only executable",
     "api": "umfpack_di_* and umfpack_zi_*",
-    "control": "native umfpack_di_defaults/umfpack_zi_defaults without overrides",
+    "control": "umfpack-direct: native defaults (inspected IRSTEP=2); umfpack-direct-noir: same defaults with only UMFPACK_IRSTEP=0",
     "complex_storage": "packed interleaved real/imaginary doubles; NULL Az/Bz/Xz",
     "operations": {
       "N": "UMFPACK_A",
@@ -155,7 +156,17 @@
     "header_sha256": "d2e898722647c614f7c1114655af93f253968abeaf278c6591d9a297fbe445ad",
     "inspected_version": "6.3.8",
     "memory": "postexec self VmHWM for entire standalone process; vendor Info PEAK_MEMORY * SIZE_OF_UNIT / 1e6 is separate decimal MB, not exact owned payload",
-    "numeric_refactor": "retain Symbolic and defaults; free prior Numeric before recomputing",
-    "prior_receipts": "Earlier four-comparator receipts retain their recorded historical scope; they do not prove the expanded five-comparator selection contract"
+    "numeric_refactor": "retain Symbolic and configured controls; free prior Numeric before recomputing",
+    "prior_receipts": "Earlier four/five-comparator receipts retain their exact historical scope and controls; they do not establish schema4 six-comparator calibration.",
+    "control_provenance": "Postexecution JSON line retains runtime version, IRSTEP index, exact native defaults and effective Control array passed to every vendor call; runner requires matching configuration/label."
+  },
+  "baseline_coverage": {
+    "status": "open_until_calibrated_and_measured",
+    "required": [
+      "all six comparator/configuration labels at unchanged frozen accuracy gates",
+      "default direct UMFPACK and no-refinement direct UMFPACK retained separately",
+      "externally selected scaling sizes and all requested thread/workflow/operation combinations"
+    ],
+    "limits": "One justified control variation is not exhaustive best tuning; solver ordering, pivot, scaling, BLAS and other relevant documented tuning remain qualification work."
   }
 }

@@ -17,11 +17,11 @@ METRICS = ('n', 'nnz', 'nrhs', 'process_wall_s', 'total_s', 'factor_s', 'solve_s
            'native_factor_serial', 'factor_nnz', 'host_peak_bytes',
            'backward_error', 'forward_error')
 BACKENDS = ('native', 'native-amd', 'superlu', 'umfpack', 'mumps', 'intel-pardiso', 'umfpack-direct',
-            'native-amd-low', 'native-amd-capped')
+            'native-amd-low', 'native-amd-capped', 'umfpack-direct-noir')
 FAMILIES = ('neo2-mini5', 'drift-real', 'drift-complex', 'hpd-chain', 'ldlt-chain')
 # Existing seven styles retained; memory aliases add distinct colors and markers.
-COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9', '#882255', '#999933')
-MARKERS = ('o', 'v', 's', '^', 'D', 'P', 'X', '*', 'h')
+COLORS = ('#000000', '#CC79A7', '#0072B2', '#E69F00', '#009E73', '#D55E00', '#56B4E9', '#882255', '#999933', '#332288')
+MARKERS = ('o', 'v', 's', '^', 'D', 'P', 'X', '*', 'h', '+')
 
 
 def summarize(attempts):

@@ -11,9 +11,9 @@ program bench_native_families_umfpack
                                      parent_cpu_seconds
     implicit none
     interface
-        function umf_create(is_complex) result(owner) bind(C, name='fsbench_umf_create')
+        function umf_create(is_complex, no_refinement) result(owner) bind(C, name='fsbench_umf_create')
             import :: c_int, c_ptr
-            integer(c_int), value :: is_complex
+            integer(c_int), value :: is_complex, no_refinement
             type(c_ptr) :: owner
         end function
         integer(c_int) function umf_symbolic(owner, n, ap, ai, ax) &
@@ -42,6 +42,10 @@ program bench_native_families_umfpack
             integer(c_int64_t), intent(out) :: nnz
             real(c_double), intent(out) :: peak_mb
         end subroutine
+        subroutine umf_print_controls(owner) bind(C, name='fsbench_umf_print_controls')
+            import :: c_ptr
+            type(c_ptr), value :: owner
+        end subroutine
         subroutine umf_destroy(owner) bind(C, name='fsbench_umf_destroy')
             import :: c_ptr
             type(c_ptr), value :: owner
@@ -57,7 +61,7 @@ program bench_native_families_umfpack
     character(64) :: argument
     character(1024) :: mini5_path
     integer :: operation, j
-    integer(c_int) :: code
+    integer(c_int) :: code, no_refinement
     real(dp) :: total_start, cpu_start, cpu_end, start
     logical :: heldout
 
@@ -66,6 +70,16 @@ program bench_native_families_umfpack
     if (dp /= c_double .or. dp /= c_double_complex) &
         error stop 'fixture real64 and C double complex kinds differ'
     r%backend = 'umfpack-direct'
+    no_refinement = 0_c_int
+    call get_command_argument(8, argument)
+    select case (trim(argument))
+    case ('', 'default')
+    case ('no-refinement')
+        no_refinement = 1_c_int
+        r%backend = 'umfpack-direct-noir'
+    case default
+        error stop 'UMFPACK mode must be default/no-refinement'
+    end select
     call get_command_argument(1, r%family)
     call get_command_argument(2, argument)
     read (argument, *) r%level
@@ -116,7 +130,7 @@ program bench_native_families_umfpack
     call load_benchmark_rhs(a, trim(r%family), r%nrhs, heldout, operation, &
                             bz, truth, trim(mini5_path))
     if (.not. a%is_complex) br = real(bz, dp)
-    owner = umf_create(int(merge(1, 0, a%is_complex), c_int))
+    owner = umf_create(int(merge(1, 0, a%is_complex), c_int), no_refinement)
     code = 6_c_int
     if (.not. c_associated(owner)) goto 900
     call factor()
@@ -124,7 +138,7 @@ program bench_native_families_umfpack
     if (trim(r%workload) == 'warm') then
         r%prime_factor_s = r%factor_s
         call umf_destroy(owner)
-        owner = umf_create(int(merge(1, 0, a%is_complex), c_int))
+        owner = umf_create(int(merge(1, 0, a%is_complex), c_int), no_refinement)
         code = 6_c_int
         if (.not. c_associated(owner)) goto 900
         call factor()
@@ -171,6 +185,7 @@ program bench_native_families_umfpack
 900 continue
     r%status_code = int(code)
     if (c_associated(owner)) then
+        call umf_print_controls(owner)
         call umf_stats(owner, r%factor_nnz, r%factor_mem_mb)
         call umf_destroy(owner)
     end if

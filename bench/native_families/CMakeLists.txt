@@ -64,7 +64,7 @@ if(FORTSPARSE_BUILD_TESTING)
             "${CMAKE_CURRENT_SOURCE_DIR}/test_real_fixture.py")
         set_tests_properties(native_family_real_audit PROPERTIES
             LABELS "benchmark;fast" TIMEOUT 1)
-        foreach(_peer superlu umfpack mumps umfpack-direct intel-pardiso)
+        foreach(_peer superlu umfpack mumps umfpack-direct umfpack-direct-noir intel-pardiso)
             set(_real_driver bench_native_families)
             if(_peer STREQUAL "superlu" AND NOT FORTSPARSE_ENABLE_SUPERLU)
                 continue()
@@ -72,7 +72,7 @@ if(FORTSPARSE_BUILD_TESTING)
                 continue()
             elseif(_peer STREQUAL "mumps" AND NOT FORTSPARSE_ENABLE_MUMPS)
                 continue()
-            elseif(_peer STREQUAL "umfpack-direct")
+            elseif(_peer MATCHES "^umfpack-direct")
                 set(_real_driver bench_native_families_umfpack)
             elseif(_peer STREQUAL "intel-pardiso")
                 set(_real_driver bench_native_families_pardiso)
@@ -118,28 +118,34 @@ if(FORTSPARSE_BUILD_TESTING)
 endif()
 
 if(FORTSPARSE_BUILD_TESTING AND TARGET bench_native_families_umfpack)
-    foreach(_operation N T H)
-        foreach(_case neo2-mini5 drift-real drift-complex hpd-chain ldlt-chain)
-            set(_direct_level 3)
-            if(_case STREQUAL "neo2-mini5")
-                set(_direct_level 5)
-            endif()
-            add_test(NAME "native_family_umfpack_direct_${_case}_${_operation}"
-                COMMAND bench_native_families_umfpack "${_case}" ${_direct_level} 1 rhs8
-                    "${_operation}" heldout "${_family_mini5}")
-            set_tests_properties("native_family_umfpack_direct_${_case}_${_operation}"
-                PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
-                ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    foreach(_mode default no-refinement)
+        set(_suffix "")
+        if(_mode STREQUAL "no-refinement")
+            set(_suffix "noir_")
+        endif()
+        foreach(_operation N T H)
+            foreach(_case neo2-mini5 drift-real drift-complex hpd-chain ldlt-chain)
+                set(_direct_level 3)
+                if(_case STREQUAL "neo2-mini5")
+                    set(_direct_level 5)
+                endif()
+                add_test(NAME "native_family_umfpack_direct_${_suffix}${_case}_${_operation}"
+                    COMMAND bench_native_families_umfpack "${_case}" ${_direct_level} 1 rhs8
+                        "${_operation}" heldout "${_family_mini5}" "${_mode}")
+                set_tests_properties("native_family_umfpack_direct_${_suffix}${_case}_${_operation}"
+                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
+                    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+            endforeach()
         endforeach()
-    endforeach()
-    foreach(_workload rhs1 warm refactor)
-        foreach(_case drift-real drift-complex)
-            add_test(NAME "native_family_umfpack_direct_${_case}_${_workload}"
-                COMMAND bench_native_families_umfpack "${_case}" 3 1
-                    "${_workload}" H training "${_family_mini5}")
-            set_tests_properties("native_family_umfpack_direct_${_case}_${_workload}"
-                PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
-                ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        foreach(_workload rhs1 warm refactor)
+            foreach(_case drift-real drift-complex)
+                add_test(NAME "native_family_umfpack_direct_${_suffix}${_case}_${_workload}"
+                    COMMAND bench_native_families_umfpack "${_case}" 3 1
+                        "${_workload}" H training "${_family_mini5}" "${_mode}")
+                set_tests_properties("native_family_umfpack_direct_${_suffix}${_case}_${_workload}"
+                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
+                    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+            endforeach()
         endforeach()
     endforeach()
 endif()

@@ -8,8 +8,10 @@ import json
 from pathlib import Path
 
 from report import summarize, render
+from run import record_umfpack_configuration
 
 PEERS = ('superlu', 'umfpack', 'umfpack-direct', 'mumps', 'intel-pardiso')
+SIX_PEERS = PEERS + ('umfpack-direct-noir',)
 MATCH = ('family', 'level', 'workload', 'variant', 'operation')
 
 
@@ -36,27 +38,46 @@ def assess(candidate, peers, metric):
                 definite_dominators=';'.join(dominated))
 
 
-def frontier(rows):
+def frontier(rows, peer_backends=PEERS):
     result = []
     for candidate in rows:
         if not candidate['backend'].startswith('native'):
             continue
-        peers = [r for r in rows if r['backend'] in PEERS and
+        peers = [r for r in rows if r['backend'] in peer_backends and
                  all(r[k] == candidate[k] for k in MATCH)]
         if {(r['backend'], r['threads']) for r in peers} != {
-                (peer, nt) for peer in PEERS for nt in (1, 2, 4, 8, 16)}:
-            raise ValueError('incomplete five-peer/thread evidence')
+                (peer, nt) for peer in peer_backends for nt in (1, 2, 4, 8, 16)}:
+            raise ValueError(f'incomplete {len(peer_backends)}-comparator/thread evidence')
         for metric in ('process_wall_s', 'process_tree_cpu_s'):
             result.append(dict((k, candidate[k]) for k in (*MATCH, 'backend', 'threads')) |
                           dict(metric=metric, **assess(candidate, peers, metric)))
     return result
 
 
+def validate_coverage(coverage, selection, provenance, attempts):
+    peer_backends = PEERS if coverage == 'historical-five' else SIX_PEERS
+    if set(selection['backends']) != set(peer_backends):
+        raise ValueError(f'{coverage} selection required')
+    if coverage == 'contract-v4-six':
+        if (selection.get('calibration_scope') != 'complete_declared_baselines' or
+                any(p.get('contract', {}).get('schema_version') != 4 or
+                    set(p['contract']['required_external_backends']) != set(SIX_PEERS)
+                    for p in provenance)):
+            raise ValueError('contract-v4 complete six-comparator provenance required')
+        for attempt in attempts:
+            if attempt['status'] == 'ok':
+                record_umfpack_configuration(attempt, attempt['backend'])
+                if attempt['status'] != 'ok':
+                    raise ValueError('direct UMFPACK controls not confirmed')
+    return peer_backends
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def describe(attempts, rows, fronts, calibration, inputs, revision, calibration_attempts):
+def describe(attempts, rows, fronts, calibration, inputs, revision, calibration_attempts,
+             peer_backends=PEERS):
     calibration_status = collections.Counter(a['status'] for a in calibration_attempts)
     rejections = [a for a in calibration_attempts if a['status'] != 'ok'
                   or a['returncode'] != 0 or a['process_wall_s'] >= .5]
@@ -67,13 +88,17 @@ def describe(attempts, rows, fronts, calibration, inputs, revision, calibration_
                            if a['backend'].startswith('native')})
     unknown_peaks = sorted({r['backend'] for r in rows
                             if r['backend'].startswith('native') and not r['host_peak_bytes_count']})
-    text = ['# Five-peer completed CPU/RSS checkpoint', '',
+    text = ['# Five-peer completed CPU/RSS checkpoint' if peer_backends == PEERS else
+            '# Six-comparator completed CPU/RSS checkpoint', '',
         f'{len(attempts)} completed attempts; {len(rows)} five-trial configuration groups. '
         f'Source `{revision}`. Native backend labels: '+
         ', '.join(sorted({r['backend'] for r in rows if r['backend'].startswith('native')}))+'. '
         'All process CPU uses completed wait4 user+system counters including reaped helpers.', '',
-        'Five external peers: SuperLU, UMFPACK IPC, standalone direct UMFPACK, MUMPS '
-        'and Intel oneMKL PARDISO. Requested physical thread budgets are 1/2/4/8/16. '
+        ('Five external peers: SuperLU, UMFPACK IPC, standalone direct UMFPACK, MUMPS '
+         'and Intel oneMKL PARDISO. ' if peer_backends == PEERS else
+         'Six external configurations: SuperLU, UMFPACK IPC, direct UMFPACK defaults, '
+         'direct UMFPACK IRSTEP=0, MUMPS and Intel oneMKL PARDISO. ') +
+        'Requested physical thread budgets are 1/2/4/8/16. '
         f'Native active factor teams reported: {native_teams}. External active teams '
         'are retained separately in the numeric CSV; negative values mean unknown.', '',
         f'External-only calibration retained {len(calibration_attempts):,} attempts: '+
@@ -83,7 +108,7 @@ def describe(attempts, rows, fronts, calibration, inputs, revision, calibration_
         'are retained; their success is never inferred. Earlier differently sized '
         'diagnostics remain separate.', '',
         'The following counts compare each of five native requested-thread configurations '
-        'with all 25 external peer/thread configurations at the same family, actual size, '
+        f'with all {len(peer_backends)*5} external peer/thread configurations at the same family, actual size, '
         'workload, variant and operation:', '',
         '| Family | Workload | Variant | Wall: robust / indeterminate / dominated | CPU: robust / indeterminate / dominated |',
         '|---|---|---|---:|---:|']
@@ -144,6 +169,8 @@ def main():
     parser.add_argument('--calibration', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--plots', action='store_true')
+    parser.add_argument('--coverage', choices=('historical-five', 'contract-v4-six'),
+                        default='historical-five')
     args = parser.parse_args()
     attempts, provenance = [], []
     for path in args.inputs:
@@ -157,8 +184,11 @@ def main():
     selection = json.loads(args.calibration.read_text())
     calibration_attempts = [json.loads(l) for l in
         (args.calibration.parent/'attempts.jsonl').read_text().splitlines() if l]
-    if set(selection['backends']) != set(PEERS):
-        parser.error('five-peer selection required')
+    try:
+        peer_backends = validate_coverage(args.coverage, selection, provenance,
+                                          attempts + calibration_attempts)
+    except ValueError as error:
+        parser.error(str(error))
     if any(a['level'] != selection['levels'][a['family']] for a in attempts):
         parser.error('actual level differs from frozen external-only selection')
     rows = summarize(attempts)
@@ -166,7 +196,7 @@ def main():
            or r['parent_rss_kib_count'] != 5 or r['process_tree_cpu_s_count'] != 5
            for r in rows):
         parser.error('five successful trials per group required')
-    fronts = frontier(rows)
+    fronts = frontier(rows, peer_backends)
     args.output.mkdir(parents=True, exist_ok=True)
     for filename, data in [('summary.csv', rows), ('fronts.csv', fronts)]:
         with (args.output/filename).open('w') as handle:
@@ -174,7 +204,7 @@ def main():
             writer.writeheader()
             writer.writerows(data)
     (args.output/'report.md').write_text(describe(attempts, rows, fronts, args.calibration, args.inputs,
-        provenance[0]['source_revision'], calibration_attempts))
+        provenance[0]['source_revision'], calibration_attempts, peer_backends))
     (args.output/'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n')
     (args.output/'calibration_selection.json').write_text(json.dumps(selection, indent=2)+'\n')
     receipts = [p/name for p in args.inputs for name in ('attempts.jsonl', 'provenance.json')]
@@ -189,7 +219,8 @@ def main():
         files=[dict(path=str(p), sha256=digest(p)) for p in receipts],
         cpu_scope='completed wait4 workflow, no helper double counting',
         memory_scope='single-process VmHWM; IPC unknown aggregate, parent-only safe lower bound',
-        assessment='all 25 external configs; strict min/max time OR memory exclusion')
+        coverage=args.coverage, required_external_backends=list(peer_backends),
+        assessment=f'all {len(peer_backends)*5} external configs; strict min/max time OR memory exclusion')
     (args.output/'recipe.json').write_text(json.dumps(recipe, indent=2)+'\n')
     if args.plots:
         render(rows, args.output, .9, 'completed',

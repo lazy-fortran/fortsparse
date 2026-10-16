@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
  * Benchmark-only UMFPACK client. Never compiled or linked into libfortsparse.
- * Uses the installed official I4 di/zi API and unchanged native defaults.
+ * Uses the official I4 di/zi API; optional IRSTEP=0 keeps other defaults.
  */
 #include <umfpack.h>
 #include <complex.h>
@@ -8,6 +8,8 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
 _Static_assert(sizeof(int) == sizeof(int32_t) && INT_MAX == INT32_MAX,
                "UMFPACK di/zi comparator requires 32-bit C int");
@@ -18,12 +20,12 @@ typedef struct {
     void *symbolic, *numeric;
     int is_complex;
     int32_t n;
-    double control[UMFPACK_CONTROL], info[UMFPACK_INFO];
+    double control[UMFPACK_CONTROL], defaults[UMFPACK_CONTROL], info[UMFPACK_INFO];
     int64_t factor_nnz;
     double factor_peak_mb;
 } benchmark_umf_t;
 
-void *fsbench_umf_create(int is_complex)
+void *fsbench_umf_create(int is_complex, int no_refinement)
 {
     benchmark_umf_t *ctx = calloc(1, sizeof(*ctx));
     if (!ctx) return NULL;
@@ -32,6 +34,8 @@ void *fsbench_umf_create(int is_complex)
     ctx->factor_peak_mb = -1;
     if (is_complex) umfpack_zi_defaults(ctx->control);
     else umfpack_di_defaults(ctx->control);
+    memcpy(ctx->defaults, ctx->control, sizeof(ctx->control));
+    if (no_refinement) ctx->control[UMFPACK_IRSTEP] = 0;
     return ctx;
 }
 
@@ -95,6 +99,25 @@ int fsbench_umf_solve(void *owner, int operation, const int32_t *ap,
                                ctx->numeric, ctx->control, ctx->info);
     return umfpack_di_solve(system, ap, ai, ax, x, b, ctx->numeric,
                            ctx->control, ctx->info);
+}
+
+/* Snapshot the exact arrays passed to every vendor call, after execution.
+ * UMFPACK declares Control const; the retained default copy is independent. */
+void fsbench_umf_print_controls(void *owner)
+{
+    benchmark_umf_t *ctx = owner;
+    int version[3];
+    umfpack_version(version);
+    printf("umfpack_controls,{\"schema\":1,\"version\":[%d,%d,%d],"
+           "\"irstep_index\":%d,\"default\":[", version[0], version[1], version[2],
+           UMFPACK_IRSTEP);
+    for (int i = 0; i < UMFPACK_CONTROL; ++i)
+        printf("%s%.17g", i ? "," : "", ctx->defaults[i]);
+    printf("],\"effective\":[");
+    for (int i = 0; i < UMFPACK_CONTROL; ++i)
+        printf("%s%.17g", i ? "," : "", ctx->control[i]);
+    printf("]}\n");
+    fflush(stdout);
 }
 
 void fsbench_umf_stats(void *owner, int64_t *factor_nnz, double *factor_peak_mb)

@@ -10,7 +10,8 @@ import time
 
 from real_fixture_audit import PrivateFixture, sha256
 from run import (EXTERNAL, NATIVE, ROOT, binary_name, invoke, physical_cores, matched_points,
-                 positive_i8, memory_environment, record_memory_configuration)
+                 positive_i8, memory_environment, record_memory_configuration,
+                 driver_arguments, record_umfpack_configuration)
 
 HERE = Path(__file__).resolve().parent
 
@@ -59,7 +60,7 @@ def verify_qualification(paths, fixture, build):
         attempts.extend(document.get("attempts", []))
         hashes[str(path.resolve())] = sha256(path)
     if len(attempts) != len(EXTERNAL) or {a["backend"] for a in attempts} != set(EXTERNAL):
-        raise ValueError("all five declared external comparators must qualify")
+        raise ValueError("all declared external comparators must qualify")
     for entry in attempts:
         binary = binary_path(build, entry["backend"])
         if not binary.is_file() or sha256(binary) != entry.get("binary_sha256"):
@@ -86,12 +87,12 @@ def attempt(backend, build, stage, output, fixture, threads, cores, timeout, hos
                                             returncode=deps.returncode)
     candidate = output / (backend + "-candidate.mtx")
     args = ["real-mm", "1", str(threads), "rhs4", "N", "training", str(stage)]
-    if backend not in ("intel-pardiso", "umfpack-direct"):
-        args.insert(0, backend)
+    args = driver_arguments(backend, args)
     receipt = invoke(binary, args, threads, cores, timeout,
                      extra_env={"FORTSPARSE_BENCH_SOLUTION": str(candidate),
                                 **memory_environment(backend,host_limit_bytes)})
     record_memory_configuration(receipt,backend,host_limit_bytes)
+    record_umfpack_configuration(receipt,backend)
     result["process_receipt"] = receipt
     if backend == "umfpack":
         result["aggregate_memory"] = "unknown; parent/helper RSS must not be summed"
@@ -127,7 +128,7 @@ def main():
                         help="required positive i8 cap for native-amd-capped")
     parser.add_argument("--qualification", type=Path, nargs="+")
     parser.add_argument("--backends", default=",".join(EXTERNAL),
-                        help="external qualification subset; native admission requires all five")
+                        help="external qualification subset; native admission requires all declared")
     parser.add_argument("--threads", type=int, default=1)
     parser.add_argument("--thread-sweep", default=None,
                         help="measure only; defaults to 1,2,4,8,16 physical cores")
@@ -152,7 +153,7 @@ def main():
     if not peers or len(peers) != len(set(peers)) or any(p not in EXTERNAL for p in peers):
         parser.error("qualification peers must be distinct existing external backends")
     if args.mode == "measure" and set(peers) != set(EXTERNAL):
-        parser.error("matched measurements require all five external peers")
+        parser.error("matched measurements require all declared external peers")
     args.output = args.output.resolve()
     start = time.perf_counter()
     fixture = PrivateFixture(args.fixture, args.policy_sha256)
@@ -185,7 +186,7 @@ def main():
         requested_thread_budgets=budgets,
         requested_native_host_limit_bytes=args.native_host_limit_bytes,
         fresh_process_trials=args.trials if args.mode == "measure" else 1,
-        comparison_policy="Numerical gates unchanged; existing five-peer family "
+        comparison_policy="Numerical gates unchanged; expanded six-comparator family "
         "comparison scope includes direct and IPC UMFPACK separately.",
         script_sha256={p.name: sha256(p) for p in [Path(__file__),
                      HERE/"real_fixture_audit.py", HERE/"run.py"]},
