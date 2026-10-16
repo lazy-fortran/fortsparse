@@ -473,3 +473,16 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_spd_panel_no_blas PROPERTIES LABELS "native;memory;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+# Exercise the public ABI from actual C and C++ consumers, including C99 complex.
+enable_language(CXX)
+add_executable(test_native_c_api ../test-cmake/native/test_native_c_api.c)
+target_link_libraries(test_native_c_api PRIVATE fortsparse)
+add_test(NAME test_native_c_api COMMAND test_native_c_api)
+add_executable(test_native_cxx_api ../test-cmake/native/test_native_cxx_api.cpp)
+target_compile_features(test_native_cxx_api PRIVATE cxx_std_11)
+target_link_libraries(test_native_cxx_api PRIVATE fortsparse)
+add_test(NAME test_native_cxx_api COMMAND test_native_cxx_api)
+set_tests_properties(test_native_c_api test_native_cxx_api PROPERTIES
+    LABELS "native;c-api;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")

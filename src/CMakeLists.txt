@@ -11,6 +11,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_csc.f90
     fortsparse_kinds.f90
     fortsparse_memory.f90
+    fortsparse_native_c_api.f90
     fortsparse_solver.F90
     fortsparse_status.f90
     fortsparse_version.f90
@@ -59,8 +60,7 @@ endif()
 # Consumers find .mod files in the module output directory; the C shims include
 # the shared protocol and IPC headers from the project include/ directory.
 target_include_directories(fortsparse
-    PUBLIC ${CMAKE_Fortran_MODULE_DIRECTORY}
-    PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    PUBLIC ${CMAKE_Fortran_MODULE_DIRECTORY} ${PROJECT_SOURCE_DIR}/include)
 
 # Threads are always needed; SuperLU (BSD) only when its backend is enabled.
 # The SuperLU target differs by provisioning: the system FindSuperLU module
