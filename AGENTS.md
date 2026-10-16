@@ -147,6 +147,10 @@ never present separate process peaks as aggregate workflow memory.
    zero diagonals, pivot departures and singleton removal. Compare matching and
    ordering before tuning scatter instructions. Fewer factor entries need not
    mean lower payload when geometric capacities change.
+   Count cumulative scatter entries and zero-multiplier work: final factor nnz
+   alone does not describe elimination cost. Identify mesh, nonlinear iteration
+   and factor ordinal, including preconditioner replacements. A sampled hotspot
+   cannot distinguish excessive fill from repeated updates or expensive entries.
 5. Make one bounded change addressing measured evidence. Generate a bounded
    ahead-of-time variant set for tiles/layouts/unrolling/fusion where justified.
    Fewer symbolic operations do not imply lower elapsed time. Avoid unbounded
