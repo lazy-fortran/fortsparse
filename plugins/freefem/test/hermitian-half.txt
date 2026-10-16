@@ -1,0 +1,8 @@
+# HashMatrix Matrix (COO): public literal Hermitian lower triangle
+# n m nnz half fortran state type
+3 3 5 1 0 0 0
+0 0 (4,0)
+1 0 (1,-2)
+1 1 (5,0)
+2 1 (2,-0.5)
+2 2 (6,0)

@@ -1,0 +1,17 @@
+load "fortsparse_native"
+mesh Th=square(2,2,[1.+x,y]);
+fespace Hrot(Th,RT0Ortho);
+Hrot<complex> [ax,ay],[wx,wy];
+real nmode=2.;
+// Public NEO-EQ Ampere bilinear form on R=x>0, using its original carrier.
+varf ampere([ax,ay],[wx,wy])=
+  int2d(Th)(x*(dx(wy)-dy(wx))*(dx(ay)-dy(ax)))
+  +int2d(Th)(nmode^2/x*(wx*ax+wy*ay))+on(1,ax=0,ay=0);
+matrix<complex> A=ampere(Hrot,Hrot,solver=sparsesolver);
+complex[int] known(Hrot.ndof);
+for(int j=0;j<known.n;++j) known[j]=.1*(j+1)+.05i*(j%3-1);
+complex[int] b=A*known, solution=A^-1*b, error=solution-known;
+assert(error.linfty<1e-10*(1.+known.linfty));
+complex[int] residual=A*solution; residual-=b;
+assert(residual.linfty<1e-12*(1.+b.linfty));
+cout << "PASS FREEFEM NATIVE HROT COMPLEX ORIGINAL-MATRIX RESIDUAL" << endl;

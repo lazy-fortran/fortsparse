@@ -57,6 +57,7 @@ option(FORTSPARSE_INSTALL_HELPER
 # MUMPS_DIR) or else by cmake/FindMUMPS.cmake (distribution packages, sequential
 # or MPI-parallel).
 option(FORTSPARSE_ENABLE_MUMPS "Enable the in-process MUMPS backend" OFF)
+option(FORTSPARSE_BUILD_FREEFEM_PLUGIN "Build optional native FreeFem SDK module" OFF)
 option(FORTSPARSE_BUILD_BENCHMARKS "Build bounded SPD comparison drivers" OFF)
 option(FORTSPARSE_ENABLE_NATIVE_CUDA "Build native CUDA numerical kernels" OFF)
 
@@ -213,6 +214,10 @@ if(FORTSPARSE_BUILD_TESTING)
     if(FORTSPARSE_ENABLE_NATIVE_CUDA)
         fortsparse_add_cuda_tests()
     endif()
+endif()
+
+if(FORTSPARSE_BUILD_FREEFEM_PLUGIN)
+    add_subdirectory(plugins/freefem)
 endif()
 
 if(FORTSPARSE_BUILD_BENCHMARKS)
