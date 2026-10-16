@@ -3,7 +3,8 @@ module fortsparse_native
     ! generated leaves own continuous arithmetic. Full canonical symmetric
     ! CSC is required; the caller's matrix is never modified.
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    use, intrinsic :: iso_c_binding, only: c_int
+    use, intrinsic :: iso_c_binding, only: c_int, c_int32_t, c_size_t, &
+        c_ptr, c_null_ptr, c_associated, c_f_pointer, c_sizeof
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND, &
@@ -22,6 +23,17 @@ module fortsparse_native
     private
     public :: native_backend_t
     interface
+        function symbolic_alloc(bytes) result(owner) &
+                bind(C, name='fsparse_native_symbolic_alloc')
+            import :: c_ptr, c_size_t
+            integer(c_size_t), value :: bytes
+            type(c_ptr) :: owner
+        end function symbolic_alloc
+        subroutine symbolic_free(owner, bytes) bind(C, name='fsparse_native_symbolic_free')
+            import :: c_ptr, c_size_t
+            type(c_ptr), value :: owner
+            integer(c_size_t), value :: bytes
+        end subroutine symbolic_free
         integer(c_int) function native_order(n, nnz, ptr, row, perm, inverse) &
                 bind(C, name='fsparse_native_order')
             import :: c_int
@@ -47,7 +59,10 @@ module fortsparse_native
         type(csc_t) :: ordered
         logical :: ready = .false., blocked = .false.
         type(supernodes_t) :: panels
-        integer, allocatable :: ap(:), ai(:), parent(:), lp(:), li(:)
+        integer, allocatable :: ap(:), ai(:), parent(:), lp(:)
+        integer(c_int32_t), contiguous, pointer :: li(:) => null()
+        type(c_ptr), private :: li_owner = c_null_ptr
+        integer(c_size_t), private :: li_bytes = 0_c_size_t
         integer, allocatable :: count(:), mark(:), reach(:), path(:)
         real(dp), allocatable :: lv(:), work(:)
         real(dp), pointer :: user_vector(:) => null()
@@ -275,12 +290,20 @@ contains
         do j = 1, self%n
             self%lp(j + 1) = self%lp(j) + self%count(j) + 1
         end do
-        allocate (self%li(int(nz)), stat=ierr)
-        if (ierr /= 0) then
+        if (nz > int(huge(0_c_size_t)/c_sizeof(0_c_int32_t), i8)) then
+            call self%free()
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                'native SPD: symbolic storage exceeds supported byte range')
+            return
+        end if
+        self%li_bytes = int(nz, c_size_t)*c_sizeof(0_c_int32_t)
+        self%li_owner = symbolic_alloc(self%li_bytes)
+        if (.not. c_associated(self%li_owner)) then
             call self%free()
             call memory_error(status)
             return
         end if
+        call c_f_pointer(self%li_owner, self%li, [int(nz)])
         self%mark = 0
         self%count = 1
         do j = 1, self%n
@@ -326,7 +349,8 @@ contains
                 8_i8*self%n
             ! Panel row/index structures now own the analysis result. Release
             ! the temporary simplicial structure before touching numeric pages.
-            deallocate (self%lp, self%li, self%parent, self%count, self%mark, &
+            call release_symbolic_rows(self)
+            deallocate (self%lp, self%parent, self%count, self%mark, &
                 self%reach, self%path)
         else
             self%stats%factor_storage_bytes = 8_i8*nz
@@ -661,6 +685,16 @@ contains
         p => self%user_vector
     end function native_vector
 
+    subroutine release_symbolic_rows(self)
+        class(native_backend_t), intent(inout) :: self
+
+        if (c_associated(self%li_owner)) &
+            call symbolic_free(self%li_owner, self%li_bytes)
+        nullify (self%li)
+        self%li_owner = c_null_ptr
+        self%li_bytes = 0_c_size_t
+    end subroutine release_symbolic_rows
+
     subroutine native_free(self)
         class(native_backend_t), intent(inout) :: self
 
@@ -676,7 +710,7 @@ contains
         if (allocated(self%ai)) deallocate (self%ai)
         if (allocated(self%parent)) deallocate (self%parent)
         if (allocated(self%lp)) deallocate (self%lp)
-        if (allocated(self%li)) deallocate (self%li)
+        call release_symbolic_rows(self)
         if (allocated(self%lv)) deallocate (self%lv)
         if (allocated(self%count)) deallocate (self%count)
         if (allocated(self%mark)) deallocate (self%mark)
