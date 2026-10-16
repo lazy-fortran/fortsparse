@@ -354,7 +354,8 @@ contains
         real(dp) :: values(3) = [2._dp, 3._dp, 4._dp]
         ib = int(storage_size(0)/8, i8)
         vb = int(storage_size(0.0_dp)/8, i8)
-        base = ib*(10_i8*3 + 3 + 3) + 2_i8*vb*3
+        ! The retained row-normalization vector contributes another real n.
+        base = ib*(10_i8*3 + 3 + 3) + (2_i8*vb + 8_i8)*3
         extra = ib*3
         call factor%factor_raw(3, [1, 2, 3, 4], [1, 2, 3], values, status, &
                                memory_limit_bytes=base + extra - 1_i8, pruning=.true.)
