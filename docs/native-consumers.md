@@ -15,6 +15,16 @@ AMD/METIS graph ordering are allowed; external sparse factorizations are not.
 | NEO-EQ | [Draft PR 9](https://github.com/itpplasma/NEO-EQ/pull/9) | Native pressure/current and shared FreeFem Ampere paths build; focused checks and component CPU/RSS tables included. Both legacy and native AMD complete the frozen public KiLCA solver phase after shared mesh and complete-Arnoldi repairs, but both outer iterations remain nonconverged and the final peer fields disagree. Independent captured-system checks agree with SuperLU; these do not establish coupled scientific equivalence. A legacy-only larger-basis diagnostic also fails to establish convergence. The earlier natural-order native attempt and unchanged legacy postprocessing time out. The scaled affine-action repair passes native 11/11 and legacy 8/8 affected checks; the unchanged physical pair completes with field differences about 3.3e-7, but both steady iterations still diverge and no peer-accuracy pass is assigned. No tolerance relaxation or successful full-pipeline comparison claimed. FreeFem runtime migration is not an isolated solver comparison. |
 | NEO-RT | [Draft PR 198](https://github.com/itpplasma/NEO-RT/pull/198) | Optional native application builds after explicit NEO-2 field-provider lifetime and signed-curl repairs. Default 5/5 and optional 6/6 checks pass, including unchanged nonzero ripple-plateau transport gates. The complete-curl dependency refresh at 08c7c61 passes both configurations and unchanged transport gates. Twelve fresh optional measurements pass; ripple CPU is 12.237437 s and process RSS 47728 KiB. Earlier default and optional tables remain explicitly historical; the current optional cost is higher and its original baseline was unbuildable. The original optional application was unbuildable, so its baseline delta remains unavailable; new optional absolute costs are reported separately. |
 
+GLISS (itpplasma/GLISS) is a pending consumer, not yet a draft migration. It
+hand-writes block-tridiagonal symmetric-indefinite LDLᵀ for shifted pencils
+K − σM (`block_tridiagonal.f90`, `variable_block_tridiagonal.f90`) and uses
+Sylvester inertia with a reliability flag for eigenvalue bracketing and
+shift-invert; its issue #11 requires a sparse L139-scale solve. Native LDLᵀ
+must first report exact inertia with explicit reliability status. Static pivot
+perturbation (supernodal LU) is unsuitable because it can change the inertia.
+An audit of all itpplasma/lazy-fortran repositories for further hand-written or
+library factorizations is in progress.
+
 The audited default paths of libneo, SIMPLE, GORILLA/GORILLA_APPLETS, ARES,
 NEO, tiago, KiLCA/KiLCA-FLR2 and REALSPACE_WITH_COLLISIONS have no external
 sparse factorization to replace. Avoid adding an unused dependency or a nominal
