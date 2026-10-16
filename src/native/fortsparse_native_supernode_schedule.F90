@@ -338,19 +338,25 @@ contains
         call ledger%release(4_i8*self%node_count, status)
     end subroutine setup_incoming
 
-    subroutine setup_groups(self, nodes, flops, ledger, status)
+    subroutine setup_groups(self, nodes, flops, ledger, status, lu)
         ! Requires setup_incoming. flops is the factor work that sets the
         ! group target; the team is then limited to a quarter of the groups.
+        ! lu selects the unsymmetric (L and U halves) subtree work estimate,
+        ! consistent with LU flops; the default is the Cholesky estimate.
         class(supernode_schedule_t), intent(inout) :: self
         class(supernode_t), intent(in) :: nodes(:)
         real(dp), intent(in) :: flops
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
+        logical, optional, intent(in) :: lu
         integer, allocatable :: node_group(:), parent(:), root_group(:), mark(:), next(:)
         real(dp), allocatable :: subtree_work(:)
         integer :: s, p, source, g, predecessor, ierr, position, member
         integer(i8) :: entries
+        logical :: unsymmetric
 
+        unsymmetric = .false.
+        if (present(lu)) unsymmetric = lu
         ! Collapse complete small elimination subtrees. Grouping arbitrary
         ! consecutive nodes can introduce false chains between independent
         ! subtrees. Large separator/critical panels remain individual tasks.
@@ -369,12 +375,21 @@ contains
             parent(s) = 0
             if (nodes(s)%m > nodes(s)%width) &
                 parent(s) = self%colnode(nodes(s)%rows(nodes(s)%width+1))
-            subtree_work(s) = real(nodes(s)%m,dp)*nodes(s)%width**2
+            if (unsymmetric) then
+                ! Block LU, both triangular solves and both update GEMMs.
+                subtree_work(s) = 2.0_dp/3.0_dp*real(nodes(s)%width,dp)**3 &
+                    +2.0_dp*real(nodes(s)%m-nodes(s)%width,dp)*nodes(s)%width**2
+            else
+                subtree_work(s) = real(nodes(s)%m,dp)*nodes(s)%width**2
+            end if
             do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
                 source = self%incoming_source(p)
                 subtree_work(s) = subtree_work(s) &
                     +2.0_dp*(nodes(source)%m-self%incoming_first(p)+1) &
                     *self%incoming_q(p)*nodes(source)%width
+                if (unsymmetric) subtree_work(s) = subtree_work(s) &
+                    +2.0_dp*(nodes(source)%m-self%incoming_first(p)+1 &
+                    -self%incoming_q(p))*self%incoming_q(p)*nodes(source)%width
             end do
         end do
         ! Parent indices are larger: this ascending pass accumulates every

@@ -111,6 +111,18 @@ fortsparse_add_test(test_fortsparse_slu_fallback
     solver/test_fortsparse_slu_fallback.f90)
 set_tests_properties(test_fortsparse_slu_fallback PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_threads
+    solver/test_fortsparse_slu_threads.f90)
+set_tests_properties(test_fortsparse_slu_threads PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
+if(TARGET test_fortsparse_slu_threads)
+    add_test(NAME test_fortsparse_slu_threads_repeat
+        COMMAND test_fortsparse_slu_threads repeat)
+    set_tests_properties(test_fortsparse_slu_threads_repeat PROPERTIES
+        LABELS "native;lu;fast" TIMEOUT 1
+        ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
+endif()
 fortsparse_add_test(test_fortsparse_supernode_memory
     solver/test_fortsparse_supernode_memory.f90)
 set_tests_properties(test_fortsparse_supernode_memory PROPERTIES

@@ -181,9 +181,11 @@ analysis phase before allocating it: matching workspace and duals, the matched
 graph, the AMD arena and permutation, the symmetrized pattern with symbolic
 counts, descriptors and row lists, update lists and task groups, panels and
 scratch. Its retained layout is exact: `8*sum(2*m*w-w^2)` panel values, `4*n`
-block pivots, row lists, descriptors, schedule arrays, `4*n` row map, `8*maxwork`
-update scratch, `8*(n+max m)` solve scratch and `28*n` permutation/scaling
-vectors. The validation solve adds `24*n` transiently. Factor, refactor and
+block pivots, row lists, descriptors, schedule arrays, per thread a `4*n` row
+map, `8*maxwork` update scratch and `32` bytes of pivot statistics, `8*(n+max m)`
+solve scratch and `28*n` permutation/scaling vectors. Under a cap the team is
+halved until the per-thread scratch fits beside the panels and solve scratch
+(`budget_reduced_threads`); OpenMP runtime task descriptors are not counted. The validation solve adds `24*n` transiently. Factor, refactor and
 solves allocate nothing. The scalar fallback runs afterwards under its own
 preflight and the same cap. ND and uncapped opaque AMD report an unknown peak.
 

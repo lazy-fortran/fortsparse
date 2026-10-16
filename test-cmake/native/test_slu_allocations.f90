@@ -1,7 +1,9 @@
 program test_slu_allocations
     ! Linux malloc-wrapper oracle for the supernodal LU: the analysis live
     ! and peak payload equal its ledger, and factor, refactor and all solve
-    ! operations call the allocator zero times.
+    ! operations call the allocator zero times, also for an OpenMP subtree
+    ! task team (FortSparse code only: the shared OpenMP runtime's own task
+    ! descriptors are outside this static wrapper).
     use fortsparse_kinds, only: dp, i8
     use fortsparse_memory, only: memory_budget_t
     use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK
@@ -54,8 +56,57 @@ program test_slu_allocations
         call lu%free(budget)
         call check(budget%current == 0, 'ledger released')
     end do
+    call threaded_team()
     print '(a)', 'supernodal LU allocation oracle passed'
 contains
+    subroutine threaded_team()
+        integer, parameter :: m = 70
+        integer, allocatable :: gptr(:), grows(:)
+        real(dp), allocatable :: gvalues(:), y(:)
+        integer :: ix, iy, dx, dy, i, j, k
+        allocate(gptr(m*m+1), grows(9*m*m), gvalues(9*m*m), y(m*m))
+        k = 0
+        gptr(1) = 1
+        do iy = 1, m
+            do ix = 1, m
+                j = ix+(iy-1)*m
+                do dy = -1, 1
+                    do dx = -1, 1
+                        if (ix+dx < 1 .or. ix+dx > m .or. iy+dy < 1 .or. iy+dy > m) cycle
+                        i = ix+dx+(iy+dy-1)*m
+                        k = k+1
+                        grows(k) = i
+                        gvalues(k) = -1.0_dp+0.5_dp*dx-0.25_dp*dy+0.01_dp*mod(i+3*j, 7)
+                        if (i == j) gvalues(k) = 10.0_dp
+                    end do
+                end do
+                gptr(j+1) = k+1
+            end do
+        end do
+        budget = memory_budget_t()
+        call begin(0_c_int64_t)
+        call lu%analyze(m*m, gptr, grows(:k), gvalues(:k), status, budget=budget, nthreads=4)
+        call finish(count, current, maximum)
+        call check(status%code == FORTSPARSE_OK, 'threaded analysis')
+        call check(current == lu%memory_bytes(), 'threaded live allocations equal the layout')
+        call check(maximum == budget%peak, 'threaded allocation peak equals the ledger peak')
+        call check(lu%requested_threads == 1 .or. lu%active_threads > 1, 'parallel team planned')
+        call begin(0_c_int64_t)
+        call lu%factor(gptr, grows(:k), gvalues(:k), status)
+        call check(status%code == FORTSPARSE_OK, 'threaded factor')
+        y = 1.0_dp
+        call lu%solve(y, status, 0)
+        gvalues = 0.75_dp*gvalues
+        call lu%factor(gptr, grows(:k), gvalues(:k), status)
+        call lu%solve(y, status, 1)
+        call finish(count, current, maximum)
+        call check(status%code == FORTSPARSE_OK, 'threaded refactor and solves')
+        call check(lu%requested_threads == 1 .or. lu%active_threads > 1, 'parallel team ran')
+        call check(count == 0, 'threaded factor, refactor and solves call no allocator')
+        call lu%free(budget)
+        call check(budget%current == 0, 'threaded ledger released')
+    end subroutine threaded_team
+
     subroutine build(ptr, rows, values)
         ! Near-symmetric 2D-like pattern with a zero diagonal on odd columns.
         integer, allocatable, intent(out) :: ptr(:), rows(:)

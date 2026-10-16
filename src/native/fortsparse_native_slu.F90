@@ -43,6 +43,7 @@ module fortsparse_native_slu
         slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+    !$ use omp_lib, only: omp_get_num_threads, omp_get_max_threads
     implicit none
     private
     public :: slu_factor_t
@@ -65,7 +66,14 @@ module fortsparse_native_slu
     end type slu_panel_t
 
     type :: slu_factor_t
+        ! requested_threads: resolved request (0 = OpenMP default); LOW_MEMORY
+        ! requests one. active_threads: the planned team after the work,
+        ! group-count and memory caps, replaced by the actual OpenMP team of
+        ! the last parallel factorization. task_groups: elimination-subtree
+        ! task groups; budget_reduced_threads: a host cap halved the team.
         integer :: n = 0, node_count = 0, active_threads = 1
+        integer :: requested_threads = 1, task_groups = 0
+        logical :: budget_reduced_threads = .false.
         ! factor_nnz: padded L+U panel entries; symbolic_nnz: exact
         ! nnz(L+U) of the symmetrized structure (L diagonal counted once).
         integer(i8) :: factor_nnz = 0_i8, symbolic_nnz = 0_i8
@@ -89,7 +97,7 @@ module fortsparse_native_slu
         real(dp) :: analysis_s = 0.0_dp, factor_s = 0.0_dp
         logical, private :: analyzed = .false., factored = .false.
         logical, private :: strict = .false., use_blas = .true.
-        integer, private :: inject = 0, maxwork = 0, maxrows = 0
+        integer, private :: inject = 0, maxwork = 0, maxrows = 0, nthreads = 1
         real(dp), private :: tau = 1.0e-13_dp, tau_abs = 0.0_dp, max_abs_m = 0.0_dp
         real(dp), private :: max_abs_u = 0.0_dp, anorm = 0.0_dp
         integer(i8), private :: owned_budget_bytes = 0_i8
@@ -98,6 +106,10 @@ module fortsparse_native_slu
         integer, allocatable, private :: pivots(:), failures(:)
         integer, allocatable, private :: row_old(:), row_new(:), col_old(:)
         real(dp), allocatable, private :: values(:), drp(:), dcp(:), solve_work(:)
+        ! Per-thread pivot statistics (perturbed, swaps, min pivot, max |U|),
+        ! reduced in thread order after a factorization: counts are exact and
+        ! extrema order independent, so the totals match the serial factor.
+        real(dp), allocatable, private :: thread_stats(:,:)
     contains
         procedure :: analyze
         procedure :: factor
@@ -146,7 +158,7 @@ module fortsparse_native_slu
     end interface
 contains
     subroutine analyze(self, n, ptr, rows, values, status, ordering, low_memory, &
-            pivot_perturbation, budget, inject_phase, force_blas)
+            pivot_perturbation, budget, inject_phase, force_blas, nthreads)
         ! Matching, scaling, ordering, symbolic structure, schedule and the
         ! allocation of all retained arrays. values are read only by the
         ! matching and scaling; factor assembles them later.
@@ -160,6 +172,10 @@ contains
         ! inject_phase (tests only): refuse the first reservation of that
         ! phase as if the cap were one byte short. force_blas (tests only)
         ! overrides the BLAS/generated contraction choice.
+        ! nthreads: OpenMP subtree-task team request, 0 = OpenMP default,
+        ! default 1 (serial). low_memory forces one thread; small factors,
+        ! few task groups and a host cap that cannot hold the per-thread
+        ! scratch reduce it (see active_threads, budget_reduced_threads).
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: n, ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
@@ -170,6 +186,7 @@ contains
         type(memory_budget_t), optional, intent(inout) :: budget
         integer, optional, intent(in) :: inject_phase
         logical, optional, intent(in) :: force_blas
+        integer, optional, intent(in) :: nthreads
         type(memory_budget_t) :: ledger
         integer(i8) :: baseline
         integer :: order_kind
@@ -185,6 +202,14 @@ contains
         if (present(low_memory)) low = low_memory
         if (present(pivot_perturbation)) self%tau = pivot_perturbation
         if (present(inject_phase)) self%inject = inject_phase
+        if (present(nthreads)) self%nthreads = max(0,nthreads)
+        if (low) self%nthreads = 1
+        self%requested_threads = 1
+        if (self%nthreads > 0) then
+            !$ self%requested_threads = self%nthreads
+        else
+            !$ self%requested_threads = omp_get_max_threads()
+        end if
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'supernodal LU: invalid ordering or pivot perturbation')
         if (order_kind /= SLU_ORDER_AMD .and. order_kind /= SLU_ORDER_ND) return
@@ -712,6 +737,7 @@ contains
         integer :: s, first, group, dest, m, w, q, m2
         integer(i8) :: limit, update_size, panel_count, bytes
         real(dp) :: flops
+        type(memory_budget_t) :: saved
 
         flops = 0.0_dp
         self%maxwork = 1
@@ -742,8 +768,8 @@ contains
         self%flops = flops
         self%use_blas = flops >= 1.0e7_dp .or. any(self%panels%width >= 96)
         if (self%strict) self%use_blas = .false.
-        ! Stage 4 executes serially; the schedule keeps the task groups.
-        call self%sched%request_threads(1, flops, .true.)
+        ! Subtree task groups use the LU work (about twice Cholesky).
+        call self%sched%request_threads(self%nthreads, flops, .false.)
         limit = ledger%limit
         if (self%inject == SLU_PHASE_INCOMING) then
             ! Test injection: the schedule's first reservation is refused.
@@ -752,7 +778,7 @@ contains
         end if
         call self%sched%setup_incoming(self%panels, ledger, status)
         if (status_ok(status)) call self%sched%setup_groups(self%panels, &
-            flops, ledger, status)
+            flops, ledger, status, lu=.true.)
         if (self%inject == SLU_PHASE_INCOMING) then
             ledger%limit = limit
             self%inject = 0
@@ -762,7 +788,25 @@ contains
                 self%failed_phase = SLU_PHASE_INCOMING
             return
         end if
+        if (self%strict .and. self%sched%active_threads > 1) then
+            ! Halve the team until the per-thread row maps, update scratch
+            ! and statistics fit beside the panels, pivots and solve scratch.
+            ! If one thread does not fit either, the allocation phases
+            ! report the failing phase.
+            bytes = 8_i8*panel_count+4_i8*self%n &
+                +8_i8*(int(self%n,i8)+int(self%maxrows,i8)) &
+                +32_i8*self%sched%active_threads
+            saved = ledger
+            call self%sched%fit_thread_scratch(self%maxwork, bytes, ledger, status)
+            if (status%code == FORTSPARSE_RESOURCE_LIMIT) then
+                ledger = saved
+                call status_set(status, FORTSPARSE_OK, '')
+            end if
+            if (.not. status_ok(status)) return
+        end if
         self%active_threads = self%sched%active_threads
+        self%task_groups = self%sched%task_groups
+        self%budget_reduced_threads = self%sched%budget_reduced_threads
         ! Exact retained layout (design section 7), before allocation.
         bytes = 8_i8*panel_count+4_i8*self%n
         bytes = bytes+self%structure_bytes()
@@ -770,6 +814,7 @@ contains
         bytes = bytes+4_i8*int(self%n,i8)*self%sched%active_threads
         bytes = bytes+8_i8*int(self%maxwork,i8)*self%sched%active_threads
         bytes = bytes+8_i8*(int(self%n,i8)+int(self%maxrows,i8))
+        bytes = bytes+32_i8*self%sched%active_threads
         self%plan_bytes = bytes
     end subroutine build_schedule
 
@@ -836,6 +881,12 @@ contains
         allocate(self%solve_work(self%n+self%maxrows), stat=ierr)
         if (ierr /= 0) goto 910
         self%solve_work = 0.0_dp
+        call charge_count(self, ledger, 4_i8*self%sched%active_threads, 8_i8, &
+            SLU_PHASE_SCRATCH, status)
+        if (.not. status_ok(status)) return
+        allocate(self%thread_stats(4,self%sched%active_threads), stat=ierr)
+        if (ierr /= 0) goto 910
+        self%thread_stats = 0.0_dp
         return
 910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
             'supernodal LU: panel allocation failed')
@@ -909,6 +960,8 @@ contains
         if (allocated(self%values)) bytes = bytes+8_i8*size(self%values,kind=i8)
         if (allocated(self%pivots)) bytes = bytes+4_i8*size(self%pivots,kind=i8)
         if (allocated(self%solve_work)) bytes = bytes+8_i8*size(self%solve_work,kind=i8)
+        if (allocated(self%thread_stats)) &
+            bytes = bytes+8_i8*size(self%thread_stats,kind=i8)
     end function memory_bytes
 
     function plan(self) result(layout)
@@ -921,7 +974,8 @@ contains
             +4_i8*size(self%pivots,kind=i8)
         layout%workspace_host_bytes = 4_i8*size(self%sched%rowmap,kind=i8) &
             +8_i8*size(self%sched%update_work,kind=i8) &
-            +8_i8*size(self%solve_work,kind=i8)
+            +8_i8*size(self%solve_work,kind=i8) &
+            +8_i8*size(self%thread_stats,kind=i8)
         layout%persistent_host_bytes = self%plan_bytes-layout%factor_host_bytes &
             -layout%workspace_host_bytes
         layout%peak_host_bytes = self%peak_memory_bytes
@@ -953,10 +1007,15 @@ contains
         if (allocated(self%drp)) deallocate(self%drp)
         if (allocated(self%dcp)) deallocate(self%dcp)
         if (allocated(self%solve_work)) deallocate(self%solve_work)
+        if (allocated(self%thread_stats)) deallocate(self%thread_stats)
         call self%sched%free()
         self%n = 0
         self%node_count = 0
         self%active_threads = 1
+        self%requested_threads = 1
+        self%task_groups = 0
+        self%budget_reduced_threads = .false.
+        self%nthreads = 1
         self%factor_nnz = 0_i8
         self%symbolic_nnz = 0_i8
         self%flops = 0.0_dp
@@ -991,18 +1050,30 @@ contains
     end subroutine slu_free
 
     subroutine factor(self, ptr, rows, values, status)
-        ! Assemble M from A and factor it (left-looking, serial). The pattern
-        ! may differ from the analyzed one as long as every entry lies in the
+        ! Assemble M from A and factor it (left-looking). The pattern may
+        ! differ from the analyzed one as long as every entry lies in the
         ! static structure; otherwise INVALID_MATRIX and the caller analyzes
         ! again. A non-finite factor entry returns SINGULAR with nonfinite
         ! set. Statistics are exact counts of this factorization.
-        ! Allocation-free.
-        class(slu_factor_t), intent(inout) :: self
+        ! With more than one planned thread, each elimination-subtree group
+        ! is one OpenMP task that depends on its predecessor groups; a task
+        ! writes only its own destination panels and pivots, and pivoting is
+        ! block local, so the result differs from the serial factor only by
+        ! the summation order of updates. Allocation-free in FortSparse
+        ! (the OpenMP runtime owns its task descriptors).
+        class(slu_factor_t), target, intent(inout) :: self
         integer, intent(in) :: ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s
+        integer :: s, t
         real(dp) :: started
+        integer, pointer :: token(:)
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+        integer, pointer :: sources(:)
+        integer :: incoming_start, incoming_end
+#else
+        integer :: group, first, q, dest
+#endif
         self%factored = .false.
         self%nonfinite = .false.
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: not analyzed')
@@ -1012,13 +1083,73 @@ contains
         started = seconds()
         call assemble(self, ptr, rows, values, status)
         if (.not. status_ok(status)) return
+        self%failures = 0
+        self%thread_stats(1:2,:) = 0.0_dp
+        self%thread_stats(3,:) = huge(1.0_dp)
+        self%thread_stats(4,:) = 0.0_dp
+        if (self%sched%active_threads == 1) then
+            do s = 1, self%node_count
+                call factor_destination(self, s, 1)
+            end do
+        else
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+            token => self%sched%group_tokens
+            sources => self%sched%group_sources
+            !$omp parallel num_threads(self%sched%active_threads) default(shared)
+            !$omp single
+            !$ self%sched%active_threads = omp_get_num_threads()
+            do s = 1, self%sched%task_groups
+                incoming_start = self%sched%group_ptr(s)
+                ! OpenMP iterator end is exclusive, including in Fortran.
+                incoming_end = self%sched%group_ptr(s+1)
+                !$omp task firstprivate(s) &
+                !$omp depend(iterator(incoming=incoming_start:incoming_end), &
+                !$omp in:token(sources(incoming))) depend(out:token(s))
+                call factor_group(self, s)
+                !$omp end task
+            end do
+            !$omp end single
+            !$omp end parallel
+#else
+            ! Without iterator dependencies: one task per destination panel
+            ! and per update, ordered by panel tokens (as the SPD factor).
+            ! The per-panel failure flags serve as the dependence addresses:
+            ! each is written only under its own panel's dependence.
+            token => self%failures
+            !$omp parallel num_threads(self%sched%active_threads) default(shared)
+            !$omp single
+            !$ self%sched%active_threads = omp_get_num_threads()
+            do s = 1, self%node_count
+                !$omp task firstprivate(s) depend(inout:token(s))
+                call factor_panel(self, s, self%sched%workspace_thread())
+                !$omp end task
+                first = self%panels(s)%width+1
+                do while (first <= self%panels(s)%m)
+                    call self%sched%update_group(self%panels(s)%supernode_t, &
+                        first, group, dest)
+                    q = group-first
+                    !$omp task firstprivate(s,dest,first,q) &
+                    !$omp depend(in:token(s)) depend(inout:token(dest))
+                    call update_panel(self, s, dest, first, q)
+                    !$omp end task
+                    first = group
+                end do
+            end do
+            !$omp end single
+            !$omp end parallel
+#endif
+            self%active_threads = self%sched%active_threads
+        end if
+        ! Deterministic reduction in thread order.
         self%perturbed_pivots = 0
         self%block_swaps = 0
         self%min_pivot = huge(1.0_dp)
         self%max_abs_u = 0.0_dp
-        self%failures = 0
-        do s = 1, self%node_count
-            call factor_destination(self, s, 1)
+        do t = 1, size(self%thread_stats,2)
+            self%perturbed_pivots = self%perturbed_pivots+nint(self%thread_stats(1,t))
+            self%block_swaps = self%block_swaps+nint(self%thread_stats(2,t))
+            self%min_pivot = min(self%min_pivot, self%thread_stats(3,t))
+            self%max_abs_u = max(self%max_abs_u, self%thread_stats(4,t))
         end do
         self%max_growth = 0.0_dp
         if (self%max_abs_m > 0.0_dp) self%max_growth = self%max_abs_u/self%max_abs_m
@@ -1120,11 +1251,39 @@ contains
             call accumulate_update(self, self%sched%incoming_source(p), dest, &
                 self%sched%incoming_first(p), self%sched%incoming_q(p), thread)
         end do
-        call factor_panel(self, dest)
+        call factor_panel(self, dest, thread)
         do p = 1, self%panels(dest)%m
             self%sched%rowmap(self%panels(dest)%rows(p),thread) = 0
         end do
     end subroutine factor_destination
+
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+    subroutine factor_group(self, group)
+        ! One elimination-subtree group in ascending (postorder) panel order.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: group
+        integer :: member, thread
+        thread = self%sched%workspace_thread()
+        do member = self%sched%group_member_ptr(group), &
+                self%sched%group_member_ptr(group+1)-1
+            call factor_destination(self, self%sched%group_members(member), thread)
+        end do
+    end subroutine factor_group
+#else
+    subroutine update_panel(self, source, dest, first, q)
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: source, dest, first, q
+        integer :: thread, p
+        thread = self%sched%workspace_thread()
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = p
+        end do
+        call accumulate_update(self, source, dest, first, q, thread)
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = 0
+        end do
+    end subroutine update_panel
+#endif
 
     subroutine accumulate_update(self, s, d, f, q, thread)
         ! Source rows rows_s(f:f+q-1) are destination columns. GEMM1 updates
@@ -1223,16 +1382,18 @@ contains
         end do
     end subroutine accumulate_update
 
-    subroutine factor_panel(self, d)
+    subroutine factor_panel(self, d, thread)
         ! Restricted-pivot block LU, exchanges applied to the Ut columns
         ! (destination rows are Ut columns), then L21 := L21 U^-1 and
         ! Ut := Ut L^-T. Descendant L entries in these rows stay keyed by the
         ! pre-exchange labels; the solves apply P_d to accumulated values.
+        ! Pivot statistics accumulate in locals and then once into the
+        ! calling thread's slot of thread_stats.
         class(slu_factor_t), intent(inout) :: self
-        integer, intent(in) :: d
-        integer :: m, w, mu, k, r, i, first
+        integer, intent(in) :: d, thread
+        integer :: m, w, mu, k, r, i, first, perturbed, swaps
         integer(i8) :: l0, u0, e
-        real(dp) :: saved
+        real(dp) :: saved, min_pivot, max_u
         if (self%failures(d) /= 0) return
         m = self%panels(d)%m
         w = self%panels(d)%width
@@ -1240,9 +1401,12 @@ contains
         first = self%panels(d)%first
         l0 = self%panels(d)%offset_l
         u0 = self%panels(d)%offset_u
+        perturbed = 0
+        swaps = 0
+        min_pivot = huge(1.0_dp)
+        max_u = 0.0_dp
         call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
-            self%pivots(first), self%perturbed_pivots, self%block_swaps, &
-            self%min_pivot, self%max_abs_u)
+            self%pivots(first), perturbed, swaps, min_pivot, max_u)
         if (mu > 0) then
             do k = 1, w
                 r = self%pivots(first+k-1)
@@ -1264,9 +1428,13 @@ contains
                     mu, mu)
             end if
             do e = u0+1, u0+int(mu,i8)*w
-                self%max_abs_u = max(self%max_abs_u, abs(self%values(e)))
+                max_u = max(max_u, abs(self%values(e)))
             end do
         end if
+        self%thread_stats(1,thread) = self%thread_stats(1,thread)+perturbed
+        self%thread_stats(2,thread) = self%thread_stats(2,thread)+swaps
+        self%thread_stats(3,thread) = min(self%thread_stats(3,thread), min_pivot)
+        self%thread_stats(4,thread) = max(self%thread_stats(4,thread), max_u)
         do e = l0+1, u0+int(mu,i8)*w
             if (ieee_is_finite(self%values(e))) cycle
             self%failures(d) = 1
