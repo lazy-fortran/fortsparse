@@ -306,6 +306,7 @@ contains
                     return
                 end if
                 if (self%pinv(row)==0) then
+                    if (self%work(row)/=0.0_dp) lc=lc+1
                     magnitude=abs(self%work(row))
                     if (magnitude>best) then
                         best=magnitude
@@ -325,10 +326,8 @@ contains
                 if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
             end if
             diagonal=self%work(pivot)
-            do t=1,count
-                row=self%reach(t)
-                if (self%pinv(row)==0 .and. row/=pivot .and. self%work(row)/=0.0_dp) lc=lc+1
-            end do
+            ! A valid pivot is one of the nonzero unpivoted entries counted above.
+            lc=lc-1
             if (int(self%ln,i8)+lc>=huge(0) .or. int(self%un,i8)+uc>=huge(0)) then
                 call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'LU factor index overflow')
                 return
@@ -1052,6 +1051,7 @@ contains
                     return
                 end if
                 if (self%pinv(row)==0) then
+                    if (self%work(row)/=(0.0_dp,0.0_dp)) lc=lc+1
                     magnitude=lu_z_norm(self%work(row))
                     if (magnitude>best) then
                         best=magnitude
@@ -1071,10 +1071,8 @@ contains
                 if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
             end if
             diagonal=self%work(pivot)
-            do t=1,count
-                row=self%reach(t)
-                if (self%pinv(row)==0 .and. row/=pivot .and. self%work(row)/=(0.0_dp,0.0_dp)) lc=lc+1
-            end do
+            ! A valid pivot is one of the nonzero unpivoted entries counted above.
+            lc=lc-1
             if (int(self%ln,i8)+lc>=huge(0) .or. int(self%un,i8)+uc>=huge(0)) then
                 call status_set(status,FORTSPARSE_INDEX_OVERFLOW,'LU factor index overflow')
                 return

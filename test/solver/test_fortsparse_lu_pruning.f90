@@ -2,13 +2,70 @@ program test_fortsparse_lu_pruning
     use fortsparse
     use fortsparse_native_lu, only: lu_factor_t, prune_real => lu_prune_column
     use fortsparse_native_lu_z, only: lu_factor_z_t, prune_complex => lu_prune_column
+    use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
     implicit none
     call graph_oracle()
     call numerical_oracles()
     call memory_oracle()
+    call numerical_range_oracle()
     print '(a)', &
         'Witnessed LU graph closure, cancellation, pivots, derivatives and caps pass'
 contains
+    subroutine numerical_range_oracle()
+        type(lu_factor_t) :: factor
+        type(lu_factor_z_t) :: zfactor
+        type(fortsparse_status_t) :: status
+        integer, parameter :: ptr(3) = [1, 3, 5], rows(4) = [1, 2, 1, 2]
+        real(dp) :: values(4), rhs(2)
+        complex(dp) :: zvalues(4), zrhs(2)
+        integer :: mode
+        logical :: pruning
+        do mode = 0, 1
+            pruning = mode == 1
+            ! A finite tiny preferred pivot overflows the multiplier. The
+            ! failed factor must not be usable, and same-pattern recovery works.
+            values = [tiny(1.0_dp)*0.01_dp, 1.0_dp, 1.0_dp, 1.0_dp]
+            zvalues = cmplx(values, 0.0_dp, dp)
+            call factor%factor_raw(2, ptr, rows, values, status, &
+                pivot_threshold=0.0_dp, pruning=pruning)
+            if (status%code /= FORTSPARSE_SINGULAR) &
+                error stop 'real finite-input multiplier range status'
+            call zfactor%factor_raw(2, ptr, rows, zvalues, status, &
+                pivot_threshold=0.0_dp, pruning=pruning)
+            if (status%code /= FORTSPARSE_SINGULAR) &
+                error stop 'complex finite-input multiplier range status'
+            rhs = 1.0_dp; zrhs = (1.0_dp, 0.0_dp)
+            call factor%solve(rhs, status)
+            if (status%code /= FORTSPARSE_NOT_FACTORED) &
+                error stop 'real failed range factor remained usable'
+            call zfactor%solve(zrhs, status)
+            if (status%code /= FORTSPARSE_NOT_FACTORED) &
+                error stop 'complex failed range factor remained usable'
+            values = [2.0_dp, 1.0_dp, 1.0_dp, 2.0_dp]
+            zvalues = cmplx(values, 0.0_dp, dp)
+            call factor%factor_raw(2, ptr, rows, values, status, pruning=pruning)
+            call checked(status)
+            call zfactor%factor_raw(2, ptr, rows, zvalues, status, pruning=pruning)
+            call checked(status)
+            rhs = [4.0_dp, 5.0_dp]; zrhs = cmplx(rhs, 0.0_dp, dp)
+            call factor%solve(rhs, status)
+            call checked(status)
+            call zfactor%solve(zrhs, status)
+            call checked(status)
+            if (maxval(abs(rhs - [1.0_dp, 2.0_dp])) > 1e-14_dp .or. &
+                maxval(abs(zrhs - cmplx([1.0_dp, 2.0_dp], 0.0_dp, dp))) > 1e-14_dp) &
+                error stop 'same-pattern numerical-range recovery'
+            values(1) = ieee_value(1.0_dp, ieee_quiet_nan)
+            zvalues(1) = cmplx(1.0_dp, values(1), dp)
+            call factor%factor_raw(2, ptr, rows, values, status, pruning=pruning)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) &
+                error stop 'real nonfinite input after retained factors'
+            call zfactor%factor_raw(2, ptr, rows, zvalues, status, pruning=pruning)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) &
+                error stop 'complex nonfinite input after retained factors'
+        end do
+    end subroutine numerical_range_oracle
+
     subroutine checked(status)
         type(fortsparse_status_t), intent(in) :: status
         if (.not. status_ok(status)) then
