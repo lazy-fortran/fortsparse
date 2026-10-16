@@ -1,7 +1,8 @@
 # FortSparse roadmap
 
-Active plan, 2026-10-16. Checked items describe the implemented baseline;
-unchecked items are planned capabilities, not implementation claims.
+Active plan and controller handoff, 2026-10-16. This is the single authoritative
+plan; do not create a competing PLAN.md. Checked items describe the implemented
+baseline; unchecked items are planned capabilities, not implementation claims.
 
 ## Goal and scope
 
@@ -29,8 +30,8 @@ then prioritize CPU matrix-class coverage. Full GPU Pareto admission remains
 a requirement later; it does not block CPU development.
 
 Current delivery priority is **feature completeness and correctness before
-further performance tuning**. Create native-only FortSparse branches and draft
-PRs for the first-party ITPplasma consumers. SPEC, JOREK and M3D-C1 are
+further performance tuning**. Maintain the seven existing native-only consumer
+draft PRs; do not merge them during this handoff. SPEC, JOREK and M3D-C1 are
 deferred forks and have no current priority. Track actual paths and merge blockers
 in [native consumer migrations](docs/native-consumers.md). Pin verified library revisions, preserve each
 consumer's mathematical/storage/lifetime contracts, and run affected independent
@@ -42,6 +43,189 @@ release admission. The Pareto requirement above remains a later gate.
 Use `main` for coherent, locally verified integration and regular publication.
 Use explicit, reentrant state and preserve existing calling conventions through
 defaults. Update checked milestones only when their executable evidence exists.
+
+## Current integration checkpoint
+
+FortSparse had **no open PRs** at the 2026-10-16 handoff check. Published `main`
+was `5ad34ddaba1ac51de0bff5f0bb4dc5c060bd33ff` before this planning update.
+There is therefore no outstanding FortSparse PR to merge. Consumer PRs remain
+drafts, with their existing pins, tests and unresolved gates recorded in
+[native consumer migrations](docs/native-consumers.md). Recheck remote state
+when taking over; a local worker branch or proposal is not an open PR or an
+integrated implementation. No workers are running at this checkpoint.
+
+The real-SPD CPU MVP has the bounded corpus admission described below. Other
+families have useful native references but incomplete production admission.
+Do not use an overall completion percentage as an acceptance criterion.
+
+## Priority work order for the next controller
+
+These priorities order delivery; the M6 identifiers below retain their existing
+meaning. Complete one bounded change and its affected checks before expanding
+scope. A documented application-science blocker need not stop independent
+FortSparse correctness or coverage work.
+
+1. **Close CPU correctness and ownership gaps.** Inventory each real consumer's
+   missing operation against [native CPU support](docs/native-cpu.md). Repair
+   reproducible original-matrix, transpose/adjoint, pivot, reuse, derivative and
+   exhaustion defects before optimizing. Specify and implement safe ownership
+   for public solver contexts: intrinsic assignment currently aliases native
+   user workspaces and opaque external handles. Cover the actual copy or
+   transfer operations the contract permits, including failure and finalization;
+   low-level factor-copy tests do not establish whole-context safety. Retain
+   independent known-solution oracles and explicit unsupported paths.
+2. **Bound consumer qualification work.** Apply the NEO-2 stop rule below before
+   further golden investigation. Diagnose FortFEM's two failing CI checks and
+   KAMEL's golden/Linux/macOS failures, distinguishing baseline failures from
+   migration regressions. NEO-EQ's repaired frozen pair agrees to about 3.3e-7
+   in the reported field diagnostic, but both outer iterations diverge. Treat
+   physical convergence as a separate application issue: no unbounded mesh,
+   basis, damping or case search, and no invented peer tolerance. MEPHIT's
+   cylinder is qualified; full optional MFEM physics remains unverified.
+   NEO-RT's declared background approximation remains explicit. Keep all seven
+   consumer PRs unmerged until separately authorized.
+3. **Finish predictable memory for required CPU paths.** Extend analysis and
+   pre-factor plans beyond compact natural/AMD SPD, and enforce owned-payload
+   limits through conversion, ordering, replacement overlap, factor growth,
+   refinement and derivatives. Add RAM-only LOW modes where supported; reject
+   unsupported strict requests. In particular, ND currently has no strict host
+   cap. Record exact sizes, conservative bounds and estimates distinctly, with
+   separate process overhead/headroom for NEO-2 and node sizing. The real LOW
+   page-advice change is already on main: measured RSS falls 12--14% at about
+   19% more CPU on its two frozen workloads. Preserve that tradeoff; do not
+   generalize it to AUTO, complex factors or a stronger payload bound.
+4. **Complete required CPU families, then production schedules.** Fill only
+   demonstrated consumer gaps in complex LU, HPD and pivoted indefinite paths,
+   their ordering, retained operations and planning. References already exist;
+   avoid rebuilding them. After the affected correctness contracts pass, add
+   generated blocked execution and OpenMP scaling. General real LU is the most
+   urgent practical performance gap: the controlled full KIN6D case times out
+   at 900 seconds against a roughly 6-second baseline and reaches about 7 GiB
+   RSS. Retain this failure and the original physical inputs. Use the bounded
+   next LU experiment below before repeating the full consumer run.
+5. **Repair blocking tooling in its owner; qualify pending generated work.**
+   Fo's newer CMake File API route omits the scanner fallback used by its older
+   route. The tiny BVLS reproducer retains a readable source on two failed
+   resident generations; diagnostic regex fallback succeeds. Implement and
+   independently test the bounded upstream integration repair, preserving
+   preprocessing/active-branch semantics and parser diagnostics; then rerun
+   the original focused FortNum gate. Do not alter scientific source, replace
+   shared installed tools or label a diagnostic workaround a passing gate.
+   The unpublished FortNum bicubic candidate `97d5a3b` has native/fpm,
+   symbolic and full regeneration evidence, but its resident Fo gate remains
+   blocked. After that gate passes, trial its generated Horner value/partial
+   jet in an isolated NEO-2 adapter for NEO-RT, preserving the existing primal
+   interpolation and physical checks. Measure the complete consumer workload
+   before upstream promotion and public pin updates. Do not assume fewer
+   operations make the analytical JVP/VJP schedules fastest.
+6. **Resume CPU Pareto admission, then extend GPU admission.** After functional
+   correctness, compare each declared CPU workload with the best available
+   external frontier at matched accuracy, with CPU time, RSS, payload and
+   1/2/4/8/16-core scaling. Then complete usable GPU SPD memory evidence and
+   matched actual-GPU-library admission, followed by consumer-required GPU
+   families. GPU host caps, LOW and complete peak-VRAM admission remain open.
+   CPU-versus-GPU comparisons do not establish GPU-library competitiveness.
+   Keep the full CPU/GPU Pareto requirement; no MPI or multi-GPU expansion.
+7. **Publish final evidence and close the handoff.** Refresh affected consumer
+   pins only after upstream publication and recheck the exact public closure.
+   Put current CPU/RSS numbers or explicit unavailable results in each draft;
+   preserve older tables at their measured source identities. Push verified
+   FortSparse increments regularly. Publish PNG Pareto/scaling plots through
+   ephemeral slopbox, retaining recipes, numeric evidence and provenance in Git.
+   Recoverably retire completed worktrees/branches only after integration,
+   stopped owned jobs and an audit of all remaining generator dependencies.
+   Preserve negative experiments and useful unpublished work.
+
+Tooling repair in item 5 may run earlier when it blocks a required check in
+items 1--4. Do not start unrelated upstream repairs or performance campaigns.
+
+## NEO-2 accuracy investigation and stop rule
+
+The Lorentz golden is highly sensitive. Cancellation in downstream derivative
+projections can amplify tiny solution differences; historical floating-point
+tables are comparison data, not an exact mathematical oracle. Generated
+compensated solves passed the strict final transport comparison at an earlier
+solver-only checkpoint. This is not a full golden pass for the combined branch.
+
+First reuse the retained matrix/RHS/factor captures, independent references and
+failed-gate receipts. For any genuinely new discrepancy, isolate assembly,
+factorization, triangular solve, residual evaluation and observable projection.
+Check the original equations, an independent reference and the reported physical
+observable. Include conditioning, representable-input rounding and projection
+cancellation in the explanation. Higher-precision evidence is not a rigorous
+certificate, and a small backward error alone does not bound forward error.
+
+**Stop solver-side tuning** when independent checks support the solver's stated
+accuracy contract, remaining discrepancies are explained within a justified
+conditioning/rounding analysis, and there is no reproducible FortSparse defect.
+Write the evidence and remaining limitation once, then move to the next CPU
+priority. Do not keep changing kernels to reproduce cancellation-amplified
+intermediate tables. If that explanation cannot be established, record the
+specific unresolved question and the next discriminating check; do not launch
+an open-ended sequence of full golden runs.
+
+Preserve all existing gates and their failures. Classify provenance/metadata
+differences separately against their actual schema contract. If scientific
+acceptance needs an observable accuracy budget that has not been supplied,
+leave the application gate open for its scientific owner. Do not invent a
+tolerance, silently refresh goldens, discard intermediates, or promote the
+consumer PR. Repeat an expensive run only after a concrete fix or new check
+can resolve the recorded question. A new independently reproduced solver defect
+reopens solver work; unexplained historical-bit disagreement alone does not.
+
+## Next bounded general-LU experiment
+
+All 60 retained scalar/target-panel observations pass their numerical gates,
+but the generated width-eight variants do not establish a reproducible gain on
+the captured KIN6D case. Keep the public default scalar; do not extend masking
+microoptimizations without new evidence. See the
+[complete panel evidence](bench/results/2026-10-16-lu-panels/README.md).
+
+The next proposal, still unimplemented, is exact prefix source blocking in the
+experimental real width-eight path. Detect adjacent completed columns using
+full L-row sets before final row relabeling, with
+`S(k-1) = {p(k)} union S(k)`, and a maximum group width of eight. Pruning may
+reorder entries but must not change the exact test. Process reached groups in
+quotient dependency order, never by collapsing consecutive scalar DFS visits.
+Support each lane's reached suffix without evaluating inactive numerical data.
+Generate the small triangular coefficient solve and rank-K common-tail update
+from retained mathematics; preserve global pivot policy and current-column work.
+
+Use one setup-allocated 8-by-n pack with counted descriptors and scratch. The
+proposal adds `76*n+1088` owned bytes at four-byte integers/eight-byte reals,
+on top of current panel storage; verify the actual layout and every growth
+overlap. No allocation in numerical kernels, fixture-sized tail cutoff or cached
+positions invalidated by pruning/refactorization. Start from current main so
+the integrated real LOW memory changes survive regeneration. Keep complex,
+LOW+width-eight and public defaults unchanged in this first experiment.
+
+Before timing, require independent exact detector/quotient tests, a scalar DFS
+interleaving counterexample, original-matrix known solutions with pivoting and
+refactorization, generated primal/JVP/VJP checks, inactive-lane IEEE checks,
+tails longer than 512 rows, exact cap/fault recovery and allocation-free reuse.
+Then run a predeclared quiet sub-second A/B cohort; preserve a negative result.
+Only a correctness-qualified, reproducible bounded gain justifies a new large
+KIN6D run or subsequent production selection. This is an experiment, not a
+promised speedup or a novel-algorithm claim.
+
+## Local handoff evidence
+
+These paths retain supporting evidence and candidate work on the current host;
+they are not build dependencies. Published contracts and benchmark summaries
+remain in this repository. Inspect worktree status before resuming any candidate.
+
+| Work | Retained location |
+|---|---|
+| Exact source-block proposal and structural diagnostic | `~/code/sparse-dev/benchmarks/2026-10-16-kin6d-native-migration/nonnested-csc-probe/lu-source-structure/` |
+| FortNum bicubic candidate and verification receipt | `~/code/worktrees/fortnum-bicubic-horner` at `97d5a3b`; `~/code/sparse-dev/migrations/neort-native/restoration-2026-10-16/bicubic-horner/receipt.json` |
+| Fo two-generation BVLS reproducer and repair proposal | `/var/tmp/fo-captured-bvls-audit/REPORT.md`, `project/` and `receipts/` alongside it |
+| Recoverable consumer-worker cleanup and dependency correction | `~/code/sparse-dev/cleanup/2026-10-16-completed-consumer-audit/` |
+
+Protect `/var/tmp/neo2-curl-gen-build` and the active generator source closure:
+the shared FortSym build is still required despite its historical consumer
+name. Its temporary quarantine was reversed. A clean tree or an absence of
+running processes alone does not establish that a build directory is unused;
+audit manual generation recipes and obtain the remaining owners' release.
 
 ## Implemented baseline
 
@@ -278,9 +462,10 @@ mathematical implementations.
   [failed attempt and reproduction data](bench/results/2026-10-16-kin6d-nonnested/README.md).
   A generated real width-eight rolling target-panel prototype is available
   only through low-level opt-in. Independent closure/pivot/derivative and exact
-  payload/fault-recovery tests pass; two bounded A/B cohorts pass their residual gates but do not establish a
-  reproducible workflow gain over scalar execution. Full-active generated SIMD
-  is implemented; the remaining losses are being profiled.
+  payload/fault-recovery tests pass; all three bounded A/B cohorts pass their
+  residual gates but do not establish a reproducible workflow gain over scalar
+  execution. Full-active and contiguous-range generated SIMD are implemented;
+  profiles motivate the unimplemented source-block proposal above.
   No public default or family admission follows from this prototype.
   Generated compensated triangular solves improve the NEO-2 final
   transport comparison while retaining allocation-free solves and capped
