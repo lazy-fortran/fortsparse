@@ -85,6 +85,8 @@ module fortsparse_backend
         logical :: strict_memory_supported = .false.
         logical :: compact_memory_used = .false., budget_reduced_threads = .false.
         character(16) :: native_factor_family = ''
+        integer :: refinement_steps = 0
+        real(dp) :: backward_error = -1.0_dp
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t
