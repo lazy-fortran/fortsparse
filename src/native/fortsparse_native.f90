@@ -78,8 +78,10 @@ module fortsparse_native
         procedure :: refactor_real => native_refactor
         procedure :: factor_complex => native_factor_complex
         procedure :: solve_real => native_solve
+        procedure :: solve_real_op => native_solve_op
         procedure :: solve_real_inplace => native_solve_inplace
         procedure :: solve_real_block => native_solve_block
+        procedure :: solve_real_block_op => native_solve_block_op
         procedure :: solve_complex => native_solve_complex
         procedure :: solve_complex_inplace => native_solve_complex_inplace
         procedure :: factor_stats => native_stats
@@ -614,6 +616,20 @@ contains
         call self%factor_real(A, refine, status)
     end subroutine native_refactor
 
+    subroutine native_solve_op(self, b, x, operation, status)
+        class(native_backend_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(in) :: b(:)
+        real(dp), target, contiguous, intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (operation < 0 .or. operation > 2) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid SPD solve operation')
+            return
+        end if
+        ! Real symmetric A: normal, transpose and adjoint are the same solve.
+        call self%solve_real(b,x,status)
+    end subroutine native_solve_op
+
     subroutine native_solve(self, b, x, status)
         class(native_backend_t), intent(inout) :: self
         real(dp), target, contiguous, intent(in) :: b(:)
@@ -671,6 +687,19 @@ contains
             b(j) = spd_divide(v, self%lv(self%lp(j)))
         end do
     end subroutine triangular_solve
+
+    subroutine native_solve_block_op(self, b, x, operation, status)
+        class(native_backend_t), intent(inout) :: self
+        real(dp), contiguous, intent(in) :: b(:,:)
+        real(dp), contiguous, intent(out) :: x(:,:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (operation < 0 .or. operation > 2) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid SPD block solve operation')
+            return
+        end if
+        call self%solve_real_block(b,x,status)
+    end subroutine native_solve_block_op
 
     subroutine native_solve_block(self, B, X, status)
         class(native_backend_t), intent(inout) :: self

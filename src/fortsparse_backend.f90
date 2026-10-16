@@ -33,6 +33,10 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_ORDER_AMD = 1
     integer, parameter, public :: FORTSPARSE_ORDER_ND = 2
 
+    integer, parameter, public :: FORTSPARSE_OP_NORMAL = 0
+    integer, parameter, public :: FORTSPARSE_OP_TRANSPOSE = 1
+    integer, parameter, public :: FORTSPARSE_OP_ADJOINT = 2
+
     integer, parameter, public :: FORTSPARSE_MEMORY_AUTO = 0
     integer, parameter, public :: FORTSPARSE_MEMORY_LOW = 1
 
@@ -98,6 +102,10 @@ module fortsparse_backend
         procedure(solve_complex_inplace_i), deferred :: solve_complex_inplace
         procedure :: solve_real_block => backend_solve_real_block
         procedure :: solve_complex_block => backend_solve_complex_block
+        procedure :: solve_real_op => backend_solve_real_op
+        procedure :: solve_complex_op => backend_solve_complex_op
+        procedure :: solve_real_block_op => backend_solve_real_block_op
+        procedure :: solve_complex_block_op => backend_solve_complex_block_op
         procedure :: factor_stats => backend_factor_stats
         procedure(vector_i), deferred :: vector
         procedure(free_i), deferred :: free
@@ -175,6 +183,74 @@ module fortsparse_backend
     end interface
 
 contains
+
+    subroutine backend_solve_real_op(self, b, x, operation, status)
+        class(sparse_backend_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(in) :: b(:)
+        real(dp), target, contiguous, intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (operation == FORTSPARSE_OP_NORMAL) then
+            call self%solve_real(b, x, status)
+        else
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'selected backend does not expose retained transpose solves')
+        end if
+    end subroutine backend_solve_real_op
+
+    subroutine backend_solve_complex_op(self, b, x, operation, status)
+        class(sparse_backend_t), intent(inout) :: self
+        complex(dp), intent(in) :: b(:)
+        complex(dp), intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        if (operation == FORTSPARSE_OP_NORMAL) then
+            call self%solve_complex(b, x, status)
+        else
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'selected backend does not expose retained adjoint solves')
+        end if
+    end subroutine backend_solve_complex_op
+
+    subroutine backend_solve_real_block_op(self, b, x, operation, status)
+        class(sparse_backend_t), intent(inout) :: self
+        real(dp), contiguous, intent(in) :: b(:,:)
+        real(dp), contiguous, intent(out) :: x(:,:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: j
+        if (operation == FORTSPARSE_OP_NORMAL) then
+            call self%solve_real_block(b, x, status)
+            return
+        end if
+        call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'selected backend does not expose block transpose solves')
+        if (any(shape(b) /= shape(x))) return
+        do j = 1, size(b,2)
+            call self%solve_real_op(b(:,j), x(:,j), operation, status)
+            if (status%code /= 0) return
+        end do
+    end subroutine backend_solve_real_block_op
+
+    subroutine backend_solve_complex_block_op(self, b, x, operation, status)
+        class(sparse_backend_t), intent(inout) :: self
+        complex(dp), contiguous, intent(in) :: b(:,:)
+        complex(dp), contiguous, intent(out) :: x(:,:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: j
+        if (operation == FORTSPARSE_OP_NORMAL) then
+            call self%solve_complex_block(b, x, status)
+            return
+        end if
+        call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'selected backend does not expose block adjoint solves')
+        if (any(shape(b) /= shape(x))) return
+        do j = 1, size(b,2)
+            call self%solve_complex_op(b(:,j), x(:,j), operation, status)
+            if (status%code /= 0) return
+        end do
+    end subroutine backend_solve_complex_block_op
 
     ! Solve for the columns of B one by one. A backend with a native multi-RHS
     ! solve overrides this.
