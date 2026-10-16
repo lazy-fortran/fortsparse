@@ -30,7 +30,9 @@ a requirement later; it does not block CPU development.
 
 Current delivery priority is **feature completeness and correctness before
 further performance tuning**. Create native-only FortSparse branches and draft
-PRs for the ITPplasma consumers. Pin verified library revisions, preserve each
+PRs for the first-party ITPplasma consumers. SPEC, JOREK and M3D-C1 are
+deferred forks and have no current priority. Track actual paths and merge blockers
+in [native consumer migrations](docs/native-consumers.md). Pin verified library revisions, preserve each
 consumer's mathematical/storage/lifetime contracts, and run affected independent
 checks. Document unsupported paths explicitly; a draft PR is not validation or
 release admission. The Pareto requirement above remains a later gate.
@@ -163,12 +165,14 @@ cost; provide cluster-sizing guidance with explicit headroom and uncertainty.
 Reuse keys cover every structural and scheduling assumption.
 
 Implemented host caps cover natural-order CPU SPD compact and blocked execution,
-and the CPU factor references. General LU also supports explicit AMD with
-audited caller-owned ordering workspace, including LOW_MEMORY and reuse overlap.
+and the CPU factor references. General LU and real SPD also support explicit
+AMD with audited caller-owned ordering workspace, including LOW_MEMORY. General
+LU accounts for reuse overlap; ordered SPD accounts for analysis, panels and
+original-matrix refinement.
 Bounded panels count descriptors, graph/task
 scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
-workspace. Compact SPD has exact payload planning. SPD ordering/CUDA caps and wider
-production planning remain unimplemented; strict unsupported requests fail
+workspace. Compact natural SPD has exact payload planning. Ordered SPD planning,
+ND/CUDA caps and wider production planning remain unimplemented; strict unsupported requests fail
 explicitly. See [memory contracts](docs/memory.md). This does not complete M6.1
 or confer performance admission.
 
