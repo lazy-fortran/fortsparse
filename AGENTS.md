@@ -77,6 +77,13 @@ their work is integrated and their owned processes have stopped.
   overlap within observed variability is indeterminate. Unknown-memory solvers
   only obstruct frontier membership when their time could actually dominate.
   Aggregate speedups must not conceal regressions or failures.
+- Distinguish Pareto membership from the stronger match/beat gate. A native
+  time/memory tradeoff can be nondominated without beating an existing point
+  on both axes. Keep the strict same-comparator result unchanged and report
+  nondominance separately. Robust observed-range membership must exclude EVERY
+  measured external configuration as a possible dominator by strict time OR
+  memory separation. Unknown aggregate memory, missing comparators and range
+  overlaps remain explicit; median-front membership is a weaker claim.
 
 ## Profile-driven optimization loop
 
