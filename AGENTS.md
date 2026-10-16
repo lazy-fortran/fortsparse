@@ -29,8 +29,9 @@ thread counts, repetitions and correctness status. New tests without an equivale
 baseline and blocked comparisons stay explicitly unavailable. Long application
 correctness runs are separate from the sub-second solver benchmark corpus; label
 unreplicated observations and shared-host limits, and do not infer Pareto admission.
-Use spawn/exec-aware observers: a Python fork can impose its inherited RSS
-high-water floor on a tiny executable. Retain per-process post-exec evidence and
+Use spawn/exec-aware observers: Python fork and observed Python spawn paths can
+impose an RSS high-water floor on a tiny executable. Qualify the observer with
+a small C spawn/wait helper or actual post-exec memory evidence. Retain per-process evidence and
 never present separate process peaks as aggregate workflow memory.
 
 ## Mathematics and implementation
@@ -142,6 +143,10 @@ never present separate process peaks as aggregate workflow memory.
    the critical path. Optimize representation/algorithm, data movement and
    parallel work before instruction details. Inspect vectorization reports,
    assembly and GPU instructions for the measured hot kernels.
+   For sparse fill regressions, inspect input/factor nnz, allocated capacity,
+   zero diagonals, pivot departures and singleton removal. Compare matching and
+   ordering before tuning scatter instructions. Fewer factor entries need not
+   mean lower payload when geometric capacities change.
 5. Make one bounded change addressing measured evidence. Generate a bounded
    ahead-of-time variant set for tiles/layouts/unrolling/fusion where justified.
    Fewer symbolic operations do not imply lower elapsed time. Avoid unbounded
@@ -154,6 +159,15 @@ never present separate process peaks as aggregate workflow memory.
    push the verified checkpoint, then profile the remaining losses. Stop
    optimizing a case once the declared frontier criterion is satisfied unless
    another unresolved case or a regression justifies more work.
+
+Keep the original matrix fixed across ordering/matching experiments. Record
+permutations and RHS/solution transformations, and check residuals against the
+original matrix with an independent oracle. Capture manufactured inputs with
+source pins, exact export patches and hashes outside Git. Never weaken a
+scientific gate to obtain a smaller benchmark. Preserve failed exporters and
+deadline-censored attempts; a timed-out factor has no completed fill/solve
+result. Longer profiling diagnostics are explicitly excluded from the
+sub-second benchmark admission corpus.
 
 ## Verification
 
