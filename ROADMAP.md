@@ -271,8 +271,9 @@ mathematical implementations.
   The matched-AMD full consumer case times out at 900 seconds on its largest
   mesh. A frozen 19,989-row replay completes with unmatched ND in 5.49 seconds
   of factor time and 608 MB retained payload; this shared-host diagnostic is
-  not performance admission. The unchanged full consumer case must still
-  qualify. Generated compensated triangular solves improve the NEO-2 final
+  not performance admission. The unchanged full consumer case now passes with
+  unmatched ND in 797.81 shared-host elapsed seconds; matched CPU/RSS evidence
+  remains pending. Generated compensated triangular solves improve the NEO-2 final
   transport comparison while retaining allocation-free solves and capped
   correction storage; intermediate application checks remain open.
 - [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
