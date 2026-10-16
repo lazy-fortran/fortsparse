@@ -4,8 +4,13 @@ module native_family_records
     use, intrinsic :: iso_fortran_env, only: int64
     implicit none
     private
-    public :: family_record_t, process_metrics
+    public :: family_record_t, process_metrics, parent_cpu_seconds
     interface
+        function parent_cpu_seconds() result(seconds) &
+            bind(C, name='fsbench_parent_cpu_seconds')
+            import :: c_double
+            real(c_double) :: seconds
+        end function parent_cpu_seconds
         subroutine process_metrics(rss, child_rss, child_cpu) &
             bind(C, name='fsbench_process_metrics')
             import :: c_double
@@ -20,6 +25,7 @@ module native_family_records
         integer :: active_threads = -1, native_factor_serial = 0
         logical :: reused = .false.
         real(dp) :: total_s = -1, parent_cpu_s = -1, helper_cpu_s = -1
+        real(dp) :: parent_main_cpu_s = -1
         real(dp) :: parent_rss_kib = -1, helper_rss_kib = -1
         real(dp) :: factor_s = -1, solve_s = -1, refactor_s = -1, prime_factor_s = -1
     real(dp) :: analysis_s = -1, numeric_s = -1, backward_error = -1, forward_error = -1
@@ -37,7 +43,8 @@ contains
         if (self%status_code == 3) outcome = 'backend_unavailable'
         write (*, '(a)') 'backend,family,level,threads,workload,variant,operation,'// &
             'n,nnz,nrhs,status,status_code,factor_s,solve_s,refactor_s,reused,'// &
-            'total_s,parent_cpu_s,helper_cpu_s,parent_rss_kib,helper_rss_kib,'// &
+            'total_s,parent_cpu_s,parent_main_cpu_s,helper_cpu_s,'// &
+            'parent_rss_kib,helper_rss_kib,'// &
             'analysis_s,numeric_s,prime_factor_s,factor_nnz,factor_mem_mb,'// &
             'host_current_bytes,host_peak_bytes,active_threads,'// &
             'native_factor_serial,native_factor_family,backward_error,forward_error'
@@ -45,7 +52,8 @@ contains
             self%level, self%threads, trim(self%workload), trim(self%variant), &
             trim(self%operation), self%n, self%nnz, self%nrhs, trim(outcome), &
           self%status_code, self%factor_s, self%solve_s, self%refactor_s, self%reused, &
-            self%total_s, self%parent_cpu_s, self%helper_cpu_s, self%parent_rss_kib, &
+            self%total_s, self%parent_cpu_s, self%parent_main_cpu_s, &
+            self%helper_cpu_s, self%parent_rss_kib, &
             self%helper_rss_kib, self%analysis_s, self%numeric_s, self%prime_factor_s, &
             self%factor_nnz, self%factor_mem_mb, self%host_current_bytes, &
             self%host_peak_bytes, self%active_threads, self%native_factor_serial, &

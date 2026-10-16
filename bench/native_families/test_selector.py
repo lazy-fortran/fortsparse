@@ -79,9 +79,10 @@ class ExternalSelection(unittest.TestCase):
         rows = sum((self.sample(level) for level in self.candidates), [])
         native = dict(rows[0], backend="native", process_wall_s=100.0, status="timeout")
         self.assertEqual(self.select(rows+[native])[0], 64)
-        with self.assertRaises(ValueError):
-            select_calibration_level(rows, "drift-real", self.candidates,
-                                     self.peers+["native"], self.threads, self.trials)
+        for alias in ("native", "native-amd"):
+            with self.assertRaises(ValueError):
+                select_calibration_level(rows, "drift-real", self.candidates,
+                                         self.peers+[alias], self.threads, self.trials)
 
     def test_partial_baselines_require_diagnostic_and_raw_support(self):
         rows = [r for level in self.candidates for r in self.sample(level)

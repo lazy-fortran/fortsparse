@@ -55,11 +55,24 @@ workflow, including priming, fixture construction, checking and destruction.
 separate reported phases. Refactor/solve are timed calls; total includes their
 surrounding copies. The runner adds subprocess wall time including startup.
 
+The CSV now records cumulative parent user+system CPU through the final
+`RUSAGE_SELF` sample as `parent_cpu_s`, including loader/startup CPU. The old
+`CPU_TIME` interval from Fortran main entry is retained as `parent_main_cpu_s`.
+Receipts produced before this instrumentation change have only that interval
+under the old `parent_cpu_s` name; never relabel them as full-process CPU.
+Final CSV printing/termination is after the cumulative sample. Helper CPU is
+separate full-lifetime `RUSAGE_CHILDREN` CPU after reaping. `workflow_cpu_s`
+is unknown (-1) if either contributor is unavailable.
+
 The CSV keeps parent CPU and terminated-helper CPU/RSS separate, plus actual
 reported active factor teams, requested threads, factor family, reuse, fill,
 owned payload when available, backward error and known-solution error. RSS
 comes from existing `process_metrics.c` (`VmHWM` on Linux). Parent/helper RSS
-must not be summed. Negative diagnostics mean unavailable. PARDISO memory is
+must not be summed. Helper RSS is a `RUSAGE_CHILDREN` launch-lifecycle peak
+and can retain pre-exec/inherited high-water; it is not an exact post-exec
+helper peak or a safe aggregate lower bound. UMFPACK aggregate memory remains
+unknown; the measured parent `VmHWM` alone is a safe lower bound. Negative
+diagnostics mean unavailable. PARDISO memory is
 vendor-reported, not exact owned payload; its actual active team is unknown.
 A serial native factor family is flagged even when more threads were requested.
 External FortSparse bindings at base revision a3bd4a2 lack retained T/H solve methods and
@@ -129,3 +142,8 @@ reported. `--workloads`, `--operations` and `--variants` select bounded follow-u
 subsets; record those exclusions. `--window-note` retains the controller
 measurement-window qualification. `--dry-run --mode calibrate` prints commands
 without execution.
+
+`native-amd` explicitly selects native LU with AMD ordering while retaining its
+own CSV backend label. It does not change the default native ordering. Non-LU
+uses may honestly report unsupported. Both native aliases are removed before
+external-only calibration and rejected as size-selection comparators.

@@ -35,3 +35,12 @@ void fsbench_process_metrics(double *rss_kib, double *child_rss_kib,
     *child_cpu_s = child.ru_utime.tv_sec + child.ru_stime.tv_sec +
         1.e-6 * (child.ru_utime.tv_usec + child.ru_stime.tv_usec);
 }
+
+/* Cumulative user + system CPU for this process, including loader/startup.
+ * Sampled before final CSV output; this does not include reaped helpers. */
+double fsbench_parent_cpu_seconds(void) {
+    struct rusage own = {0};
+    if (getrusage(RUSAGE_SELF, &own) != 0) return -1.0;
+    return own.ru_utime.tv_sec + own.ru_stime.tv_sec +
+        1.e-6 * (own.ru_utime.tv_usec + own.ru_stime.tv_usec);
+}

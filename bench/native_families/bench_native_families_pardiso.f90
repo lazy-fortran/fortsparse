@@ -3,7 +3,8 @@ program bench_native_families_pardiso
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t, c_ptr, c_loc
     use native_family_fixtures, only: dp, family_fixture_t, make_family_fixture, &
                                       known_rhs, fixture_backward_error, wall_time
-    use native_family_records, only: family_record_t, process_metrics
+    use native_family_records, only: family_record_t, process_metrics, &
+        parent_cpu_seconds
     implicit none
     interface
         subroutine pardisoinit(pt, mtype, iparm) bind(C, name='pardisoinit')
@@ -211,8 +212,9 @@ program bench_native_families_pardiso
     if (initialized) call phase(-1)
     r%total_s = wall_time() - total_start
     call cpu_time(cpu_end)
-    r%parent_cpu_s = cpu_end - cpu_start
+    r%parent_main_cpu_s = cpu_end - cpu_start
     call process_metrics(r%parent_rss_kib, r%helper_rss_kib, r%helper_cpu_s)
+    r%parent_cpu_s = parent_cpu_seconds()
     call r%write_csv()
     if (r%status_code /= 0) stop 2
 contains

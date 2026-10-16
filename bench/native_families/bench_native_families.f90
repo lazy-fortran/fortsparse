@@ -2,10 +2,12 @@ program bench_native_families
     use fortsparse, only: csc_t, csc_z_t, sparse_solver_t, fortsparse_status_t, &
                    sparse_factor, sparse_solve_block_op, sparse_refactor, sparse_free, &
                    sparse_factor_stats, sparse_factor_stats_t, FORTSPARSE_SYM_GENERAL, &
-                          FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE
+                   FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
+                   FORTSPARSE_ORDER_AMD
     use native_family_fixtures, only: dp, family_fixture_t, make_family_fixture, &
                                       known_rhs, fixture_backward_error, wall_time
-    use native_family_records, only: family_record_t, process_metrics
+    use native_family_records, only: family_record_t, process_metrics, &
+        parent_cpu_seconds
     implicit none
     type(family_fixture_t) :: fixture
     type(family_record_t) :: r
@@ -54,8 +56,10 @@ program bench_native_families
         solver%backend_id = 2
     case ('mumps')
         solver%backend_id = 3
-    case ('native')
+    case ('native','native-amd')
         solver%backend_id = 4
+        if (trim(r%backend) == 'native-amd') &
+            solver%options%ordering = FORTSPARSE_ORDER_AMD
     case default
         error stop 'unknown backend'
     end select
@@ -154,13 +158,14 @@ program bench_native_families
     r%host_peak_bytes = stats%host_peak_bytes
     r%active_threads = stats%active_threads
     r%native_factor_family = stats%native_factor_family
-    if (trim(r%backend) == 'native' .and. stats%active_threads == 1) &
+    if (index(trim(r%backend),'native') == 1 .and. stats%active_threads == 1) &
         r%native_factor_serial = 1
     call sparse_free(solver)
     r%total_s = wall_time() - total_start
     call cpu_time(cpu_end)
-    r%parent_cpu_s = cpu_end - cpu_start
+    r%parent_main_cpu_s = cpu_end - cpu_start
     call process_metrics(r%parent_rss_kib, r%helper_rss_kib, r%helper_cpu_s)
+    r%parent_cpu_s = parent_cpu_seconds()
     call r%write_csv()
     if (r%status_code /= 0) stop 2
 contains
