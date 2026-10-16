@@ -276,6 +276,10 @@ mathematical implementations.
   CPU/RSS attempt times out at 900 seconds while its original baseline passes.
   Large general LU remains a performance gap; retain the
   [failed attempt and reproduction data](bench/results/2026-10-16-kin6d-nonnested/README.md).
+  A generated real width-eight rolling target-panel prototype is available
+  only through low-level opt-in. Independent closure/pivot/derivative and exact
+  payload/fault-recovery tests pass; bounded performance evidence is pending.
+  No public default or family admission follows from this prototype.
   Generated compensated triangular solves improve the NEO-2 final
   transport comparison while retaining allocation-free solves and capped
   correction storage; intermediate application checks remain open.
