@@ -15,6 +15,8 @@ import subprocess
 import time
 
 HERE = Path(__file__).resolve().parent
+from helper_memory import ENVIRONMENT as HELPER_METRICS_ENV, parse_helper_memory
+
 ROOT = HERE.parents[1]
 EXTERNAL = ("superlu", "umfpack", "umfpack-direct", "umfpack-direct-noir", "mumps", "intel-pardiso")
 NATIVE = ("native", "native-amd", "native-amd-low", "native-amd-capped")
@@ -151,6 +153,7 @@ class MeasuredProcess(subprocess.Popen):
 def invoke(binary, args, threads, cores, timeout, extra_env=None):
     env = os.environ.copy()
     env.pop(HOST_LIMIT_ENV, None)  # Only an explicit runner request sets a child cap.
+    env[HELPER_METRICS_ENV] = "1"
     env.update(OMP_NUM_THREADS=str(threads), OPENBLAS_NUM_THREADS="1",
                OMP_PLACES="cores", OMP_PROC_BIND="close", MKL_NUM_THREADS=str(threads),
                MKL_DYNAMIC="FALSE", MKL_THREADING_LAYER="GNU")
@@ -172,7 +175,7 @@ def invoke(binary, args, threads, cores, timeout, extra_env=None):
     receipt = dict(command=[str(binary), *args], affinity=cores, environment={
         key: env[key] for key in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS",
                                  "OMP_PLACES", "OMP_PROC_BIND", "MKL_NUM_THREADS",
-                                 "MKL_DYNAMIC", "MKL_THREADING_LAYER")},
+                                 "MKL_DYNAMIC", "MKL_THREADING_LAYER", HELPER_METRICS_ENV)},
         process_wall_s=time.perf_counter()-start, returncode=process.returncode,
         background_load_before=background_before, background_load_after=os.getloadavg(),
         stdout=stdout, stderr=stderr, status="timeout" if timed_out else "failed")
@@ -185,8 +188,19 @@ def invoke(binary, args, threads, cores, timeout, extra_env=None):
     receipt["process_tree_cpu_scope"] = (
         "completed_process_including_reaped_descendants" if not timed_out
         and reaped_cpu >= 0 else "incomplete_or_unavailable")
+    try:
+        helper_memory = parse_helper_memory(stderr)
+    except ValueError as error:
+        helper_memory = parse_helper_memory("")
+        helper_memory.update(helper_memory_status="invalid_receipt",
+                             helper_memory_error=str(error))
+    if timed_out or process.returncode != 0:
+        helper_memory.update(helper_postexec_hwm_kib=-1,
+                             helper_memory_status="unavailable_incomplete_process")
+    receipt.update(helper_memory)
     record = parse_csv(stdout)
     if record and not timed_out:
+        record["helper_postexec_hwm_kib"] = receipt["helper_postexec_hwm_kib"]
         record["process_wall_s"] = receipt["process_wall_s"]
         record["workflow_cpu_s"] = (record["parent_cpu_s"]+record["helper_cpu_s"]
             if min(record["parent_cpu_s"], record["helper_cpu_s"]) >= 0 else -1.0)

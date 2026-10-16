@@ -301,3 +301,13 @@ measurements are complete. Testing this justified IRSTEP variation does not
 establish exhaustive tuning of ordering, pivoting, scaling, dense runtime or
 other documented vendor choices. No new ordinary timings accompany the source
 change; existing default-mode results retain their recorded controls and scope.
+
+
+The new runner requests and retains the opt-in helper
+[post-exec memory diagnostic](HELPER_MEMORY.md) separately from inherited
+`helper_rss_kib`. `helper_postexec_hwm_kib` is a single-helper lower bound;
+aggregate IPC memory remains unknown. The frontier verifier uses it only with
+`--helper-memory-lower-bound`, complete valid trial ranges and matching raw
+stderr evidence. Historical receipts remain unavailable and old default
+frontier assessments remain unchanged. Warm's multiple helper lifetimes are
+currently ambiguous to the strict parser and supply no helper bound.

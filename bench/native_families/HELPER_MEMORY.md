@@ -24,3 +24,19 @@ receipt validation and default silence. Its Linux fork/exec witness temporarily
 holds 128 MiB in the parent: inherited wait4 highwater must retain those pages,
 while the helper's own post-exec VmHWM must be below half that allocation.
 This is a measurement-method regression check, not performance evidence.
+
+
+The family runner requests the diagnostic and stores the parser fields beside
+raw stderr, plus the separate `helper_postexec_hwm_kib` scalar in each record.
+Missing/malformed/duplicate diagnostics keep this scalar unavailable; they do
+not change the numerical outcome. Incomplete child lifetimes cannot supply it.
+A warm workflow currently starts two helper lifetimes, so its duplicate lines
+remain unavailable rather than being combined. Aggregate IPC RSS stays unknown.
+
+`report_front.py --helper-memory-lower-bound` is an explicit opt-in. It checks
+positive scalars against the exact stderr/opt-in environment, requires a valid
+bound for every successful trial in a peer group, and permits only the strict
+comparison candidate-RSS-max < helper-HWM-min. This excludes one possible
+memory dominator and is recorded separately from the parent lower bound.
+It never supplies an IPC memory upper bound or proves IPC domination. Without
+the flag, existing historical frontier assessments retain their old behavior.

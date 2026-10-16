@@ -11,7 +11,7 @@ from unittest.mock import patch
 from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, NATIVE, binary_name, positive_i8, memory_environment, record_memory_configuration, parse_csv, driver_arguments, record_umfpack_configuration
 from report import summarize, available_backends
 from report_ab import aggregates
-from report_front import assess, frontier, PEERS, SIX_PEERS, validate_coverage
+from report_front import assess, frontier, PEERS, SIX_PEERS, validate_coverage, validate_helper_lower_bounds
 from report_private_real import normalize, requested_scaling
 
 
@@ -179,6 +179,38 @@ class MemorySelections(unittest.TestCase):
             summarize(attempts)
 
 
+class HelperLowerBounds(unittest.TestCase):
+    def test_helper_is_a_separate_opt_in_lower_bound_never_an_aggregate(self):
+        native=dict(backend='native',threads=1,process_wall_s_min=2,process_wall_s_max=3,
+                    parent_rss_kib_min=10,parent_rss_kib_max=11)
+        ipc=dict(backend='umfpack',threads=1,process_wall_s_min=.5,process_wall_s_max=1,
+                 parent_rss_kib_min=1,parent_rss_kib_max=2,ok=5,
+                 helper_postexec_hwm_kib_count=5,helper_postexec_hwm_kib_min=12)
+        self.assertEqual(assess(native,[ipc],'process_wall_s')['status'],'indeterminate')
+        result=assess(native,[ipc],'process_wall_s',True)
+        self.assertEqual(result['status'],'robust_nondominated')
+        self.assertEqual(result['excluded_by_helper_lower_bound'],'umfpack:1')
+        self.assertEqual(result['excluded_by_memory'],'')
+        for changed in (dict(ipc,helper_postexec_hwm_kib_count=4),
+                        dict(ipc,helper_postexec_hwm_kib_min=11),
+                        dict(ipc,helper_postexec_hwm_kib_count=0)):
+            self.assertEqual(assess(native,[changed],'process_wall_s',True)['status'],
+                             'indeterminate')
+        # Even a smaller helper is never an upper bound proving IPC domination.
+        ipc.update(helper_postexec_hwm_kib_min=1)
+        self.assertEqual(assess(native,[ipc],'process_wall_s',True)['status'],'indeterminate')
+
+    def test_positive_helper_bounds_require_raw_matching_opt_in_receipts(self):
+        row=dict(backend='umfpack',record=dict(helper_postexec_hwm_kib=1234),
+                 stderr='FORTSPARSE_BENCH_HELPER_VMHWM_KIB=1234\n',
+                 environment=dict(FORTSPARSE_BENCH_HELPER_METRICS='1'))
+        validate_helper_lower_bounds([row])
+        for changed in (dict(row,stderr=''),dict(row,environment={}),
+                        dict(row,stderr=row['stderr']*2)):
+            with self.assertRaises(ValueError):validate_helper_lower_bounds([changed])
+        validate_helper_lower_bounds([dict(backend='umfpack',record={})])
+
+
 class UmfpackControls(unittest.TestCase):
     def receipt(self, backend, effective=None):
         controls = dict(schema=1, version=[6, 3, 8], irstep_index=1,
@@ -241,6 +273,20 @@ class UmfpackControls(unittest.TestCase):
 
 
 class ProcessCPU(unittest.TestCase):
+    def test_opt_in_helper_diagnostics_do_not_change_numeric_status(self):
+        for suffix, expected in [('=1234',1234),('=0',-1),
+                                 ('=1234\nFORTSPARSE_BENCH_HELPER_VMHWM_KIB=2345',-1)]:
+            script="import os,sys; assert os.getenv('FORTSPARSE_BENCH_HELPER_METRICS')=='1'; " + \
+                "print("+repr('FORTSPARSE_BENCH_HELPER_VMHWM_KIB'+suffix)+",file=sys.stderr); "+ \
+                "print('backend,family,level,threads,parent_cpu_s,helper_cpu_s,status'); "+ \
+                "print('native,drift-real,3,1,0,0,ok')"
+            receipt=invoke(sys.executable,['-c',script],1,[min(os.sched_getaffinity(0))],.8)
+            self.assertEqual(receipt['returncode'],0)
+            self.assertEqual(receipt['status'],'ok')
+            self.assertEqual(receipt['record']['helper_postexec_hwm_kib'],expected)
+            self.assertEqual(receipt['helper_postexec_hwm_kib'],expected)
+            self.assertEqual(receipt['environment']['FORTSPARSE_BENCH_HELPER_METRICS'],'1')
+
     def test_unrequested_inherited_cap_is_removed_from_child(self):
         with patch.dict(os.environ, FORTSPARSE_BENCH_HOST_LIMIT_BYTES="17"):
             receipt = invoke(sys.executable, ["-c",
