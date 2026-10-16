@@ -279,7 +279,8 @@ contains
 
     subroutine setup_incoming(self, nodes, ledger, status)
         class(supernode_schedule_t), intent(inout) :: self
-        type(supernode_t), intent(in) :: nodes(:)
+        ! Polymorphic, so a numeric extension array is passed without a copy.
+        class(supernode_t), intent(in) :: nodes(:)
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable :: next(:)
@@ -341,7 +342,7 @@ contains
         ! Requires setup_incoming. flops is the factor work that sets the
         ! group target; the team is then limited to a quarter of the groups.
         class(supernode_schedule_t), intent(inout) :: self
-        type(supernode_t), intent(in) :: nodes(:)
+        class(supernode_t), intent(in) :: nodes(:)
         real(dp), intent(in) :: flops
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status

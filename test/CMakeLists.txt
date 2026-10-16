@@ -95,6 +95,14 @@ fortsparse_add_test(test_fortsparse_slu_analysis
     solver/test_fortsparse_slu_analysis.f90)
 set_tests_properties(test_fortsparse_slu_analysis PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_leaves
+    solver/test_fortsparse_slu_leaves.f90)
+set_tests_properties(test_fortsparse_slu_leaves PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_factor
+    solver/test_fortsparse_slu_factor.f90)
+set_tests_properties(test_fortsparse_slu_factor PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_supernode_memory
     solver/test_fortsparse_supernode_memory.f90)
 set_tests_properties(test_fortsparse_supernode_memory PROPERTIES

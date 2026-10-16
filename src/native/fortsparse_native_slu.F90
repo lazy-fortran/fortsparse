@@ -36,7 +36,11 @@ module fortsparse_native_slu
         native_symbolic_workspace_bytes
     use fortsparse_native_supernode_schedule, only: supernode_t, &
         supernode_schedule_t, supernode_partition, supernode_gather_rows, &
-        supernode_sort_rows
+        supernode_sort_rows, supernode_scatter_mapped_update
+    use fortsparse_spd_leaves, only: spd_scatter_update, spd_gather_update
+    use fortsparse_slu_leaves, only: slu_update, slu_scale, slu_block_factor, &
+        slu_trsm_upper, slu_trsm_unit_lower_t, slu_schur_update, slu_apply_swaps, &
+        slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
@@ -79,11 +83,14 @@ module fortsparse_native_slu
         integer :: failed_phase = 0
         ! Opaque (unbounded) ordering workspace: no exact peak claim.
         logical :: opaque_ordering = .false.
+        ! The last factorization produced a non-finite panel entry.
+        logical :: nonfinite = .false.
         real(dp) :: analysis_s = 0.0_dp, factor_s = 0.0_dp
         logical, private :: analyzed = .false., factored = .false.
         logical, private :: strict = .false., use_blas = .true.
         integer, private :: inject = 0, maxwork = 0, maxrows = 0
         real(dp), private :: tau = 1.0e-13_dp, tau_abs = 0.0_dp, max_abs_m = 0.0_dp
+        real(dp), private :: max_abs_u = 0.0_dp, anorm = 0.0_dp
         integer(i8), private :: owned_budget_bytes = 0_i8
         type(supernode_schedule_t), private :: sched
         type(slu_panel_t), allocatable, private :: panels(:)
@@ -92,6 +99,10 @@ module fortsparse_native_slu
         real(dp), allocatable, private :: values(:), drp(:), dcp(:), solve_work(:)
     contains
         procedure :: analyze
+        procedure :: factor
+        procedure :: solve
+        procedure :: solve_block
+        procedure :: is_factored
         procedure :: free => slu_free
         procedure :: memory_bytes
         procedure :: plan
@@ -116,10 +127,24 @@ module fortsparse_native_slu
             integer(c_int), intent(in) :: ptr(*), row(*)
             integer(c_int), intent(out) :: perm(*), inverse(*)
         end function order_nd_general
+        subroutine dgemm(ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+            import dp
+            character, intent(in) :: ta, tb
+            integer, intent(in) :: m, n, k, lda, ldb, ldc
+            real(dp), intent(in) :: alpha, beta, a(lda,*), b(ldb,*)
+            real(dp), intent(inout) :: c(ldc,*)
+        end subroutine dgemm
+        subroutine dtrsm(side, uplo, trans, diag, m, n, alpha, a, lda, b, ldb)
+            import dp
+            character, intent(in) :: side, uplo, trans, diag
+            integer, intent(in) :: m, n, lda, ldb
+            real(dp), intent(in) :: alpha, a(lda,*)
+            real(dp), intent(inout) :: b(ldb,*)
+        end subroutine dtrsm
     end interface
 contains
     subroutine analyze(self, n, ptr, rows, values, status, ordering, low_memory, &
-            pivot_perturbation, budget, inject_phase)
+            pivot_perturbation, budget, inject_phase, force_blas)
         ! Matching, scaling, ordering, symbolic structure, schedule and the
         ! allocation of all retained arrays. values are read only by the
         ! matching and scaling; factor assembles them later.
@@ -131,7 +156,8 @@ contains
         ! is reserved before allocation; on failure the ledger current is
         ! restored, failed_required/available and failed_phase are set.
         ! inject_phase (tests only): refuse the first reservation of that
-        ! phase as if the cap were one byte short.
+        ! phase as if the cap were one byte short. force_blas (tests only)
+        ! overrides the BLAS/generated contraction choice.
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: n, ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
@@ -141,6 +167,7 @@ contains
         real(dp), optional, intent(in) :: pivot_perturbation
         type(memory_budget_t), optional, intent(inout) :: budget
         integer, optional, intent(in) :: inject_phase
+        logical, optional, intent(in) :: force_blas
         type(memory_budget_t) :: ledger
         integer(i8) :: baseline
         integer :: order_kind
@@ -168,6 +195,7 @@ contains
         baseline = ledger%current
         call analyze_phases(self, n, ptr, rows, values, order_kind, low, ledger, &
             status)
+        if (status_ok(status) .and. present(force_blas)) self%use_blas = force_blas
         if (status_ok(status)) then
             self%owned_budget_bytes = self%memory_bytes()
             if (ledger%current-baseline /= self%owned_budget_bytes .or. &
@@ -716,8 +744,8 @@ contains
             ledger%limit = max(1_i8, ledger%current)
             if (limit > 0_i8) ledger%limit = min(limit, ledger%limit)
         end if
-        call self%sched%setup_incoming(self%panels%supernode_t, ledger, status)
-        if (status_ok(status)) call self%sched%setup_groups(self%panels%supernode_t, &
+        call self%sched%setup_incoming(self%panels, ledger, status)
+        if (status_ok(status)) call self%sched%setup_groups(self%panels, &
             flops, ledger, status)
         if (self%inject == SLU_PHASE_INCOMING) then
             ledger%limit = limit
@@ -947,8 +975,453 @@ contains
         self%tau = 1.0e-13_dp
         self%tau_abs = 0.0_dp
         self%max_abs_m = 0.0_dp
+        self%max_abs_u = 0.0_dp
+        self%anorm = 0.0_dp
+        self%nonfinite = .false.
         self%owned_budget_bytes = 0_i8
     end subroutine slu_free
+
+    subroutine factor(self, ptr, rows, values, status)
+        ! Assemble M from A and factor it (left-looking, serial). The pattern
+        ! may differ from the analyzed one as long as every entry lies in the
+        ! static structure; otherwise INVALID_MATRIX and the caller analyzes
+        ! again. A non-finite factor entry returns SINGULAR with nonfinite
+        ! set. Statistics are exact counts of this factorization.
+        ! Allocation-free.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: s
+        real(dp) :: started
+        self%factored = .false.
+        self%nonfinite = .false.
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: not analyzed')
+        if (.not. self%analyzed) return
+        call validate_csc(self%n, ptr, rows, values, status)
+        if (.not. status_ok(status)) return
+        started = seconds()
+        call assemble(self, ptr, rows, values, status)
+        if (.not. status_ok(status)) return
+        self%perturbed_pivots = 0
+        self%block_swaps = 0
+        self%min_pivot = huge(1.0_dp)
+        self%max_abs_u = 0.0_dp
+        self%failures = 0
+        do s = 1, self%node_count
+            call factor_destination(self, s, 1)
+        end do
+        self%max_growth = 0.0_dp
+        if (self%max_abs_m > 0.0_dp) self%max_growth = self%max_abs_u/self%max_abs_m
+        self%factor_s = seconds()-started
+        do s = 1, self%node_count
+            if (self%failures(s) == 0) cycle
+            self%nonfinite = .true.
+            call status_set(status, FORTSPARSE_SINGULAR, &
+                'supernodal LU: non-finite factor entry')
+            return
+        end do
+        self%factored = .true.
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine factor
+
+    subroutine assemble(self, ptr, rows, values, status)
+        ! M(k,l) = drp(k)*A(i,c)*dcp(l) into the L or Ut panel that owns it;
+        ! also ||M||_inf (row sums in the solve scratch) and max |M|.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: l, c, e, k, dl, dk, pos
+        integer(i8) :: p
+        real(dp) :: v
+        self%values = 0.0_dp
+        self%solve_work(1:self%n) = 0.0_dp
+        self%max_abs_m = 0.0_dp
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: pattern outside the analyzed structure')
+        do l = 1, self%n
+            c = self%col_old(l)
+            dl = self%sched%colnode(l)
+            do e = ptr(c), ptr(c+1)-1
+                k = self%row_new(rows(e))
+                v = slu_scale(self%drp(k), values(e), self%dcp(l))
+                self%solve_work(k) = slu_update(self%solve_work(k), -1.0_dp, abs(v))
+                self%max_abs_m = max(self%max_abs_m, abs(v))
+                dk = self%sched%colnode(k)
+                if (dk == dl) then
+                    p = self%panels(dl)%offset_l &
+                        +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m &
+                        +(k-self%panels(dl)%first+1)
+                else if (k > l) then
+                    pos = find_row(self%panels(dl), k)
+                    if (pos == 0) goto 900
+                    p = self%panels(dl)%offset_l &
+                        +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m+pos
+                else
+                    pos = find_row(self%panels(dk), l)
+                    if (pos == 0) goto 900
+                    p = self%panels(dk)%offset_u+int(k-self%panels(dk)%first,i8) &
+                        *(self%panels(dk)%m-self%panels(dk)%width) &
+                        +(pos-self%panels(dk)%width)
+                end if
+                self%values(p) = v
+            end do
+        end do
+        self%anorm = 0.0_dp
+        do k = 1, self%n
+            self%anorm = max(self%anorm, self%solve_work(k))
+        end do
+        self%tau_abs = self%tau*self%anorm
+        self%solve_work(1:self%n) = 0.0_dp
+        call status_set(status, FORTSPARSE_OK, '')
+        return
+900     self%solve_work(1:self%n) = 0.0_dp
+    end subroutine assemble
+
+    pure integer function find_row(node, row) result(position)
+        ! Position of row among node%rows(width+1:m), or 0.
+        type(slu_panel_t), intent(in) :: node
+        integer, intent(in) :: row
+        integer :: lo, hi, mid
+        position = 0
+        lo = node%width+1
+        hi = node%m
+        do while (lo <= hi)
+            mid = lo+(hi-lo)/2
+            if (node%rows(mid) == row) then
+                position = mid
+                return
+            else if (node%rows(mid) < row) then
+                lo = mid+1
+            else
+                hi = mid-1
+            end if
+        end do
+    end function find_row
+
+    subroutine factor_destination(self, dest, thread)
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: dest, thread
+        integer :: p
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = p
+        end do
+        do p = self%sched%incoming_ptr(dest), self%sched%incoming_ptr(dest+1)-1
+            call accumulate_update(self, self%sched%incoming_source(p), dest, &
+                self%sched%incoming_first(p), self%sched%incoming_q(p), thread)
+        end do
+        call factor_panel(self, dest)
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = 0
+        end do
+    end subroutine factor_destination
+
+    subroutine accumulate_update(self, s, d, f, q, thread)
+        ! Source rows rows_s(f:f+q-1) are destination columns. GEMM1 updates
+        ! the destination L panel (full diagonal block included):
+        !   L_d(map(R_f:R_end), cols) -= L_s(f:m,:) Ut_s(f-w:f-w+q-1,:)^T;
+        ! GEMM2 updates the destination Ut panel:
+        !   Ut_d(map(R_f+q:R_end)-w_d, cols) -= Ut_s(f+q-w:m-w,:) L_s(f:f+q-1,:)^T.
+        ! Ut_d is addressed from w_d entries before its column start, so the
+        ! row map positions (> w_d) index it directly; that base lies inside
+        ! the destination L panel and is never written.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: s, d, f, q, thread
+        integer :: m, w, mu, m2, md, wd, mud, j, p, col, position, first_d
+        integer(i8) :: ls, us, ld, ud
+        logical :: contiguous_rows
+        if (self%failures(s) /= 0) self%failures(d) = self%failures(s)
+        if (self%failures(d) /= 0) return
+        m = self%panels(s)%m
+        w = self%panels(s)%width
+        mu = m-w
+        m2 = m-f+1
+        md = self%panels(d)%m
+        wd = self%panels(d)%width
+        mud = md-wd
+        first_d = self%panels(d)%first
+        ls = self%panels(s)%offset_l
+        us = self%panels(s)%offset_u
+        ld = self%panels(d)%offset_l
+        ud = self%panels(d)%offset_u
+        if (w == 1) then
+            do j = 1, q
+                col = self%panels(s)%rows(f+j-1)-first_d+1
+                call supernode_scatter_mapped_update(self%values(ld+int(col-1,i8)*md+1), &
+                    self%panels(s)%rows(f:), self%sched%rowmap(:,thread), &
+                    self%values(ls+f), m2, self%values(us+f-w+j-1))
+                if (m2 > q) call supernode_scatter_mapped_update( &
+                    self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(f+q:), &
+                    self%sched%rowmap(:,thread), self%values(us+f+q-w), m2-q, &
+                    self%values(ls+f+j-1))
+            end do
+            return
+        end if
+        contiguous_rows = .false.
+        position = self%sched%rowmap(self%panels(s)%rows(f),thread)
+        if (self%use_blas) then
+            contiguous_rows = .true.
+            do p = f+1, m
+                if (self%sched%rowmap(self%panels(s)%rows(p),thread) == position+p-f) cycle
+                contiguous_rows = .false.
+                exit
+            end do
+        end if
+        if (contiguous_rows) then
+            ! Destination rows and columns are both consecutive.
+            col = self%panels(s)%rows(f)-first_d+1
+            call dgemm('N', 'T', m2, q, w, -1.0_dp, self%values(ls+f), m, &
+                self%values(us+f-w), mu, 1.0_dp, &
+                self%values(ld+int(col-1,i8)*md+position), md)
+            if (m2 > q) call dgemm('N', 'T', m2-q, q, w, -1.0_dp, &
+                self%values(us+f+q-w), mu, self%values(ls+f), m, 1.0_dp, &
+                self%values(ud+int(col-1,i8)*mud+position+q-wd), mud)
+            return
+        end if
+        if (self%use_blas) then
+            call dgemm('N', 'T', m2, q, w, -1.0_dp, self%values(ls+f), m, &
+                self%values(us+f-w), mu, 0.0_dp, self%sched%update_work(1,thread), m2)
+        else
+            self%sched%update_work(1:m2*q,thread) = 0.0_dp
+            call slu_schur_update(self%sched%update_work(1,thread), m2, &
+                self%values(ls+f), m, self%values(us+f-w), mu, m2, q, w)
+        end if
+        ! update_work holds -L_s U_s^T; the mapped scatter subtracts it times -1.
+        do j = 1, q
+            col = self%panels(s)%rows(f+j-1)-first_d+1
+            call supernode_scatter_mapped_update(self%values(ld+int(col-1,i8)*md+1), &
+                self%panels(s)%rows(f:), self%sched%rowmap(:,thread), &
+                self%sched%update_work((j-1)*m2+1,thread), m2, -1.0_dp)
+        end do
+        if (m2 == q) return
+        if (self%use_blas) then
+            call dgemm('N', 'T', m2-q, q, w, -1.0_dp, self%values(us+f+q-w), mu, &
+                self%values(ls+f), m, 0.0_dp, self%sched%update_work(1,thread), m2-q)
+        else
+            self%sched%update_work(1:(m2-q)*q,thread) = 0.0_dp
+            call slu_schur_update(self%sched%update_work(1,thread), m2-q, &
+                self%values(us+f+q-w), mu, self%values(ls+f), m, m2-q, q, w)
+        end if
+        do j = 1, q
+            col = self%panels(s)%rows(f+j-1)-first_d+1
+            call supernode_scatter_mapped_update( &
+                self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(f+q:), &
+                self%sched%rowmap(:,thread), &
+                self%sched%update_work((j-1)*(m2-q)+1,thread), m2-q, -1.0_dp)
+        end do
+    end subroutine accumulate_update
+
+    subroutine factor_panel(self, d)
+        ! Restricted-pivot block LU, exchanges applied to the Ut columns
+        ! (destination rows are Ut columns), then L21 := L21 U^-1 and
+        ! Ut := Ut L^-T. Descendant L entries in these rows stay keyed by the
+        ! pre-exchange labels; the solves apply P_d to accumulated values.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: d
+        integer :: m, w, mu, k, r, i, first
+        integer(i8) :: l0, u0, e
+        real(dp) :: saved
+        if (self%failures(d) /= 0) return
+        m = self%panels(d)%m
+        w = self%panels(d)%width
+        mu = m-w
+        first = self%panels(d)%first
+        l0 = self%panels(d)%offset_l
+        u0 = self%panels(d)%offset_u
+        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
+            self%pivots(first), self%perturbed_pivots, self%block_swaps, &
+            self%min_pivot, self%max_abs_u)
+        if (mu > 0) then
+            do k = 1, w
+                r = self%pivots(first+k-1)
+                if (r == k) cycle
+                do i = 1, mu
+                    saved = self%values(u0+int(k-1,i8)*mu+i)
+                    self%values(u0+int(k-1,i8)*mu+i) = self%values(u0+int(r-1,i8)*mu+i)
+                    self%values(u0+int(r-1,i8)*mu+i) = saved
+                end do
+            end do
+            if (self%use_blas .and. w >= 96 .and. mu >= 32) then
+                call dtrsm('R', 'U', 'N', 'N', mu, w, 1.0_dp, self%values(l0+1), m, &
+                    self%values(l0+w+1), m)
+                call dtrsm('R', 'L', 'T', 'U', mu, w, 1.0_dp, self%values(l0+1), m, &
+                    self%values(u0+1), mu)
+            else
+                call slu_trsm_upper(self%values(l0+1), m, w, self%values(l0+w+1), m, mu)
+                call slu_trsm_unit_lower_t(self%values(l0+1), m, w, self%values(u0+1), &
+                    mu, mu)
+            end if
+            do e = u0+1, u0+int(mu,i8)*w
+                self%max_abs_u = max(self%max_abs_u, abs(self%values(e)))
+            end do
+        end if
+        do e = l0+1, u0+int(mu,i8)*w
+            if (ieee_is_finite(self%values(e))) cycle
+            self%failures(d) = 1
+            return
+        end do
+    end subroutine factor_panel
+
+    subroutine solve(self, x, status, operation)
+        ! x := A^-1 x (operation 0) or A^-T x (1 or 2; real ADJOINT = TRANSPOSE).
+        class(slu_factor_t), intent(inout) :: self
+        real(dp), intent(inout) :: x(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: operation
+        integer :: op, k
+        op = 0
+        if (present(operation)) op = operation
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'supernodal LU: invalid operation')
+        if (op < 0 .or. op > 2) return
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: no factors')
+        if (.not. self%factored) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: RHS dimension mismatch')
+        if (size(x) /= self%n) return
+        if (op == 0) then
+            do k = 1, self%n
+                self%solve_work(k) = slu_scale(self%drp(k), x(self%row_old(k)), 1.0_dp)
+            end do
+            call forward_normal(self)
+            call backward_normal(self)
+            do k = 1, self%n
+                x(self%col_old(k)) = slu_scale(self%dcp(k), self%solve_work(k), 1.0_dp)
+            end do
+        else
+            do k = 1, self%n
+                self%solve_work(k) = slu_scale(self%dcp(k), x(self%col_old(k)), 1.0_dp)
+            end do
+            call forward_transpose(self)
+            call backward_transpose(self)
+            do k = 1, self%n
+                x(self%row_old(k)) = slu_scale(self%drp(k), self%solve_work(k), 1.0_dp)
+            end do
+        end if
+        self%solve_work(1:self%n) = 0.0_dp
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine solve
+
+    subroutine solve_block(self, b, status, operation)
+        class(slu_factor_t), intent(inout) :: self
+        real(dp), intent(inout) :: b(:,:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: operation
+        integer :: j, op
+        op = 0
+        if (present(operation)) op = operation
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'supernodal LU: invalid operation')
+        if (op < 0 .or. op > 2) return
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: no factors')
+        if (.not. self%factored) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: RHS dimension mismatch')
+        if (size(b,1) /= self%n) return
+        call status_set(status, FORTSPARSE_OK, '')
+        do j = 1, size(b,2)
+            call self%solve(b(:,j), status, op)
+            if (.not. status_ok(status)) return
+        end do
+    end subroutine solve_block
+
+    subroutine forward_normal(self)
+        ! Per supernode: apply P_d to the accumulated block, unit-lower block
+        ! solve, then subtract L21 times the block from the later rows.
+        class(slu_factor_t), intent(inout) :: self
+        integer :: s, j, m, w, first
+        integer(i8) :: l0
+        real(dp) :: value
+        do s = 1, self%node_count
+            m = self%panels(s)%m
+            w = self%panels(s)%width
+            first = self%panels(s)%first
+            l0 = self%panels(s)%offset_l
+            call slu_apply_swaps(self%solve_work(first), self%pivots(first), w, .false.)
+            call slu_block_lower(self%values(l0+1), m, w, self%solve_work(first))
+            if (m == w) cycle
+            do j = 1, w
+                value = self%solve_work(first+j-1)
+                call spd_scatter_update(self%solve_work, self%panels(s)%rows(w+1:), &
+                    self%values(l0+int(j-1,i8)*m+w+1), m-w, value)
+            end do
+        end do
+    end subroutine forward_normal
+
+    subroutine backward_normal(self)
+        class(slu_factor_t), intent(inout) :: self
+        integer :: s, c, m, w, first
+        integer(i8) :: l0, u0
+        real(dp) :: value
+        do s = self%node_count, 1, -1
+            m = self%panels(s)%m
+            w = self%panels(s)%width
+            first = self%panels(s)%first
+            l0 = self%panels(s)%offset_l
+            u0 = self%panels(s)%offset_u
+            if (m > w) then
+                do c = 1, w
+                    value = self%solve_work(first+c-1)
+                    call spd_gather_update(value, self%panels(s)%rows(w+1:), &
+                        self%values(u0+int(c-1,i8)*(m-w)+1), self%solve_work, m-w)
+                    self%solve_work(first+c-1) = value
+                end do
+            end if
+            call slu_block_upper(self%values(l0+1), m, w, self%solve_work(first))
+        end do
+    end subroutine backward_normal
+
+    subroutine forward_transpose(self)
+        ! U^T is lower triangular: block solve with U_dd^T, then subtract
+        ! Ut times the block from the later rows.
+        class(slu_factor_t), intent(inout) :: self
+        integer :: s, c, m, w, first
+        integer(i8) :: l0, u0
+        real(dp) :: value
+        do s = 1, self%node_count
+            m = self%panels(s)%m
+            w = self%panels(s)%width
+            first = self%panels(s)%first
+            l0 = self%panels(s)%offset_l
+            u0 = self%panels(s)%offset_u
+            call slu_block_upper_t(self%values(l0+1), m, w, self%solve_work(first))
+            if (m == w) cycle
+            do c = 1, w
+                value = self%solve_work(first+c-1)
+                call spd_scatter_update(self%solve_work, self%panels(s)%rows(w+1:), &
+                    self%values(u0+int(c-1,i8)*(m-w)+1), m-w, value)
+            end do
+        end do
+    end subroutine forward_transpose
+
+    subroutine backward_transpose(self)
+        ! Transposed forward operator in reverse: gather L21^T, unit-upper
+        ! block solve with L_dd^T, then P_d^T (exchanges in reverse order).
+        class(slu_factor_t), intent(inout) :: self
+        integer :: s, j, m, w, first
+        integer(i8) :: l0
+        real(dp) :: value
+        do s = self%node_count, 1, -1
+            m = self%panels(s)%m
+            w = self%panels(s)%width
+            first = self%panels(s)%first
+            l0 = self%panels(s)%offset_l
+            if (m > w) then
+                do j = 1, w
+                    value = self%solve_work(first+j-1)
+                    call spd_gather_update(value, self%panels(s)%rows(w+1:), &
+                        self%values(l0+int(j-1,i8)*m+w+1), self%solve_work, m-w)
+                    self%solve_work(first+j-1) = value
+                end do
+            end if
+            call slu_block_lower_t(self%values(l0+1), m, w, self%solve_work(first))
+            call slu_apply_swaps(self%solve_work(first), self%pivots(first), w, .true.)
+        end do
+    end subroutine backward_transpose
+
+    logical function is_factored(self)
+        class(slu_factor_t), intent(in) :: self
+        is_factored = self%factored
+    end function is_factored
 
     real(dp) function seconds()
         integer(i8) :: clock, rate
