@@ -34,7 +34,9 @@ PRs for the first-party ITPplasma consumers. SPEC, JOREK and M3D-C1 are
 deferred forks and have no current priority. Track actual paths and merge blockers
 in [native consumer migrations](docs/native-consumers.md). Pin verified library revisions, preserve each
 consumer's mathematical/storage/lifetime contracts, and run affected independent
-checks. Document unsupported paths explicitly; a draft PR is not validation or
+checks. Each draft PR reports matched baseline/native CPU-time and memory changes
+for the exercised tests and runs, including failures and unavailable comparisons.
+Document unsupported paths explicitly; a draft PR is not validation or
 release admission. The Pareto requirement above remains a later gate.
 
 Use `main` for coherent, locally verified integration and regular publication.
