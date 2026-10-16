@@ -5,7 +5,8 @@ module @MODULE@
     use fortsparse_status, only: fortsparse_status_t, status_set, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_SINGULAR, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_INDEX_OVERFLOW
-    use @LEAVES@, only: update_value => @UPDATE@, divide_value => @DIVIDE@
+    use @LEAVES@, only: divide_value => @DIVIDE@, &
+        scatter_update => @SCATTER@, gather_update => @GATHER@
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     @EXTRA_USE@
     implicit none
@@ -245,10 +246,12 @@ contains
                 k=self%pinv(row)
                 if (k==0) cycle
                 value=self%work(row)
-                do e=self%lp(k),self%lp(k+1)-1
-                    i=self%lr(e)
-                    self%work(i)=update_value(self%work(i),self%lv(e),value)
-                end do
+                ! L columns contain distinct rows; value is copied before scatter.
+                e=self%lp(k)
+                if(self%lp(k+1)>e) then
+                    call scatter_update(self%work,self%lr(e:),self%lv(e:), &
+                        self%lp(k+1)-e,value)
+                end if
             end do
             best=0
             pivot=0
@@ -457,17 +460,21 @@ contains
                 self%work(j)=divide_value(rhs(row),scalar_from_real(self%row_norm(row)))
             end do
             do j=1,self%n
-                do e=self%lp(j),self%lp(j+1)-1
-                    row=self%lr(e)
-                    self%work(row)=update_value(self%work(row),self%lv(e),self%work(j))
-                end do
+                e=self%lp(j)
+                value=self%work(j)
+                if(self%lp(j+1)>e) then
+                    call scatter_update(self%work,self%lr(e:),self%lv(e:), &
+                        self%lp(j+1)-e,value)
+                end if
             end do
             do j=self%n,1,-1
                 self%work(j)=divide_value(self%work(j),self%uv(self%up(j+1)-1))
-                do e=self%up(j),self%up(j+1)-2
-                    row=self%ur(e)
-                    self%work(row)=update_value(self%work(row),self%uv(e),self%work(j))
-                end do
+                e=self%up(j)
+                value=self%work(j)
+                if(self%up(j+1)-1>e) then
+                    call scatter_update(self%work,self%ur(e:),self%uv(e:), &
+                        self%up(j+1)-e-1,value)
+                end if
             end do
             do j=1,self%n
                 rhs(self%q(j))=self%work(j)
@@ -478,19 +485,21 @@ contains
             end do
             do j=1,self%n
                 value=self%work(j)
-                do e=self%up(j),self%up(j+1)-2
-                    coefficient=adjoint_value(self%uv(e),op)
-                    value=update_value(value,coefficient,self%work(self%ur(e)))
-                end do
+                e=self%up(j)
+                if(self%up(j+1)-1>e) then
+                    call gather_update(value,self%ur(e:),self%uv(e:),self%work, &
+                        self%up(j+1)-e-1@GATHER_ADJOINT@)
+                end if
                 coefficient=adjoint_value(self%uv(self%up(j+1)-1),op)
                 self%work(j)=divide_value(value,coefficient)
             end do
             do j=self%n,1,-1
                 value=self%work(j)
-                do e=self%lp(j),self%lp(j+1)-1
-                    coefficient=adjoint_value(self%lv(e),op)
-                    value=update_value(value,coefficient,self%work(self%lr(e)))
-                end do
+                e=self%lp(j)
+                if(self%lp(j+1)>e) then
+                    call gather_update(value,self%lr(e:),self%lv(e:),self%work, &
+                        self%lp(j+1)-e@GATHER_ADJOINT@)
+                end if
                 self%work(j)=value
             end do
             do j=1,self%n
