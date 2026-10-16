@@ -14,12 +14,13 @@ module fortsparse_native_supernodes
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
         c_int, c_size_t, c_loc
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
-    use fortsparse_native_cuda, only: spd_cuda_create_deferred, spd_cuda_destroy, &
+    use fortsparse_native_cuda, only: spd_cuda_create_deferred_limited, spd_cuda_destroy, &
+        spd_cuda_memory, spd_cuda_memory_stats, &
         spd_cuda_prepare_blas, &
         spd_cuda_upload, spd_cuda_download, spd_cuda_synchronize, &
         spd_cuda_panel_factor, spd_cuda_factor_info, spd_cuda_panel_solve, &
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
-        spd_cuda_scatter_update, spd_cuda_allocated_bytes, spd_cuda_schur_task, &
+        spd_cuda_scatter_update, spd_cuda_schur_task, &
         spd_cuda_host_plan_bytes, spd_cuda_level_panel, spd_cuda_level_task, &
         spd_cuda_set_levels, spd_cuda_factor_level, spd_cuda_update_level, &
         spd_cuda_set_solve_plan, spd_cuda_solve
@@ -50,7 +51,10 @@ module fortsparse_native_supernodes
         logical, private :: strict_budget = .false.
         integer(i8), private :: owned_budget_bytes = 0_i8
         type(memory_budget_t), private :: build_ledger
-        integer(i8) :: device_bytes = 0_i8
+        integer(i8) :: device_bytes = 0_i8, device_peak_bytes = 0_i8
+        integer(i8) :: device_required_bytes = 0_i8, device_available_bytes = 0_i8
+        logical :: device_payload_tracked = .false.
+        integer(i8), private :: device_limit = 0_i8
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         integer(i8), private :: cuda_host_bytes = 0_i8
         integer, allocatable, private :: cuda_wide_ptr(:), cuda_wide_members(:)
@@ -165,7 +169,7 @@ contains
         end do
     end subroutine fit_thread_scratch
 
-    subroutine build(self, n, lp, li, nthreads, status, device, budget)
+    subroutine build(self, n, lp, li, nthreads, status, device, budget, device_limit)
         ! The supplied ledger already includes caller-owned live allocations.
         ! Pass the same ledger to free, or reset the whole owning context ledger.
         ! No pointer to that caller ledger survives this call.
@@ -176,11 +180,18 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer, optional, intent(in) :: device
         type(memory_budget_t), optional, intent(inout) :: budget
+        integer(i8), optional, intent(in) :: device_limit
         type(memory_budget_t) :: ledger
-        integer(i8) :: baseline
+        integer(i8) :: baseline, device_peak, device_required, device_available
+        logical :: device_tracked
 
         call self%free(budget, status)
         if (status%code /= FORTSPARSE_OK) return
+        if (present(device_limit)) self%device_limit = device_limit
+        if (self%device_limit < 0_i8) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, 'negative device payload cap')
+            return
+        end if
         self%strict_budget = present(budget)
         if (present(budget)) self%build_ledger = budget
         call self%build_ledger%reserve(0_i8, status)
@@ -203,7 +214,16 @@ contains
         ledger = self%build_ledger
         if (status%code /= FORTSPARSE_OK) then
             ! All builder-local temporary arrays are already deallocated.
+            ! Keep device refusal/high-water diagnostics after releasing payload.
+            device_peak = self%device_peak_bytes
+            device_required = self%device_required_bytes
+            device_available = self%device_available_bytes
+            device_tracked = self%device_payload_tracked
             call self%free()
+            self%device_peak_bytes = device_peak
+            self%device_required_bytes = device_required
+            self%device_available_bytes = device_available
+            self%device_payload_tracked = device_tracked
             ledger%current = baseline
         end if
         if (present(budget)) budget = ledger
@@ -899,6 +919,11 @@ contains
         self%workspace_bytes = 0_i8
         self%numeric_count = 0_c_size_t
         self%device_bytes = 0_i8
+        self%device_peak_bytes = 0_i8
+        self%device_required_bytes = 0_i8
+        self%device_available_bytes = 0_i8
+        self%device_payload_tracked = .false.
+        self%device_limit = 0_i8
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         self%cuda_host_bytes = 0_i8
 #endif
@@ -1204,7 +1229,9 @@ contains
         integer :: level_count, l, count_wide
         integer :: s, first, group, dest, q, m2, u, v, count_updates, count_thin, base, p, ierr
         integer(i8) :: count_maps, count_tail
-        integer(c_int) :: code
+        integer(c_int) :: code, queried
+        type(spd_cuda_memory) :: report
+        integer(i8) :: arena_count, rhs_count
         logical :: needs_blas
 
         needs_blas = .false.
@@ -1325,8 +1352,20 @@ contains
             tail_rows(base+1:base+m2) = self%panels(s)%rows(self%panels(s)%width+1:)
             base = base+m2
         end do
-        code = spd_cuda_create_deferred(self%cuda, int(self%device,c_int), &
-            self%numeric_count+max(int(maxwork,c_size_t),8_c_size_t*int(self%n,c_size_t)))
+        ! Check the Fortran signed-byte range and size_t conversion before C.
+        call memory_checked_mul(8_i8, int(self%n,i8), rhs_count, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_add(int(self%numeric_count,i8), &
+            max(int(maxwork,i8),rhs_count), arena_count, status)
+        if (status%code /= FORTSPARSE_OK) return
+        if (arena_count > int(huge(0_c_size_t),i8) .or. &
+            self%device_limit > int(huge(0_c_size_t),i8)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'CUDA device byte range')
+            return
+        end if
+        self%device_payload_tracked = .true.
+        code = spd_cuda_create_deferred_limited(self%cuda, int(self%device,c_int), &
+            int(arena_count,c_size_t), int(self%device_limit,c_size_t), report)
         if (code == 0 .and. needs_blas) code = spd_cuda_prepare_blas(self%cuda)
         if (code == 0) then
             if (count_maps > 0) &
@@ -1346,11 +1385,18 @@ contains
                     int(self%node_count,c_size_t), c_null_ptr, 0_c_size_t, int(level_count,c_size_t))
             end if
         end if
-        call cuda_status(code, status)
-        if (code == 0) then
-            self%device_bytes = int(spd_cuda_allocated_bytes(self%cuda),i8)
+        ! A create refusal has no context; its output report survives cleanup.
+        ! Later setter failures keep the old/partial context until build cleanup.
+        if (c_associated(self%cuda)) then
+            queried = spd_cuda_memory_stats(self%cuda, report)
+            if (code == 0) code = queried
             self%cuda_host_bytes = int(spd_cuda_host_plan_bytes(self%cuda),i8)
         end if
+        self%device_bytes = report%current_bytes
+        self%device_peak_bytes = report%peak_bytes
+        self%device_required_bytes = report%required_bytes
+        self%device_available_bytes = report%available_bytes
+        call cuda_status(code, status)
     end subroutine setup_cuda
 
     subroutine factor_cuda(self, status)
@@ -1449,6 +1495,8 @@ contains
             call status_set(status, FORTSPARSE_OK, '')
             return
         end if
+        if (code == -2) status_code = FORTSPARSE_RESOURCE_LIMIT
+        if (code == -3) status_code = FORTSPARSE_INDEX_OVERFLOW
         if (code == 2 .or. code == 1003) status_code = FORTSPARSE_OUT_OF_MEMORY
         if (code == 10) status_code = FORTSPARSE_BACKEND_UNAVAILABLE
         write(message, '(a,i0)') 'native CUDA operation failed: ', code

@@ -35,6 +35,28 @@ function(fortsparse_add_cuda_tests)
         add_test(NAME ${test} COMMAND ${test})
         set_tests_properties(${test} PROPERTIES LABELS "native;cuda;fast" TIMEOUT 1)
     endforeach()
+    # Independent allocation oracle observes only this static library's explicit
+    # CUDA calls; runtime/vendor internal pools are outside the payload contract.
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        add_executable(test_fortsparse_spd_cuda_memory
+            ${PROJECT_SOURCE_DIR}/test-cmake/cuda/test_fortsparse_spd_cuda_memory.cu)
+        target_link_libraries(test_fortsparse_spd_cuda_memory PRIVATE fortsparse)
+        set_target_properties(test_fortsparse_spd_cuda_memory PROPERTIES
+            CUDA_STANDARD 14 CUDA_STANDARD_REQUIRED ON)
+        target_link_options(test_fortsparse_spd_cuda_memory PRIVATE
+            "LINKER:--wrap=cudaMalloc" "LINKER:--wrap=cudaFree")
+        add_test(NAME test_fortsparse_spd_cuda_memory
+            COMMAND test_fortsparse_spd_cuda_memory)
+        set_tests_properties(test_fortsparse_spd_cuda_memory PROPERTIES
+            LABELS "native;cuda;memory;fast" TIMEOUT 1)
+    endif()
+    add_executable(test_fortsparse_native_cuda_memory
+        ${PROJECT_SOURCE_DIR}/test-cmake/cuda/test_fortsparse_native_cuda_memory.f90)
+    target_link_libraries(test_fortsparse_native_cuda_memory PRIVATE fortsparse)
+    add_test(NAME test_fortsparse_native_cuda_memory
+        COMMAND test_fortsparse_native_cuda_memory)
+    set_tests_properties(test_fortsparse_native_cuda_memory PROPERTIES
+        LABELS "native;cuda;fast" TIMEOUT 1)
     add_executable(test_fortsparse_native_cuda_binding
         ${PROJECT_SOURCE_DIR}/test-cmake/cuda/test_fortsparse_native_cuda_binding.f90)
     target_link_libraries(test_fortsparse_native_cuda_binding PRIVATE fortsparse)

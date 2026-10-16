@@ -77,7 +77,11 @@ module fortsparse_backend
         integer     :: active_threads = -1 ! actual native factor team size
         integer     :: active_device = -2 ! -2 unknown; -1 CPU; >=0 CUDA device
         integer     :: ordering_used = -1 ! actual native ordering option
-        integer(i8) :: device_bytes = -1 ! attributed native device allocation
+        integer(i8) :: device_bytes = -1 ! current explicit native CUDA payload
+        integer(i8) :: device_peak_bytes = -1_i8
+        integer(i8) :: device_budget_required_bytes = 0_i8
+        integer(i8) :: device_budget_available_bytes = 0_i8
+        logical :: strict_device_memory_supported = .false. ! Explicit payload only
         integer(i8) :: symbolic_nnz = -1 ! unpadded native Cholesky structure
         integer(i8) :: factor_storage_bytes = -1 ! native numeric factor payload
         integer(i8) :: workspace_bytes = -1 ! retained native auxiliary payload

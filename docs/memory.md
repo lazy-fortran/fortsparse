@@ -24,8 +24,10 @@ explicit AMD under caps and LOW_MEMORY through the audited AMD 3.3.4
 refinement reservations and retained-factor overlap. General LU raw input is
 borrowed and capped. Real SPD also uses that shared AMD workspace, accounting
 permutations, reordered CSC, symbolic scratch, panels and refinement together.
-Natural DEFAULT selection is unchanged. SPD nested dissection, CUDA, external
-backends remain unsupported under strict caps.
+Natural DEFAULT selection is unchanged. SPD nested dissection and external
+backends remain unsupported under strict host caps. CUDA supports the separate
+device-owned payload cap described below; CUDA host caps and LOW_MEMORY
+remain unsupported.
 Normal uncapped paths retain their existing execution choices.
 
 Structured RAW CSC factor/refactor supports real SPD/indefinite and complex
@@ -85,6 +87,52 @@ counts fill; it does not prove positive definiteness. The numeric factorization
 still checks every pivot. Planning itself is capped and may fail for insufficient
 graph scratch before a full layout can be calculated. Cap changes apply on the
 next factor/refactor attempt, and invalidate reuse when the schedule changes.
+
+## CUDA device-owned payload cap
+
+Native real-SPD CSC CUDA execution accepts `device_memory_limit_bytes` with
+`memory_policy=FORTSPARSE_MEMORY_AUTO` and no host cap. Zero is unlimited.
+This limits the sum of explicit device allocation requests owned by the handle:
+the FP64 factor/RHS/update arena, pivot-info integer, optional 1 MiB cuBLAS
+workspace, maps, Schur/level task metadata, level panels and solve panels/rows.
+The arena retains eight RHS columns and the largest required wide-panel update
+scratch. Existing generated numerical kernels and arithmetic are unchanged.
+
+Every explicit device allocation checks signed 64-bit/`size_t` ranges and
+reserves against the cap before calling CUDA. Transactional Schur, level and
+solve-plan replacements include simultaneous old/new arrays. Map replacement
+keeps its existing destructive behavior: synchronize, discard dependent plans
+and old maps, then allocate new maps. Failure cleanup releases every successful
+allocation; no CPU or external-factor fallback bypasses a device refusal.
+`FORTSPARSE_RESOURCE_LIMIT` means budget refusal, while CUDA allocation failure
+reports `FORTSPARSE_OUT_OF_MEMORY`. A failed public factor/refactor is unusable;
+changing the cap and factoring again supports recovery. A changed cap rebuilds
+the plan, while same-policy numeric refactorization reuses device allocations.
+
+Statistics keep separate scopes: `device_bytes` is current explicit device
+payload, `device_peak_bytes` is the successfully allocated live high-water,
+and `device_budget_required_bytes`/`device_budget_available_bytes` describe
+the refused allocation increment and remaining quota at that point.
+`strict_device_memory_supported` identifies this device-payload accounting.
+The existing `strict_memory_supported` continues to describe host accounting;
+it is not set by a device cap. Refusal diagnostics and successful high-water
+survive failed-build cleanup, whose current device payload is zero.
+
+This is not a total-GPU-memory or process-RSS cap. CUDA context/stream and
+cuBLAS internal allocations, driver pools, allocator granularity and all host
+storage are excluded and need separate headroom. Retained device payload does
+not measure those quantities. Host setup contains overlapping Fortran arrays,
+C++ vectors and old/new plans that are not yet capped; its peak stays unknown.
+CUDA host caps and LOW_MEMORY fail explicitly rather than silently ignoring
+the requested policy. GPU complex/indefinite/general LU remain unsupported.
+The pre-factor planning API does not yet predict CUDA layouts.
+
+The optional C CUDA interface preserves existing entry points. Additive
+`fsparse_spd_cuda_create_deferred_limited` accepts the limit and an optional
+output `fsparse_spd_cuda_memory` report, including failed-create diagnostics;
+`fsparse_spd_cuda_memory_stats` queries a live context. C status -2 is a cap
+refusal and -3 is byte-count overflow. The existing general-LU C API and its
+memory-report struct are unchanged; they do not expose GPU execution.
 
 ## What the bytes mean
 

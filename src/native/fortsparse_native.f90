@@ -697,7 +697,8 @@ contains
                 if (status%code == FORTSPARSE_RESOURCE_LIMIT) self%blocked = .false.
             else
                 call self%panels%build(self%n, self%lp, self%li, &
-                    self%options%nthreads, status, self%options%device)
+                    self%options%nthreads, status, self%options%device, &
+                    device_limit=self%options%device_memory_limit_bytes)
             end if
             if (self%blocked .and. .not. status_ok(status)) return
         end if
@@ -767,8 +768,10 @@ contains
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'native SPD: require finite, full symmetric, canonical square CSC')
+        if (self%options%device_memory_limit_bytes < 0_i8) return
         if (self%options%host_memory_limit_bytes > 0_i8 .or. &
-            self%options%device_memory_limit_bytes > 0_i8 .or. &
+            (self%options%device_memory_limit_bytes > 0_i8 .and. &
+             self%options%device < 0) .or. &
             self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
             if (self%options%device >= 0 .or. &
                 (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
@@ -1163,6 +1166,13 @@ contains
 
         call update_budget_stats(self)
         stats = self%stats
+        if (self%panels%device_payload_tracked) then
+            stats%device_bytes = self%panels%device_bytes
+            stats%device_peak_bytes = self%panels%device_peak_bytes
+            stats%device_budget_required_bytes = self%panels%device_required_bytes
+            stats%device_budget_available_bytes = self%panels%device_available_bytes
+            stats%strict_device_memory_supported = .true.
+        end if
         if (.not.self%bounded_memory) stats%host_current_bytes = owned_payload(self)
         call self%apply_raw_tracking(stats)
         call status_set(status, FORTSPARSE_OK, '')
