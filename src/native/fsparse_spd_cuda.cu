@@ -57,30 +57,13 @@ bool matrix_fits(Context *ctx, size_t offset, int ld, int rows, int columns)
  */
 __global__ void factor_panel(double *a, int n, int lda, int *info, bool retain_info)
 {
-    if (!retain_info && threadIdx.x == 0) *info = 0;
-    __syncthreads();
-    if (*info != 0) return;
-    for (int j = 0; j < n; ++j) {
-        if (threadIdx.x == 0) {
-            double pivot = a[j+static_cast<size_t>(j)*lda];
-            for (int p = 0; p < j; ++p)
-                spd_update_value(pivot, a[j+static_cast<size_t>(p)*lda],
-                                 a[j+static_cast<size_t>(p)*lda], &pivot);
-            if (!(pivot > 0.0) || !isfinite(pivot)) *info = j+1;
-            else spd_root_value(pivot, a+j+static_cast<size_t>(j)*lda);
-        }
-        __syncthreads();
-        if (*info != 0) return;
-        for (int i = j+1+threadIdx.x; i < n; i += blockDim.x) {
-            double value = a[i+static_cast<size_t>(j)*lda];
-            for (int p = 0; p < j; ++p)
-                spd_update_value(value, a[i+static_cast<size_t>(p)*lda],
-                                 a[j+static_cast<size_t>(p)*lda], &value);
-            spd_divide_value(value, a[j+static_cast<size_t>(j)*lda],
-                             a+i+static_cast<size_t>(j)*lda);
-        }
-        __syncthreads();
-    }
+    spd_factor_panel_schedule(a, n, n, lda, info, retain_info);
+}
+
+__global__ void factor_front(double *a, int width, int rows, int lda,
+                             int *info, bool retain_info)
+{
+    spd_factor_panel_schedule(a, width, rows, lda, info, retain_info);
 }
 
 __global__ void scatter_update(double *destination, int ldd, int columns,
@@ -141,7 +124,7 @@ void clear_plan(Context *ctx)
 }
 } // namespace
 
-extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capacity)
+extern "C" int fsparse_spd_cuda_create_deferred(void **context, int device, size_t capacity)
 {
     if (!context) return -1;
     *context = nullptr;
@@ -160,20 +143,45 @@ extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capaci
     if (!result) result = cudaMalloc(&ctx->arena, capacity*sizeof(double));
     if (!result) result = cudaMalloc(&ctx->info, sizeof(int));
     if (!result) result = cudaMemsetAsync(ctx->info, 0, sizeof(int), ctx->stream);
-    if (!result) result = cudaMalloc(&ctx->workspace, workspace_bytes);
-    if (!result) {
-        cublasStatus_t code = cublasCreate(&ctx->blas);
-        if (code == CUBLAS_STATUS_SUCCESS) code = cublasSetStream(ctx->blas, ctx->stream);
-        if (code == CUBLAS_STATUS_SUCCESS)
-            code = cublasSetWorkspace(ctx->blas, ctx->workspace, workspace_bytes);
-        if (code != CUBLAS_STATUS_SUCCESS) result = 1000+code;
-    }
     if (result) {
         fsparse_spd_cuda_destroy(ctx);
         return result;
     }
     *context = ctx;
     return 0;
+}
+
+extern "C" int fsparse_spd_cuda_prepare_blas(void *context)
+{
+    auto *ctx = static_cast<Context*>(context);
+    int result = activate(ctx);
+    if (result) return result;
+    // This is setup, never a hidden allocation in a numerical factor batch.
+    if (ctx->factor_batch) return -1;
+    if (ctx->blas) return 0;
+    result = cudaMalloc(&ctx->workspace, workspace_bytes);
+    if (result) return result;
+    cublasStatus_t code = cublasCreate(&ctx->blas);
+    if (code == CUBLAS_STATUS_SUCCESS) code = cublasSetStream(ctx->blas, ctx->stream);
+    if (code == CUBLAS_STATUS_SUCCESS)
+        code = cublasSetWorkspace(ctx->blas, ctx->workspace, workspace_bytes);
+    if (code == CUBLAS_STATUS_SUCCESS) return 0;
+    if (ctx->blas) cublasDestroy(ctx->blas);
+    ctx->blas = nullptr;
+    cudaFree(ctx->workspace);
+    ctx->workspace = nullptr;
+    return 1000+code;
+}
+
+extern "C" int fsparse_spd_cuda_create(void **context, int device, size_t capacity)
+{
+    int result = fsparse_spd_cuda_create_deferred(context, device, capacity);
+    if (!result) result = fsparse_spd_cuda_prepare_blas(*context);
+    if (result && context && *context) {
+        fsparse_spd_cuda_destroy(*context);
+        *context = nullptr;
+    }
+    return result;
 }
 
 extern "C" int fsparse_spd_cuda_destroy(void *context)
@@ -232,6 +240,19 @@ extern "C" int fsparse_spd_cuda_panel_factor(void *context, size_t offset,
     if (result) return result;
     factor_panel<<<1,256,0,ctx->stream>>>(ctx->arena+offset, n, lda, ctx->info,
                                         ctx->factor_batch);
+    return cudaGetLastError();
+}
+
+extern "C" int fsparse_spd_cuda_front_factor(void *context, size_t offset,
+                                             int width, int rows, int lda)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (width < 0 || width > 8 || rows < width ||
+        !matrix_fits(ctx, offset, lda, rows, width)) return -1;
+    int result = activate(ctx);
+    if (result || width == 0) return result;
+    factor_front<<<1,256,0,ctx->stream>>>(ctx->arena+offset, width, rows, lda,
+                                        ctx->info, ctx->factor_batch);
     return cudaGetLastError();
 }
 
@@ -434,6 +455,7 @@ extern "C" int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset,
         !matrix_fits(ctx, b_offset, ldb, m, n)) return -1;
     int result = activate(ctx);
     if (result || m == 0 || n == 0) return result;
+    if (!ctx->blas) return -1; // Call prepare_blas during setup first.
     const double one = 1.0;
     const cublasStatus_t code = cublasDtrsm(ctx->blas, CUBLAS_SIDE_RIGHT,
         CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_T, CUBLAS_DIAG_NON_UNIT,
@@ -451,6 +473,7 @@ static int schur_gemm(void *context, size_t c_offset, int ldc,
         !matrix_fits(ctx, right_offset, ldr, n, k)) return -1;
     int result = activate(ctx);
     if (result || m == 0 || n == 0) return result;
+    if (!ctx->blas) return -1; // Never initialize vendor state in this hot call.
     const double minus_one = -1.0;
     const cublasStatus_t code = cublasDgemm(ctx->blas, CUBLAS_OP_N, CUBLAS_OP_T,
         m, n, k, &minus_one, ctx->arena+left_offset, ldl,
@@ -479,6 +502,7 @@ extern "C" int fsparse_spd_cuda_schur_product(void *context, size_t c_offset,
 extern "C" size_t fsparse_spd_cuda_allocated_bytes(void *context)
 {
     auto *ctx = static_cast<Context*>(context);
-    return ctx ? ctx->capacity*sizeof(double)+sizeof(int)+workspace_bytes
+    return ctx ? ctx->capacity*sizeof(double)+sizeof(int)
+                 +(ctx->workspace ? workspace_bytes : 0)
                  +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask) : 0;
 }

@@ -44,17 +44,24 @@ residual/update oracles. Numerical probes establish behavior, not a proof or
 an outward-rounded enclosure.
 
 The optional adapter in `src/native/fsparse_spd_cuda.cu` owns one retained
-device arena, nonblocking stream, cuBLAS handle and explicit 1 MiB cuBLAS
-workspace. Its thin C interface uses arena offsets, so factor panels and
-update operands can remain resident between calls. Allocation occurs at
-context creation. The reported allocation bytes cover the arena, pivot info
-and explicit workspace; CUDA context/cuBLAS internal memory must additionally
-be measured by the benchmark process/device accounting.
+device arena and nonblocking stream. The legacy C context creation also prepares
+cuBLAS and its explicit 1 MiB workspace. Native sparse analysis instead creates
+a deferred context, preparing BLAS during setup only when a source panel wider
+than eight columns has trailing rows. Thin-only plans therefore require no
+cuBLAS handle or workspace. Explicit BLAS operations on a deferred context
+require the setup-only prepare call; numerical calls never allocate this state.
+The reported allocation bytes count the workspace only after preparation;
+CUDA context/cuBLAS internal memory needs separate process/device measurement.
+The thin C interface uses arena offsets, retaining panels and operands.
 
-Small diagonal panels use generated numerical leaves in one cooperative
-CUDA block. Source panels up to eight columns use a fused generated negative
+The cooperative factor schedule is retained in `spd_schedule.cuh.inc` and uses
+the generated numerical leaves. For source panels up to eight columns, the same
+block factors the diagonal and solves every trailing row, including panels
+longer than the block's 256 threads. Upper entries and leading-dimension padding
+remain untouched. The original diagonal-only panel API preserves its behavior.
+Source panels up to eight columns also use a fused generated negative
 dot product and mapped scatter, avoiding product scratch and a second launch.
-Wider Schur contractions and triangular solves lower to cuBLAS. The fused
+Wider Schur contractions and trailing triangular solves retain cuBLAS. The fused
 schedule skips absent map entries and preserves unused destination cells;
 its local reduction order can differ from the vendor GEMM reduction.
 Upload/download calls enqueue copies; callers must synchronize before reusing

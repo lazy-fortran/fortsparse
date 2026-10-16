@@ -12,7 +12,8 @@ module fortsparse_native_supernodes
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
         c_int, c_size_t, c_loc
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
-    use fortsparse_native_cuda, only: spd_cuda_create, spd_cuda_destroy, &
+    use fortsparse_native_cuda, only: spd_cuda_create_deferred, spd_cuda_destroy, &
+        spd_cuda_prepare_blas, spd_cuda_front_factor, &
         spd_cuda_upload, spd_cuda_download, spd_cuda_synchronize, &
         spd_cuda_panel_factor, spd_cuda_factor_info, spd_cuda_panel_solve, &
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
@@ -969,11 +970,15 @@ contains
         integer :: s, first, group, dest, q, m2, u, v, count_updates, count_thin, base, p, ierr
         integer(i8) :: count_maps
         integer(c_int) :: code
+        logical :: needs_blas
 
+        needs_blas = .false.
         count_updates = 0
         count_thin = 0
         count_maps = 0_i8
         do s = 1, self%node_count
+            if (self%panels(s)%width > 8 .and. &
+                self%panels(s)%m > self%panels(s)%width) needs_blas = .true.
             first = self%panels(s)%width+1
             do while (first <= self%panels(s)%m)
                 call update_group(self, s, first, group, dest)
@@ -1039,8 +1044,9 @@ contains
             self%panels(s)%update_last = u
         end do
         batch_ptr(self%node_count+1) = int(v,c_size_t)
-        code = spd_cuda_create(self%cuda, int(self%device,c_int), &
+        code = spd_cuda_create_deferred(self%cuda, int(self%device,c_int), &
             self%numeric_count+int(maxwork,c_size_t))
+        if (code == 0 .and. needs_blas) code = spd_cuda_prepare_blas(self%cuda)
         if (code == 0) then
             if (count_maps > 0) &
                 code = spd_cuda_set_maps(self%cuda, c_loc(maps), int(count_maps,c_size_t))
@@ -1079,13 +1085,14 @@ contains
             m = self%panels(s)%m
             w = self%panels(s)%width
             offset = self%panels(s)%offset
+            if (w <= 8) then
+                code = spd_cuda_front_factor(self%cuda, offset, w, m, m)
+                if (code == 0) code = spd_cuda_schur_batch(self%cuda, int(s-1,c_size_t))
+                cycle
+            end if
             code = spd_cuda_panel_factor(self%cuda, offset, w, m)
             if (code == 0 .and. m > w) &
                 code = spd_cuda_panel_solve(self%cuda, offset, w, m, offset+w, m-w, m)
-            if (code == 0 .and. w <= 8) then
-                code = spd_cuda_schur_batch(self%cuda, int(s-1,c_size_t))
-                cycle
-            end if
             do u = self%panels(s)%update_first, self%panels(s)%update_last
                 if (code /= 0) exit
                 dest = self%updates(u)%dest

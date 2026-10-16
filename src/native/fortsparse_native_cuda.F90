@@ -22,6 +22,7 @@ module fortsparse_native_cuda
         integer(c_size_t) :: row_map_offset, column_map_offset
         integer(c_int) :: ldl, ldr, m, n, k, destination_rows, destination_columns
     end type spd_cuda_schur_task
+    public :: spd_cuda_create_deferred, spd_cuda_prepare_blas, spd_cuda_front_factor
 
     interface
         integer(c_int) function spd_cuda_set_schur_batches(context, tasks, task_count, &
@@ -51,6 +52,28 @@ module fortsparse_native_cuda
             integer(c_int), value :: device
             integer(c_size_t), value :: capacity
         end function spd_cuda_create
+
+        integer(c_int) function spd_cuda_create_deferred(context, device, capacity) &
+            bind(C, name='fsparse_spd_cuda_create_deferred')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), intent(out) :: context
+            integer(c_int), value :: device
+            integer(c_size_t), value :: capacity
+        end function spd_cuda_create_deferred
+
+        integer(c_int) function spd_cuda_prepare_blas(context) &
+            bind(C, name='fsparse_spd_cuda_prepare_blas')
+            import :: c_ptr, c_int
+            type(c_ptr), value :: context
+        end function spd_cuda_prepare_blas
+
+        integer(c_int) function spd_cuda_front_factor(context, offset, width, rows, lda) &
+            bind(C, name='fsparse_spd_cuda_front_factor')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: offset
+            integer(c_int), value :: width, rows, lda
+        end function spd_cuda_front_factor
 
         integer(c_int) function spd_cuda_destroy(context) &
             bind(C, name='fsparse_spd_cuda_destroy')
