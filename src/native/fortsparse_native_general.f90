@@ -20,6 +20,8 @@ module fortsparse_native_general
     use fortsparse_native_hpd, only: native_hpd_t
     use fortsparse_native_ldlt, only: native_ldlt_t, ldlt_check_matrix
     use fortsparse_native_ldlt_z, only: native_ldlt_z_t
+    use fortsparse_inertia, only: inertia_count_t, FORTSPARSE_INERTIA_UNAVAILABLE, &
+        FORTSPARSE_INERTIA_RELIABLE
     use fortsparse_native_lu, only: lu_factor_t
     use fortsparse_native_lu_z, only: lu_factor_z_t
     use fortsparse_native_slu, only: slu_factor_t, SLU_ORDER_AMD, SLU_ORDER_ND
@@ -1191,7 +1193,46 @@ contains
             self%stats%factor_mem_mb = -1.0_dp
             self%stats%strict_memory_supported = .false.
         end if
+        call inertia_stats(self)
     end subroutine update_stats
+
+    ! Inertia from the actual pivots: real LDL^T (mode 3), Hermitian LDL^H
+    ! (mode 4) and HPD Cholesky (mode 2, all positive on success). LU modes,
+    ! including the perturbed supernodal LU, and complex symmetric LDL^T
+    ! cannot report inertia and stay UNAVAILABLE.
+    subroutine inertia_stats(self)
+        class(native_general_backend_t), intent(inout) :: self
+        type(inertia_count_t) :: count
+        integer :: state
+        real(dp) :: tolerance
+        state = FORTSPARSE_INERTIA_UNAVAILABLE
+        tolerance = -1.0_dp
+        select case(self%mode)
+        case(2)
+            if (self%ready) then
+                count%positive = int(self%hpd_factor%dimension(), i8)
+                count%min_magnitude = -1.0_dp
+                state = FORTSPARSE_INERTIA_RELIABLE
+            end if
+        case(3)
+            call self%ldlt_factor%inertia(count, state, tolerance)
+        case(4)
+            call self%complex_ldlt_factor%inertia(count, state, tolerance)
+        end select
+        self%stats%inertia_status = state
+        self%stats%inertia_tolerance = tolerance
+        self%stats%inertia_negative = -1_i8
+        self%stats%inertia_zero = -1_i8
+        self%stats%inertia_positive = -1_i8
+        self%stats%inertia_uncertain = -1_i8
+        self%stats%inertia_min_pivot = -1.0_dp
+        if (state == FORTSPARSE_INERTIA_UNAVAILABLE) return
+        self%stats%inertia_negative = count%negative
+        self%stats%inertia_zero = count%zero
+        self%stats%inertia_positive = count%positive
+        self%stats%inertia_uncertain = count%uncertain
+        self%stats%inertia_min_pivot = count%min_magnitude
+    end subroutine inertia_stats
 
     integer(i8) function original_bytes(self) result(bytes)
         class(native_general_backend_t), intent(in) :: self

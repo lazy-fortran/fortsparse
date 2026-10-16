@@ -14,6 +14,9 @@ module fortsparse
         FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL, &
         FORTSPARSE_MATCHING_NONE, FORTSPARSE_MATCHING_STRUCTURAL, &
         FORTSPARSE_MATCHING_WEIGHTED
+    use fortsparse_inertia, only: FORTSPARSE_INERTIA_UNAVAILABLE, &
+        FORTSPARSE_INERTIA_RELIABLE, FORTSPARSE_INERTIA_UNCERTAIN, &
+        FORTSPARSE_INERTIA_SINGULAR
     use fortsparse_memory, only: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, &
         MEMORY_PLAN_ESTIMATE
     use fortsparse_version, only: fortsparse_version_string
@@ -26,6 +29,7 @@ module fortsparse
         sparse_free, sparse_destroy, sparse_copy, sparse_solve_once, sparse_vector, &
         sparse_solve_jvp, sparse_solve_vjp, sparse_solve_block, &
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
+        sparse_inertia, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_DEFAULT, &
         FORTSPARSE_BACKEND_AUTO, FORTSPARSE_BACKEND_NATIVE, &
@@ -68,6 +72,9 @@ module fortsparse
     public :: FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE
     public :: sparse_auto_backend
     public :: sparse_solve_block, sparse_factor_stats
+    public :: sparse_inertia, FORTSPARSE_INERTIA_UNAVAILABLE
+    public :: FORTSPARSE_INERTIA_RELIABLE, FORTSPARSE_INERTIA_UNCERTAIN
+    public :: FORTSPARSE_INERTIA_SINGULAR
     public :: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
     public :: FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL
     public :: FORTSPARSE_MATCHING_NONE, FORTSPARSE_MATCHING_STRUCTURAL, &

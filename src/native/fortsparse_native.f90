@@ -25,6 +25,7 @@ module fortsparse_native
     use fortsparse_native_symbolic, only: native_symbolic_counts, &
         native_symbolic_workspace_bytes
     use fortsparse_native_cuda, only: native_cuda_available
+    use fortsparse_inertia, only: FORTSPARSE_INERTIA_RELIABLE
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
@@ -1167,6 +1168,14 @@ contains
 
         call update_budget_stats(self)
         stats = self%stats
+        if (self%ready) then
+            ! A completed Cholesky factor has n positive pivots by construction.
+            stats%inertia_negative = 0_i8
+            stats%inertia_zero = 0_i8
+            stats%inertia_positive = int(self%n, i8)
+            stats%inertia_uncertain = 0_i8
+            stats%inertia_status = FORTSPARSE_INERTIA_RELIABLE
+        end if
         if (self%panels%device_payload_tracked) then
             stats%device_bytes = self%panels%device_bytes
             stats%device_peak_bytes = self%panels%device_peak_bytes

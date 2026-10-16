@@ -24,6 +24,7 @@ module fortsparse_solver
         FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
         FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
         FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL
+    use fortsparse_inertia, only: FORTSPARSE_INERTIA_UNAVAILABLE
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t
 #endif
@@ -114,6 +115,7 @@ module fortsparse_solver
     public :: sparse_vector
     public :: sparse_solve_block
     public :: sparse_factor_stats
+    public :: sparse_inertia
     public :: sparse_auto_backend
 
     ! Refactor after the matrix values changed. When the sparsity pattern (and
@@ -743,6 +745,37 @@ contains
         end if
         call solver%backend%factor_stats(stats, status)
     end subroutine sparse_factor_stats
+
+    ! Sylvester inertia (negative, zero, positive pivot eigenvalue counts) of
+    ! the last native symmetric/Hermitian factorization, including one that
+    ! returned FORTSPARSE_SINGULAR because of exact zero pivots. reliability is
+    ! a FORTSPARSE_INERTIA_* code (docs/native-cpu.md); status is OK whenever
+    ! counts are returned and BACKEND_UNAVAILABLE for LU, perturbed, complex
+    ! symmetric and external factors, which do not provide inertia.
+    subroutine sparse_inertia(solver, n_negative, n_zero, n_positive, &
+                              reliability, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer(i8),               intent(out)   :: n_negative, n_zero, n_positive
+        integer,                   intent(out)   :: reliability
+        type(fortsparse_status_t), intent(out)   :: status
+        type(sparse_factor_stats_t) :: stats
+
+        n_negative = -1_i8
+        n_zero = -1_i8
+        n_positive = -1_i8
+        reliability = FORTSPARSE_INERTIA_UNAVAILABLE
+        call sparse_factor_stats(solver, stats, status)
+        if (.not. status_ok(status)) return
+        if (stats%inertia_status == FORTSPARSE_INERTIA_UNAVAILABLE) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'inertia unavailable: no native LDL^T/LDL^H/Cholesky factor')
+            return
+        end if
+        n_negative = stats%inertia_negative
+        n_zero = stats%inertia_zero
+        n_positive = stats%inertia_positive
+        reliability = stats%inertia_status
+    end subroutine sparse_inertia
 
     ! In-place real solve: b is the RHS on entry, the solution on return.
     subroutine sparse_solve_real_inplace(solver, b, status)

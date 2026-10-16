@@ -14,6 +14,9 @@ module fortsparse_native_ldlt_z
                                  FORTSPARSE_INTERNAL_ERROR
     use fortsparse_lu_leaves, only: lu_z_divide, lu_z_update, lu_z_norm, lu_z_finite
     use fortsparse_ldlt_z_leaves, only: ldlt_z_det, ldlt_z_numerators, ldlt_z_update
+    use fortsparse_inertia, only: inertia_count_t, inertia_add_pivot, &
+                                  inertia_status_of, inertia_tolerance, &
+                                  FORTSPARSE_INERTIA_UNAVAILABLE
     implicit none
     private
     public :: native_ldlt_z_t
@@ -34,6 +37,10 @@ module fortsparse_native_ldlt_z
         logical :: is_hermitian = .true.
         integer(i8) :: limit = 0_i8, bytes = 0_i8, peak = 0_i8
         integer(i8) :: required = 0_i8
+        ! Hermitian inertia of the last completed elimination (real pivots).
+        logical :: inertia_ready = .false.
+        real(dp) :: growth = 0.0_dp
+        type(inertia_count_t) :: pivots
         integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:)
         complex(dp), allocatable :: diagonal(:), offdiagonal(:), u(:), v(:), work(:)
         type(sparse_row_t), allocatable :: schur(:), lower(:)
@@ -50,6 +57,7 @@ module fortsparse_native_ldlt_z
         procedure :: available_bytes => ldlt_available
         procedure :: factor_nnz => ldlt_nnz
         procedure :: permutation => ldlt_permutation
+        procedure :: inertia => ldlt_inertia
         final :: ldlt_finalize
     end type native_ldlt_z_t
 contains
@@ -231,6 +239,8 @@ contains
         self%block = 0
         self%diagonal = 0.0_dp
         self%offdiagonal = 0.0_dp
+        self%growth = 0.0_dp
+        if (a%nnz > 0) self%growth = maxval(abs(a%val(1:a%nnz)))
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine initialize
 
@@ -344,6 +354,7 @@ contains
                         call arithmetic_error(status)
                         return
                     end if
+                    self%growth = max(self%growth, abs(value))
                     call row_put(self%schur(i), j, value, self%low_memory, &
                                self%limit, self%bytes, self%peak, self%required, status)
                     if (.not. status_ok(status)) return
@@ -362,9 +373,58 @@ contains
             k = k + step
         end do
         call release_scratch(self)
+        call count_inertia(self)
+        if (self%pivots%zero > 0_i8) then
+            ! Zero pivot columns were eliminated as exact zero 1x1 pivots so
+            ! that Hermitian inertia is complete; solves are refused.
+            call status_set(status, FORTSPARSE_SINGULAR, &
+                            'LDLT: zero numerical pivot column; inertia only')
+            return
+        end if
         self%ready = .true.
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine numeric
+
+    subroutine count_inertia(self)
+        ! Complex symmetric (non-Hermitian) pivots carry no inertia; only
+        ! zero pivots are counted there so that SINGULAR stays explicit.
+        class(native_ldlt_z_t), intent(inout) :: self
+        real(dp) :: tolerance
+        integer :: k
+        self%pivots = inertia_count_t()
+        tolerance = inertia_tolerance(self%n, self%growth)
+        k = 1
+        do while (k <= self%n)
+            if (.not. self%is_hermitian) then
+                if (self%block(k) == 1 .and. abs(self%diagonal(k)) <= 0.0_dp) &
+                    self%pivots%zero = self%pivots%zero + 1_i8
+            else if (self%block(k) == 2) then
+                call inertia_add_pivot(self%pivots, 2, real(self%diagonal(k), dp), &
+                    abs(self%offdiagonal(k)), real(self%diagonal(k + 1), dp), &
+                    tolerance)
+            else
+                call inertia_add_pivot(self%pivots, 1, real(self%diagonal(k), dp), &
+                    0.0_dp, 0.0_dp, tolerance)
+            end if
+            k = k + self%block(k)
+        end do
+        self%inertia_ready = self%is_hermitian
+    end subroutine count_inertia
+
+    ! Hermitian inertia of the last completed factorization; UNAVAILABLE for
+    ! complex symmetric input or when no elimination completed.
+    subroutine ldlt_inertia(self, count, state, tolerance)
+        class(native_ldlt_z_t), intent(in) :: self
+        type(inertia_count_t), intent(out) :: count
+        integer, intent(out) :: state
+        real(dp), intent(out), optional :: tolerance
+        state = FORTSPARSE_INERTIA_UNAVAILABLE
+        if (present(tolerance)) tolerance = -1.0_dp
+        if (.not. self%inertia_ready) return
+        count = self%pivots
+        state = inertia_status_of(count)
+        if (present(tolerance)) tolerance = inertia_tolerance(self%n, self%growth)
+    end subroutine ldlt_inertia
 
     subroutine choose_pivot(self, k, pivot, step, status)
         class(native_ldlt_z_t), intent(in) :: self
@@ -388,12 +448,10 @@ contains
         end do
         pivot = k
         step = 1
-        if (max(absakk, colmax) <= 0.0_dp) then
-            call status_set(status, FORTSPARSE_SINGULAR, &
-                            'LDLT: zero numerical pivot column')
-            return
-        end if
         call status_set(status, FORTSPARSE_OK, '')
+        ! A zero column is an exact zero 1x1 pivot; numeric completes the
+        ! elimination for inertia and then reports SINGULAR.
+        if (max(absakk, colmax) <= 0.0_dp) return
         if (absakk >= alpha*colmax) return
         rowmax = 0.0_dp
         do p = 1, self%schur(largest)%used
@@ -764,6 +822,7 @@ contains
     subroutine clear_numeric(self)
         class(native_ldlt_z_t), intent(inout) :: self
         self%ready = .false.
+        self%inertia_ready = .false.
         if (allocated(self%schur)) deallocate (self%schur)
         if (allocated(self%lower)) deallocate (self%lower)
         if (allocated(self%perm)) deallocate (self%perm)

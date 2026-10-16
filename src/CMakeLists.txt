@@ -9,6 +9,7 @@ target_sources(fortsparse PRIVATE
     fortsparse.f90
     fortsparse_backend.f90
     fortsparse_csc.f90
+    fortsparse_inertia.f90
     fortsparse_kinds.f90
     fortsparse_memory.f90
     fortsparse_native_c_api.f90
