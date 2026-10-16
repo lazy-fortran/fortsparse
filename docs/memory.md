@@ -15,10 +15,13 @@ Statistics report `compact_memory_used`, `budget_reduced_threads`, the actual
 team and `native_factor_family`. LOW_MEMORY explicitly selects the compact
 reference. These bounded schedules need separate performance admission.
 
-The new real/complex LU, complex HPD and real indefinite references also enforce
-host caps; see [native CPU families](native-cpu.md). Explicit AMD/METIS ordering,
-CUDA with strict caps, external backends with strict caps and structured raw CSC
-conversion remain unsupported. General LU raw input is borrowed and capped.
+The real/complex LU, complex HPD and real/complex indefinite references also
+enforce host caps; see [native CPU families](native-cpu.md). General LU supports
+explicit AMD under caps and LOW_MEMORY through the audited AMD 3.3.4
+[caller-workspace path](native-amd-bounded.md), including ordering scratch,
+refinement reservations and retained-factor overlap. General LU raw input is
+borrowed and capped. SPD ordering, CUDA, external backends and structured raw
+CSC conversion remain unsupported under strict caps.
 Normal uncapped paths retain their existing execution choices.
 
 The first exact pre-factorization planning API describes the compact real-SPD
