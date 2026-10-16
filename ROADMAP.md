@@ -213,7 +213,15 @@ mathematical implementations.
   `bench/GPU_BENCHMARKS.md`. Establish actual offload, complete host/device
   memory accounting and external-only size calibration before native tuning.
   Profile losing cases; improve generic emission upstream and regenerate the
-  consumer. Admit host and device-resident workflows separately, preserving
+  consumer. The generic reciprocal lowering is published in FortGen/FortSym;
+  generated thin Schur/scatter fusion reduces the diagnostic matched campaign
+  from 54 to 33 timeouts out of 240 trials. See
+  `bench/results/2026-10-16-gpu-fusion.json`. The largest frozen 2D case still
+  times out and the larger 3D cases remain slower than external GPU libraries.
+  Batch safe per-panel updates and fuse narrow panel solves next; rerun the
+  frozen cases before accepting either optimization. Shared-device timings
+  and unknown aggregate VRAM do not establish GPU admission.
+  Admit host and device-resident workflows separately, preserving
   the CPU frontier and all failed or unavailable comparisons.
 - [ ] **M5.5 — Measured extensions within one node.** Consider multiple GPUs
   and approximate/compressed factors or preconditioners only for workloads

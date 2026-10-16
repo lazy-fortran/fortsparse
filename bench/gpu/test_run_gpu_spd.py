@@ -53,6 +53,15 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(record['ordering'], ordering)
                 self.assertEqual(record['requested_backend'], backend)
 
+    def test_cpu_build_override_keeps_gpu_executable_separate(self):
+        args = self.arguments()
+        args.cpu_bin_dir = Path('/cpu/bin')
+        with patch.object(Path, 'is_file', return_value=False):
+            cpu = sample(args, [0], 'native', 'grid2', 1, 1, 'warm', 'host', 'tuned', 0)
+            gpu = sample(args, [0], 'native-cuda', 'grid2', 1, 1, 'warm', 'host', 'tuned', 0)
+        self.assertEqual(cpu['command'][3], '/cpu/bin/bench_spd_native_gpu')
+        self.assertEqual(gpu['command'][3], '/test/bin/bench_spd_native_gpu')
+
     def test_failed_vendor_retains_partial_numeric_output(self):
         process = MagicMock(returncode=2)
         process.communicate.return_value = ('backend,vendor_status,backward_error,factor_s\n'

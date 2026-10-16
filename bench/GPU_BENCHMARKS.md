@@ -20,6 +20,11 @@ Shared-device timings are diagnostic until a controlled measurement window is
 available. Prove offload through library counters and a kernel trace; successful
 CUDA configuration alone does not establish GPU execution.
 
+For CPU/GPU comparisons, pass `--cpu-bin-dir` pointing to the CPU-only native
+build. The default runs the CPU path of the CUDA-linked executable, whose host
+RSS includes CUDA shared-library mappings. Retain that distinction for older
+records; it does not establish standalone CPU memory use.
+
 Retain the small latency corpus. Select larger, higher-fill and public SPD
 cases using external GPU implementations alone, freeze that calibration, then
 tune native execution. Ordinary invocations must finish below one second;
