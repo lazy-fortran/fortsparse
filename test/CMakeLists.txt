@@ -26,6 +26,10 @@ fortsparse_add_test(test_fortsparse_native_lu
     solver/test_fortsparse_native_lu.f90)
 fortsparse_add_test(test_fortsparse_lu_leaves
     solver/test_fortsparse_lu_leaves.f90)
+fortsparse_add_test(test_fortsparse_lu_pruning
+    solver/test_fortsparse_lu_pruning.f90)
+set_tests_properties(test_fortsparse_lu_pruning PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1)
 set_tests_properties(test_fortsparse_native_lu test_fortsparse_lu_leaves PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_hpd_leaves

@@ -11,6 +11,7 @@ module @MODULE@
     @EXTRA_USE@
     implicit none
     private
+    public :: lu_prune_column
     integer, parameter, public :: LU_NORMAL=0, LU_TRANSPOSE=1, LU_ADJOINT=2
     integer(i8), parameter :: ib=int(storage_size(0)/8,i8), vb=@VALUE_BYTES@_i8
     type, public :: @TYPE@
@@ -18,11 +19,12 @@ module @MODULE@
         integer(i8) :: factor_nnz=0_i8, peak_memory_bytes=0_i8
         integer(i8) :: failed_required_bytes=0_i8, failed_available_bytes=0_i8
         logical :: last_reused_pattern=.false.
-        logical, private :: ready=.false., low=.false.
+        logical, private :: ready=.false., low=.false., pruned=.false.
         integer(i8), private :: limit=0_i8
         integer, private :: ln=0, un=0
         integer, allocatable, private :: lp(:), up(:), lr(:), ur(:), p(:), pinv(:), q(:)
         integer, allocatable, private :: ap(:), ai(:), mark(:), stack(:), edge(:), reach(:)
+        integer, allocatable, private :: prune_end(:)
         @SCALAR@, allocatable, private :: lv(:), uv(:), work(:)
         real(dp), allocatable, private :: row_norm(:)
     contains
@@ -57,14 +59,15 @@ contains
         matched=.true.
     end subroutine copy_column_order
 
-    subroutine factor(self,a,status,column_permutation,pivot_threshold,memory_limit_bytes,low_memory)
+    subroutine factor(self,a,status,column_permutation,pivot_threshold, &
+        memory_limit_bytes,low_memory,pruning)
         class(@TYPE@), intent(inout) :: self
         type(@CSC@), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer, intent(in), optional :: column_permutation(:)
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
-        logical, intent(in), optional :: low_memory
+        logical, intent(in), optional :: low_memory,pruning
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -76,14 +79,14 @@ contains
             return
         end if
         call self%factor_raw(a%ncol,a%col_ptr,a%row_idx,a%val,status, &
-            column_permutation,pivot_threshold,memory_limit_bytes,low_memory)
+            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
     end subroutine factor
 
     ! Threshold partial row pivoting of D*A(:,q). Sparse triangular reach is
     ! Gilbert--Peierls style; no numerical or symbolic dense n-by-n storage.
     ! Caller input is borrowed, never copied into another CSC container.
     subroutine factor_raw(self,n,col_ptr,row_idx,values,status, &
-        column_permutation,pivot_threshold,memory_limit_bytes,low_memory)
+        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
         class(@TYPE@), intent(inout) :: self
         integer, intent(in) :: n,col_ptr(:),row_idx(:)
         @SCALAR@, intent(in) :: values(:)
@@ -91,12 +94,12 @@ contains
         integer, intent(in), optional :: column_permutation(:)
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
-        logical, intent(in), optional :: low_memory
+        logical, intent(in), optional :: low_memory,pruning
         integer :: j,i,k,t,e,row,col,pivot,count,lc,uc,ierr
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
         @SCALAR@ :: value,diagonal
-        logical :: same
+        logical :: same,use_pruning
 
         self%ready=.false.
         self%factor_nnz=0_i8
@@ -150,6 +153,8 @@ contains
                 return
             end if
         end if
+        use_pruning=.false.
+        if(present(pruning)) use_pruning=pruning
         same=.false.
         if (allocated(self%ap)) then
             if (self%n==n .and. size(self%ai)==size(values)) then
@@ -173,8 +178,13 @@ contains
         self%low=.false.
         if (present(low_memory)) self%low=low_memory
         self%peak_memory_bytes=self%memory_bytes()
+        self%pruned=.false.
+        if(.not.use_pruning) then
+            if(allocated(self%prune_end)) deallocate(self%prune_end)
+        end if
         if (.not.allocated(self%ap)) then
             fixed=ib*(10_i8*n+3_i8+int(size(values),i8))+(vb+8_i8)*n
+            if(use_pruning) fixed=fixed+ib*n
             if (cap>0 .and. fixed>cap) then
                 self%failed_required_bytes=fixed
                 self%failed_available_bytes=max(0_i8,cap-self%memory_bytes())
@@ -191,6 +201,29 @@ contains
                 call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'LU fixed workspace allocation failed')
                 return
             end if
+        end if
+        self%peak_memory_bytes=max(self%peak_memory_bytes,self%memory_bytes())
+        if(use_pruning) then
+            if(.not.allocated(self%prune_end)) then
+                fixed=ib*n
+                if(cap>0_i8) then
+                    if(self%memory_bytes()+fixed>cap) then
+                        self%failed_required_bytes=fixed
+                        self%failed_available_bytes=max(0_i8,cap-self%memory_bytes())
+                        call status_set(status,FORTSPARSE_RESOURCE_LIMIT, &
+                            'LU pruning workspace exceeds memory cap including reuse')
+                        return
+                    end if
+                end if
+                allocate(self%prune_end(n),stat=ierr)
+                if(ierr/=0) then
+                    call status_set(status,FORTSPARSE_OUT_OF_MEMORY, &
+                        'LU pruning workspace allocation failed')
+                    return
+                end if
+            end if
+            self%prune_end=0
+            self%pruned=.true.
         end if
         self%peak_memory_bytes=max(self%peak_memory_bytes,self%memory_bytes())
         self%ap=col_ptr
@@ -312,6 +345,7 @@ contains
                     self%ln=self%ln+1
                     self%lr(self%ln)=row
                     self%lv(self%ln)=value
+                    if(self%pruned) self%mark(row)=-j
                 end if
             end do
             self%un=self%un+1
@@ -321,6 +355,20 @@ contains
             self%pinv(pivot)=j
             self%lp(j+1)=self%ln+1
             self%up(j+1)=self%un+1
+            if(self%pruned) then
+                self%prune_end(j)=self%lp(j+1)
+                ! Negative marks certify actual retained children of new pivot j.
+                ! Numerical factors keep every entry; only DFS adjacency shrinks.
+                if(self%lp(j+1)>self%lp(j)) then
+                    do e=self%up(j),self%up(j+1)-2
+                        k=self%ur(e)
+                        if(self%prune_end(k)<0) cycle
+                        if(self%lp(k)==self%lp(k+1)) cycle
+                        call lu_prune_column(self%lr,self%lv,self%lp(k),self%lp(k+1), &
+                            pivot,self%mark,j,self%prune_end(k))
+                    end do
+                end if
+            end if
         end do
         do e=1,self%ln
             self%lr(e)=self%pinv(self%lr(e))
@@ -336,7 +384,7 @@ contains
         class(@TYPE@), intent(inout) :: self
         integer, intent(in) :: start,generation
         integer, intent(inout) :: count
-        integer :: depth,row,k,child,e
+        integer :: depth,row,k,child,e,last
         if (self%mark(start)==generation) return
         depth=1
         self%stack(1)=start
@@ -349,13 +397,15 @@ contains
             if (k/=0) then
                 e=self%edge(depth)
                 if (e==0) e=self%lp(k)
-                do while (e<self%lp(k+1))
+                last=self%lp(k+1)
+                if(self%pruned) last=abs(self%prune_end(k))
+                do while (e<last)
                     child=self%lr(e)
                     if (self%mark(child)/=generation) exit
                     e=e+1
                 end do
                 self%edge(depth)=e+1
-                if (e<self%lp(k+1)) then
+                if (e<last) then
                     depth=depth+1
                     self%stack(depth)=child
                     self%edge(depth)=0
@@ -369,6 +419,49 @@ contains
             depth=depth-1
         end do
     end subroutine visit
+
+    ! Graph-only transitive reduction, with a direct retained length-two witness.
+    ! Source/pivot are original row identities. Rows are unique and in range.
+    ! marks(r)==-generation certifies a retained edge pivot -> r in the new column.
+    ! Keep source -> pivot and remove ONLY source -> r with that certificate.
+    ! Paired swaps preserve numerical L, whose full span remains in every update.
+    subroutine lu_prune_column(rows,values,first,last,pivot,marks,generation,endpoint)
+        integer, intent(inout) :: rows(*)
+        @SCALAR@, intent(inout) :: values(*)
+        integer, intent(in) :: first,last,pivot,marks(*),generation
+        integer, intent(inout) :: endpoint
+        integer :: e,left,right,row_tmp
+        @SCALAR@ :: value_tmp
+        logical :: witness
+        if(endpoint<0.or.first==last) return
+        witness=.false.
+        do e=first,last-1
+            if(rows(e)==pivot) then
+                witness=.true.
+                exit
+            end if
+        end do
+        if(.not.witness) return
+        left=first
+        right=last-1
+        do while(left<=right)
+            if(rows(left)==pivot) then
+                left=left+1
+            else if(marks(rows(left))/=-generation) then
+                left=left+1
+            else
+                row_tmp=rows(left)
+                rows(left)=rows(right)
+                rows(right)=row_tmp
+                value_tmp=values(left)
+                values(left)=values(right)
+                values(right)=value_tmp
+                right=right-1
+            end if
+        end do
+        ! All pointer endpoints are one-based; negative means processed once.
+        endpoint=-left
+    end subroutine lu_prune_column
 
     subroutine reserve(self,lower,required,status)
         class(@TYPE@), intent(inout) :: self
@@ -577,6 +670,7 @@ contains
         self%failed_available_bytes=0_i8
         self%last_reused_pattern=.false.
         self%ready=.false.
+        self%pruned=.false.
         self%limit=0_i8
     end subroutine free
 end module @MODULE@

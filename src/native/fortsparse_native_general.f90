@@ -349,6 +349,7 @@ contains
         self%retained_order=-1
         call self%real_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
+            pruning=.not.self%reference_only, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
@@ -440,6 +441,7 @@ contains
         self%retained_order=-1
         call self%real_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
+            pruning=.not.self%reference_only, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
@@ -614,6 +616,7 @@ contains
         self%retained_order=-1
         call self%complex_factor%factor(A,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
+            pruning=.not.self%reference_only, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
@@ -677,6 +680,7 @@ contains
         self%retained_order=-1
         call self%complex_factor%factor_raw(ncol,col_ptr,row_idx,val,status, &
             column_permutation=order,pivot_threshold=threshold,memory_limit_bytes=cap, &
+            pruning=.not.self%reference_only, &
             low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
         self%stats%factor_s = seconds()-started
         if (allocated(order)) deallocate(order)
