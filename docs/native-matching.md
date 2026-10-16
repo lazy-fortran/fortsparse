@@ -62,8 +62,10 @@ The concrete motivating input is the public manufactured KIN6D first coupled
 Jacobian (`n=5525`, `nnz=203054`); the retained external diagnostic recipe and
 provenance are under `sparse-dev/benchmarks/2026-10-16-kin6d-native-migration/`.
 The original larger scientific convergence test remains a separate qualification
-gate. A bounded successful factor does not establish performance admission or
-predict the largest mesh.
+gate: with matching, AMD and threshold `0.1`, the 8/16 radial levels pass but the
+32-level case times out at its unchanged 900-second limit. A bounded successful
+factor does not establish performance admission or predict the largest mesh.
+See [the retained work diagnostic](../bench/results/2026-10-16-native-lu-work.md).
 
 Algorithm reference: Hopcroft and Karp, *An n^(5/2) Algorithm for Maximum
 Matchings in Bipartite Graphs*, SIAM Journal on Computing 2(4), 1973,

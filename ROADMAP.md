@@ -261,8 +261,11 @@ mathematical implementations.
   solves, refinement, diagnostics, bounded growth and consumer frontier gates.
   The KIN6D coupled gauge/voltage Jacobian exposes a practical ordering/fill
   gap. Opt-in structural matching with matched-graph AMD and generated pivot-row
-  preferences is being implemented; original-matrix correctness, cap accounting
-  and the unchanged full consumer case must qualify before admission.
+  preferences is implemented with original-matrix and cap-accounting checks.
+  The unchanged full consumer case still times out at 900 seconds on its largest
+  mesh. A bounded 19,989-row replay already processes 21.69 billion scatter
+  entries before its diagnostic deadline; practical elimination work and the
+  full consumer case must qualify before admission.
 - [ ] **M6.3: complex unsymmetric LU.** Add conjugate-transpose solves and
   explicit real-pairing derivatives; retain separate complex-class evidence.
 - [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex
