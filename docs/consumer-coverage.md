@@ -6,6 +6,13 @@ local repository revision and distinguishes inspected paths from discovery-only
 matches. No application was run, no matrix was exported, and no cluster host was
 accessed. The local checkouts were read without modification.
 
+Subsequent work captured a private real NEO-2 system from an unchanged binary
+at a newer pinned revision. The [aggregate benchmark](../bench/results/private-neo2-2026-10-16/report.md)
+records its 4,856 unknowns, four RHS, frozen accuracy policy and five-peer
+comparison. It supplements this source audit; it does not validate a complete
+NEO-2 application run or the other consumer families below. Numeric inputs and
+solutions remain private.
+
 ## Priority and admission boundary
 
 1. **Real general sparse LU, then complex general sparse LU**, with threshold
