@@ -85,7 +85,7 @@ program native_gpu_comparison
     execution_mode = 'cpu'
     if (device >= 0) then
         backend = 'native-cuda'
-        execution_mode = 'gpu-factor-host-solve'
+        execution_mode = 'gpu-factor-gpu-solve'
     end if
     solver%backend_id = 4
     solver%options%symmetry = FORTSPARSE_SYM_SPD
