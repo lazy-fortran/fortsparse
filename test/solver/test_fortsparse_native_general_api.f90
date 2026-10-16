@@ -187,6 +187,9 @@ program test_fortsparse_native_general_api
     call sparse_solve_jvp(solver,adot,x,zeros,dx,status)
     call check(status_ok(status),'LDLT allocation-free JVP')
     call check(maxval(abs(dx+0.125_dp*exact))<1e-13_dp,'LDLT JVP oracle')
+    call sparse_refactor(solver,a,status,reused)
+    call check(status_ok(status),'public LDLT refactor')
+    call check(reused,'public LDLT retains pattern')
     call sparse_destroy(solver)
     solver%options%symmetry=FORTSPARSE_SYM_GENERAL
 

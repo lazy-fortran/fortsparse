@@ -283,10 +283,9 @@ contains
             return
         end if
         if (solver%backend_id == FORTSPARSE_BACKEND_NATIVE .and. &
-            solver%options%host_memory_limit_bytes == 0_i8 .and. &
             solver%options%memory_policy /= FORTSPARSE_MEMORY_LOW) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'memory analysis: select LOW_MEMORY or a host cap for reference layout')
+                'memory analysis: select LOW_MEMORY for the exact reference layout')
             return
         end if
         if (solver%options%device_memory_limit_bytes < 0_i8 .or. &
@@ -297,6 +296,22 @@ contains
             return
         end if
         budget%limit = solver%options%host_memory_limit_bytes
+        if (allocated(solver%backend)) then
+            select type(backend => solver%backend)
+            type is(native_backend_t)
+                if (.not. backend%bounded_memory) then
+                    call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                        'memory analysis: release unbudgeted factors before strict planning')
+                    return
+                end if
+                budget%current = backend%host_budget%current
+                budget%peak = budget%current
+            class default
+                call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'memory analysis: release other factors before strict planning')
+                return
+            end select
+        end if
         call plan_natural_spd_memory(A, plan, status, budget, nrhs)
     end subroutine sparse_analyze
 

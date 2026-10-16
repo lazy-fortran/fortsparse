@@ -8,13 +8,22 @@ has different scope. It is not a hard allocation limit.
 
 ## First supported schedule
 
-The strict host cap currently supports natural-order CPU real-SPD simplicial
-Cholesky. Selecting a host cap or LOW_MEMORY selects this native schedule.
-It trades blocked execution and parallel scratch for predictable compact storage;
-it has no production-performance admission yet. Explicit AMD/METIS ordering,
-CUDA with strict caps, external backends with strict caps and strict-budget raw
-CSC conversion return BACKEND_UNAVAILABLE rather than ignoring the request.
-They remain roadmap work. Normal uncapped paths retain their existing behavior.
+The strict host cap supports natural-order CPU real-SPD simplicial and blocked
+Cholesky. AUTO attempts bounded generated blocked execution, reduces task scratch
+concurrency when needed and can use the compact reference if panels cannot fit.
+Statistics report `compact_memory_used`, `budget_reduced_threads`, the actual
+team and `native_factor_family`. LOW_MEMORY explicitly selects the compact
+reference. These bounded schedules need separate performance admission.
+
+The new real/complex LU, complex HPD and real indefinite references also enforce
+host caps; see [native CPU families](native-cpu.md). Explicit AMD/METIS ordering,
+CUDA with strict caps, external backends with strict caps and structured raw CSC
+conversion remain unsupported. General LU raw input is borrowed and capped.
+Normal uncapped paths retain their existing execution choices.
+
+The first exact pre-factorization planning API describes the compact real-SPD
+layout; select LOW_MEMORY or NATIVE_REFERENCE. It does not claim to predict
+blocked/ordered/pivot-dependent layouts. Production planning remains roadmap work.
 
 ```fortran
 use fortsparse
@@ -31,7 +40,11 @@ call sparse_analyze(solver, A, plan, status, nrhs=8)
 if (status_ok(status)) call sparse_factor(solver, A, status)
 ```
 
-Analysis preserves any retained factorization. It checks structure/symmetry and
+Analysis preserves any retained factorization. Planning scratch shares its cap
+with retained budgeted factors; release them before planning when coexistence
+cannot fit. Existing unbudgeted or other-family factors must be released before
+strict planning. The current fit check conservatively includes retained payload
+alongside the planned new layout. It checks structure/symmetry and
 counts fill; it does not prove positive definiteness. The numeric factorization
 still checks every pivot. Planning itself is capped and may fail for insufficient
 graph scratch before a full layout can be calculated. Cap changes apply on the

@@ -122,6 +122,25 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
+        integer(i8) :: cap
+        real(dp) :: started
+        if (self%mode == 3 .and. &
+            (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
+             self%options%symmetry == FORTSPARSE_SYM_HERMITIAN)) then
+            reused = .false.
+            call prepare(self,refine,cap,status)
+            if (.not. status_ok(status)) return
+            started = seconds()
+            call self%ldlt_factor%refactor(A,status,host_limit_bytes=cap, &
+                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
+            if (status%code /= FORTSPARSE_INVALID_MATRIX) then
+                self%stats%factor_s = seconds()-started
+                self%ready = status_ok(status)
+                reused = self%ready
+                call update_stats(self)
+                return
+            end if
+        end if
         call self%factor_real(A,refine,status)
         reused = .false.
         if (status_ok(status)) reused = self%real_factor%last_reused_pattern
@@ -449,6 +468,16 @@ contains
         self%stats%strict_memory_supported = .true.
         self%stats%active_device = -1
         self%stats%device_bytes = 0_i8
+        select case(self%mode)
+        case(0)
+            self%stats%native_factor_family = 'LU_REAL'
+        case(1)
+            self%stats%native_factor_family = 'LU_COMPLEX'
+        case(2)
+            self%stats%native_factor_family = 'CHOLESKY_HPD'
+        case(3)
+            self%stats%native_factor_family = 'LDLT_REAL'
+        end select
         self%stats%active_threads = 1
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = FORTSPARSE_ORDER_DEFAULT

@@ -48,6 +48,9 @@ program test_fortsparse_memory_api
     call check(stats%strict_memory_supported, 'strict support')
     call check(stats%host_current_bytes == required, 'current payload')
     call check(stats%host_peak_bytes == required, 'peak payload')
+    call sparse_analyze(solver,a,plan,status,nrhs=9)
+    call check(status%code == FORTSPARSE_RESOURCE_LIMIT, 'planning scratch shares live cap')
+    call check(solver%factored, 'planning failure preserves factors')
     exact = [(sin(real(i,dp)),i=1,n)]
     rhs = 4.0_dp*exact
     rhs(2:) = rhs(2:)-exact(:n-1)
@@ -125,8 +128,65 @@ program test_fortsparse_memory_api
     call check(status%code == FORTSPARSE_INVALID_MATRIX, 'negative cap')
     call sparse_destroy(solver)
     call sparse_destroy(other)
+    call blocked_budget()
     print '(a)', 'bounded native SPD analysis, solve, JVP, reuse and recovery pass'
 contains
+    subroutine blocked_budget()
+        integer, parameter :: nb=96
+        type(sparse_solver_t) :: bounded
+        type(sparse_memory_plan_t) :: predicted
+        type(sparse_factor_stats_t) :: measured
+        type(csc_t) :: matrix
+        integer :: ii,jj,kk,rr(nb*nb),cc(nb*nb)
+        real(dp) :: vv(nb*nb),dd(nb,nb),answer(nb),input(nb),output(nb)
+        dd=0.01_dp
+        do ii=1,nb
+            dd(ii,ii)=2.0_dp
+        end do
+        kk=0
+        do jj=1,nb
+            do ii=1,nb
+                kk=kk+1
+                rr(kk)=ii
+                cc(kk)=jj
+                vv(kk)=dd(ii,jj)
+            end do
+        end do
+        call csc_from_triplet(nb,nb,rr,cc,vv,matrix,status)
+        bounded%backend_id=FORTSPARSE_BACKEND_NATIVE
+        bounded%options%symmetry=FORTSPARSE_SYM_SPD
+        bounded%options%nthreads=2
+        bounded%options%host_memory_limit_bytes=4_i8*1024_i8*1024_i8
+        call sparse_factor(bounded,matrix,status)
+        call check(status_ok(status),'public bounded blocked factor')
+        call sparse_factor_stats(bounded,measured,status)
+        call check(trim(measured%native_factor_family)=='CHOLESKY_BLOCK','blocked schedule reported')
+        call check(measured%host_peak_bytes<=bounded%options%host_memory_limit_bytes,'blocked cap')
+        call check(measured%host_current_bytes>measured%factor_storage_bytes,'metadata counted')
+        answer=[(sin(real(ii,dp)),ii=1,nb)]
+        input=matmul(dd,answer)
+        call sparse_solve(bounded,input,output,status)
+        call check(status_ok(status),'bounded blocked solve')
+        call check(maxval(abs(output-answer))<2e-14_dp,'blocked independent oracle')
+        call sparse_refactor(bounded,matrix,status,reused)
+        call check(status_ok(status),'bounded blocked refactor')
+        call check(reused,'blocked analysis reuse')
+        call sparse_destroy(bounded)
+        bounded%options%memory_policy=FORTSPARSE_MEMORY_LOW
+        call sparse_analyze(bounded,matrix,predicted,status)
+        call check(status_ok(status),'fallback compact analysis')
+        bounded%options%memory_policy=FORTSPARSE_MEMORY_AUTO
+        bounded%options%host_memory_limit_bytes=predicted%peak_host_bytes
+        call sparse_factor(bounded,matrix,status)
+        call check(status_ok(status),'AUTO fits compact layout when panels cannot fit')
+        call sparse_factor_stats(bounded,measured,status)
+        call check(measured%compact_memory_used,'compact fallback explicitly reported')
+        call check(measured%host_peak_bytes<=predicted%peak_host_bytes,'fallback cap respected')
+        call sparse_solve(bounded,input,output,status)
+        call check(maxval(abs(output-answer))<2e-14_dp,'fallback independent oracle')
+        call sparse_destroy(bounded)
+    end subroutine blocked_budget
+
     subroutine check(ok, message)
         logical, intent(in) :: ok
         character(*), intent(in) :: message

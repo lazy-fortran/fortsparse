@@ -10,9 +10,10 @@ The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
 The next requirements are native CPU coverage across audited ITPplasma matrix
 classes and predictable, user-limited memory with RAM-only low-memory modes.
-The first strict host-cap/planning path is natural-order CPU real-SPD reference
-execution; see [memory limits and cluster sizing](docs/memory.md). Wider matrix
-coverage and production/GPU caps remain planned. Development
+Native CPU references and natural-order SPD blocked execution support strict
+host payload caps; exact pre-factor planning initially covers compact real SPD.
+See [memory limits and cluster sizing](docs/memory.md). Production planning,
+ordering/GPU caps and broader performance admission remain planned. Development
 continues on `main`; GPU usability precedes CPU coverage, with full GPU Pareto
 admission retained as a later gate. MPI and disk-backed factors are out of scope.
 

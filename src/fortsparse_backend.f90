@@ -83,6 +83,8 @@ module fortsparse_backend
         integer(i8) :: host_current_bytes = -1_i8, host_peak_bytes = -1_i8
         integer(i8) :: budget_required_bytes = 0_i8, budget_available_bytes = 0_i8
         logical :: strict_memory_supported = .false.
+        logical :: compact_memory_used = .false., budget_reduced_threads = .false.
+        character(16) :: native_factor_family = ''
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t
