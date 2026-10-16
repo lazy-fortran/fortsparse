@@ -16,9 +16,11 @@ module fortsparse_native
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
     use fortsparse_memory, only: memory_budget_t, sparse_memory_plan_t, &
-        plan_natural_spd_memory, refinement_payload_bytes
+        plan_natural_spd_memory, refinement_payload_bytes, memory_checked_add
     use fortsparse_native_supernodes, only: supernodes_t
-    use fortsparse_native_symbolic, only: native_symbolic_counts
+    use fortsparse_native_amd, only: bounded_amd_size, bounded_amd_order
+    use fortsparse_native_symbolic, only: native_symbolic_counts, &
+        native_symbolic_workspace_bytes
     use fortsparse_native_cuda, only: native_cuda_available
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
@@ -126,7 +128,8 @@ contains
             call update_budget_stats(self)
             if (.not.status_ok(status)) return
         end if
-        if (self%bounded_memory .and. .not. self%bounded_blocked) then
+        if (self%bounded_memory .and. .not. self%bounded_blocked .and. &
+            self%options%ordering == FORTSPARSE_ORDER_DEFAULT) then
             self%host_budget%limit = self%options%host_memory_limit_bytes
             call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
             call update_budget_stats(self)
@@ -140,6 +143,7 @@ contains
         self%analyzed_threads = self%options%nthreads
         self%analyzed_device = self%options%device
         call prepare_ordering(self, A, status)
+        if (self%bounded_memory) call update_budget_stats(self)
         if (.not. status_ok(status)) return
         if (allocated(self%perm)) then
             call analyze(self, self%ordered, status)
@@ -154,6 +158,11 @@ contains
                 ! Retain ordering structure and reuse keys, not a second
                 ! numeric matrix or a per-entry numeric permutation map.
                 deallocate (self%ordered%val, self%source)
+                if (self%bounded_memory) then
+                    call self%host_budget%release(12_i8*A%nnz, status)
+                    if (.not. status_ok(status)) return
+                    call update_budget_stats(self)
+                end if
             end if
             call numeric_factor(self, A, status)
         else if (allocated(self%perm)) then
@@ -175,9 +184,11 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         call status_set(status,FORTSPARSE_OK,'')
         if (.not.refine) return
-        if (self%options%device>=0 .or. self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) &
+        if (self%options%device>=0 .or. &
+            (self%options%ordering/=FORTSPARSE_ORDER_DEFAULT .and. &
+             self%options%ordering/=FORTSPARSE_ORDER_AMD)) &
             call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-            'native SPD refinement requires natural-order CPU factorization')
+            'native SPD refinement requires natural or bounded-AMD CPU factorization')
     end subroutine refinement_supported
 
     subroutine retain_original(self,A,fresh,status)
@@ -236,7 +247,20 @@ contains
                 return
             end if
             if (step==3) exit
-            if (self%blocked) then
+            if (allocated(self%perm)) then
+                do i=1,self%n
+                    self%work(i)=self%residual(self%perm(i))
+                end do
+                if (self%blocked) then
+                    call self%panels%solve(self%work,status)
+                    if (.not.status_ok(status)) return
+                else
+                    call triangular_values(self%n,self%lp,self%li,self%lv,self%work)
+                end if
+                do i=1,self%n
+                    self%residual(self%perm(i))=self%work(i)
+                end do
+            else if (self%blocked) then
                 call self%panels%solve(self%residual,status)
                 if (.not.status_ok(status)) return
             else
@@ -253,12 +277,14 @@ contains
         class(native_backend_t), intent(inout) :: self
         type(csc_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
-        integer :: bandwidth, j, i, p, q, ierr, code, chosen, old
+        integer :: bandwidth, j, p, ierr, code, chosen
         integer, allocatable :: cursor(:)
 
         call status_set(status, FORTSPARSE_OK, '')
         if (self%bounded_memory) then
             self%selected_order = FORTSPARSE_ORDER_DEFAULT
+            if (self%options%ordering == FORTSPARSE_ORDER_AMD) &
+                call prepare_bounded_amd(self, A, status)
             return
         end if
         bandwidth = 0
@@ -306,6 +332,26 @@ contains
             call memory_error(status)
             return
         end if
+        call permute_csc(self, A, cursor)
+    contains
+        subroutine compute_order(ordering, result_code)
+            integer, intent(in) :: ordering
+            integer, intent(out) :: result_code
+            if (ordering == FORTSPARSE_ORDER_AMD) then
+                result_code = native_order_amd(A%ncol, A%nnz, A%col_ptr, &
+                    A%row_idx, self%perm, self%inverse)
+            else
+                result_code = native_order(A%ncol, A%nnz, A%col_ptr, &
+                    A%row_idx, self%perm, self%inverse)
+            end if
+        end subroutine compute_order
+    end subroutine prepare_ordering
+
+    subroutine permute_csc(self, A, cursor)
+        class(native_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        integer, intent(inout) :: cursor(:)
+        integer :: j, i, p, q, old
         self%op = A%col_ptr
         self%oi = A%row_idx
         self%ordered%nrow = A%nrow
@@ -332,31 +378,91 @@ contains
                 cursor(j) = q + 1
             end do
         end do
-    contains
-        subroutine compute_order(ordering, result_code)
-            integer, intent(in) :: ordering
-            integer, intent(out) :: result_code
-            if (ordering == FORTSPARSE_ORDER_AMD) then
-                result_code = native_order_amd(A%ncol, A%nnz, A%col_ptr, &
-                    A%row_idx, self%perm, self%inverse)
-            else
-                result_code = native_order(A%ncol, A%nnz, A%col_ptr, &
-                    A%row_idx, self%perm, self%inverse)
-            end if
-        end subroutine compute_order
-    end subroutine prepare_ordering
+    end subroutine permute_csc
+
+    subroutine prepare_bounded_amd(self, A, status)
+        class(native_backend_t), intent(inout) :: self
+        type(csc_t), intent(in) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        type(fortsparse_status_t) :: cleanup
+        integer, allocatable :: arena(:), cursor(:)
+        integer(i8) :: arena_bytes, output_bytes, phase_bytes, baseline
+        integer :: low, code, ierr
+
+        baseline = self%host_budget%current
+        low = 0
+        if (self%options%memory_policy == FORTSPARSE_MEMORY_LOW) low = 1
+        code = bounded_amd_size(A%ncol, A%nnz, A%col_ptr, A%row_idx, &
+            low, arena_bytes, output_bytes)
+        call status_set(status, code, &
+            'native SPD: bounded AMD graph/ABI unavailable or invalid')
+        if (.not. status_ok(status)) return
+        phase_bytes = 0_i8
+        call memory_checked_add(arena_bytes, output_bytes, phase_bytes, status)
+        if (.not. status_ok(status)) return
+        call self%host_budget%reserve(phase_bytes, status, &
+            'native SPD AMD outputs and arena')
+        if (.not. status_ok(status)) return
+        allocate(self%perm(A%ncol), self%inverse(A%ncol), &
+            arena(arena_bytes/4_i8), stat=ierr)
+        if (ierr /= 0) then
+            call memory_error(status)
+            goto 900
+        end if
+        code = bounded_amd_order(A%ncol, A%nnz, A%col_ptr, A%row_idx, &
+            low, arena, arena_bytes, self%perm, self%inverse)
+        call status_set(status, code, 'native SPD: bounded AMD ordering failed')
+        if (.not. status_ok(status)) goto 900
+        deallocate(arena)
+        call self%host_budget%release(arena_bytes, status)
+        if (.not. status_ok(status)) goto 900
+        ! Outputs remain live. Include ordered CSC, original pattern, source
+        ! map, and the cursor that coexists with all of them during assembly.
+        phase_bytes = 20_i8*A%nnz + 12_i8*A%ncol + 8_i8
+        call self%host_budget%reserve(phase_bytes, status, &
+            'native SPD ordered CSC and cursor')
+        if (.not. status_ok(status)) goto 900
+        allocate(self%source(A%nnz), self%op(A%ncol+1), self%oi(A%nnz), &
+            self%ordered%col_ptr(A%ncol+1), self%ordered%row_idx(A%nnz), &
+            self%ordered%val(A%nnz), cursor(A%ncol), stat=ierr)
+        if (ierr /= 0) then
+            call memory_error(status)
+            goto 900
+        end if
+        call permute_csc(self, A, cursor)
+        deallocate(cursor)
+        call self%host_budget%release(4_i8*A%ncol, status)
+        if (.not. status_ok(status)) goto 900
+        self%selected_order = FORTSPARSE_ORDER_AMD
+        return
+900     continue
+        if (allocated(arena)) deallocate(arena)
+        if (allocated(cursor)) deallocate(cursor)
+        if (allocated(self%perm)) deallocate(self%perm)
+        if (allocated(self%inverse)) deallocate(self%inverse)
+        if (allocated(self%source)) deallocate(self%source)
+        if (allocated(self%op)) deallocate(self%op)
+        if (allocated(self%oi)) deallocate(self%oi)
+        self%ordered = csc_t()
+        call self%host_budget%release(self%host_budget%current-baseline, cleanup)
+        if (.not. status_ok(cleanup)) status = cleanup
+    end subroutine prepare_bounded_amd
 
     subroutine analyze(self, A, status)
         class(native_backend_t), intent(inout) :: self
         type(csc_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
         integer :: j, i, p, k, q, top, ierr
-        integer(i8) :: nz
+        integer(i8) :: nz, count_bytes
+        logical :: account_analysis
+        type(fortsparse_status_t) :: cleanup
         real(dp) :: start
 
+        account_analysis = self%bounded_blocked .or. &
+            (self%bounded_memory .and. allocated(self%perm))
         start = wall_time()
         self%n = A%ncol
-        if (self%bounded_blocked) then
+        if (account_analysis) then
             call self%host_budget%reserve(32_i8*self%n+4_i8, &
                 status,'native SPD graph and numeric work')
             if (.not. status_ok(status)) return
@@ -365,11 +471,11 @@ contains
             self%mark(self%n), self%reach(self%n), self%path(self%n), &
             self%work(self%n), stat=ierr)
         if (ierr /= 0) then
-            call self%free()
+            call discard_failed_analysis(self)
             call memory_error(status)
             return
         end if
-        if (self%bounded_blocked) then
+        if (account_analysis .and. .not. allocated(self%perm)) then
             call self%host_budget%reserve(4_i8*(self%n+1_i8+A%nnz), &
                 status,'native SPD retained CSC pattern')
             if (.not. status_ok(status)) return
@@ -395,8 +501,18 @@ contains
         if (self%n >= 4096 .and. allocated(self%perm)) then
             ! Dense filled paths need not be enumerated just to count them.
             ! Keep the simple low-fill/small setup schedule below.
+            count_bytes = native_symbolic_workspace_bytes(self%n)
+            if (account_analysis) then
+                call self%host_budget%reserve(count_bytes, status, &
+                    'native SPD graph count scratch')
+                if (.not. status_ok(status)) return
+            end if
             call native_symbolic_counts(self%n, A%col_ptr, A%row_idx, &
                 self%parent, self%count, status)
+            if (account_analysis) then
+                call self%host_budget%release(count_bytes, cleanup)
+                if (.not. status_ok(cleanup)) status = cleanup
+            end if
             if (.not. status_ok(status)) return
         else
             ! Every previously unseen ancestor receives row j in its L column.
@@ -417,7 +533,7 @@ contains
         end if
         nz = int(self%n, i8) + sum(int(self%count, i8))
         if (nz >= int(huge(1), i8)) then
-            call self%free()
+            call discard_failed_analysis(self)
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
                 'native SPD: factor exceeds supported index range')
             return
@@ -427,20 +543,20 @@ contains
             self%lp(j + 1) = self%lp(j) + self%count(j) + 1
         end do
         if (nz > int(huge(0_c_size_t)/c_sizeof(0_c_int32_t), i8)) then
-            call self%free()
+            call discard_failed_analysis(self)
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
                 'native SPD: symbolic storage exceeds supported byte range')
             return
         end if
         self%li_bytes = int(nz, c_size_t)*c_sizeof(0_c_int32_t)
-        if (self%bounded_blocked) then
+        if (account_analysis) then
             call self%host_budget%reserve(int(self%li_bytes,i8), &
                 status,'native SPD symbolic row indices')
             if (.not. status_ok(status)) return
         end if
         self%li_owner = symbolic_alloc(self%li_bytes)
         if (.not. c_associated(self%li_owner)) then
-            call self%free()
+            call discard_failed_analysis(self)
             call memory_error(status)
             return
         end if
@@ -462,7 +578,7 @@ contains
             ((self%n >= 64 .and. maxval(self%count) > 12) .or. &
             self%options%device >= 0)
         if (self%blocked) then
-            if (self%bounded_blocked) then
+            if (account_analysis) then
                 call self%panels%build(self%n, self%lp, self%li, &
                     self%options%nthreads,status,self%options%device,self%host_budget)
                 if (status%code == FORTSPARSE_RESOURCE_LIMIT) self%blocked = .false.
@@ -473,12 +589,13 @@ contains
             if (self%blocked .and. .not. status_ok(status)) return
         end if
         if (.not. self%blocked) then
-            if (self%bounded_blocked) then
+            if (account_analysis) then
                 call self%host_budget%reserve(8_i8*nz,status,'native SPD compact factor values')
                 if (.not. status_ok(status)) return
             end if
             allocate (self%lv(int(nz)), stat=ierr)
             if (ierr /= 0) then
+                if (account_analysis) call self%host_budget%release(8_i8*nz, cleanup)
                 call memory_error(status)
                 return
             end if
@@ -502,7 +619,7 @@ contains
                 8_i8*self%n
             ! Panel row/index structures now own the analysis result. Release
             ! the temporary simplicial structure before touching numeric pages.
-            if (self%bounded_blocked) then
+            if (account_analysis) then
                 call self%host_budget%release(int(self%li_bytes,i8)+24_i8*self%n+4_i8,status)
                 if (.not. status_ok(status)) return
             end if
@@ -541,9 +658,10 @@ contains
             self%options%device_memory_limit_bytes > 0_i8 .or. &
             self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
             if (self%options%device >= 0 .or. &
-                self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
+                (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+                 self%options%ordering /= FORTSPARSE_ORDER_AMD)) then
                 call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                    'native SPD: strict memory currently requires natural-order CPU execution')
+                    'native SPD: strict memory requires natural or audited AMD CPU execution')
                 return
             end if
         end if
@@ -736,6 +854,10 @@ contains
                             self%ordered%val(p) = A%val(self%source(p))
                         end do
                         call numeric_factor(self, self%ordered, status)
+                    end if
+                    if (status_ok(status) .and. self%refining) then
+                        call retain_original(self,A,.false.,status)
+                        self%ready=status_ok(status)
                     end if
                     return
                 end if
@@ -978,6 +1100,24 @@ contains
         self%li_owner = c_null_ptr
         self%li_bytes = 0_c_size_t
     end subroutine release_symbolic_rows
+
+    subroutine discard_failed_analysis(self)
+        ! Failure cleanup releases every owned array but keeps the attempted
+        ! strict budget's diagnostics. Its peak is an admission bound on OOM.
+        class(native_backend_t), intent(inout) :: self
+        type(memory_budget_t) :: ledger
+        logical :: bounded, blocked
+        ledger = self%host_budget
+        bounded = self%bounded_memory
+        blocked = self%bounded_blocked
+        call self%free()
+        if (bounded) then
+            self%bounded_memory = .true.
+            self%bounded_blocked = blocked
+            self%host_budget = ledger
+            self%host_budget%current = 0_i8
+        end if
+    end subroutine discard_failed_analysis
 
     subroutine native_free(self)
         class(native_backend_t), intent(inout) :: self

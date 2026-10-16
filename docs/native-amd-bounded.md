@@ -1,9 +1,9 @@
-# Bounded AMD ordering for native LU
+# Bounded AMD ordering for native CPU factors
 
 Explicit AMD ordering supports positive host allocation caps and `MEMORY_LOW`
-for native real/complex general LU when the audited AMD 3.3.4 caller-workspace
-ABI is available. Natural `DEFAULT`, `NATIVE_REFERENCE`, and existing SPD
-ordering validation retain their previous policies. This is CPU ordering; row
+for native real/complex general LU and real SPD Cholesky when the audited
+AMD 3.3.4 caller-workspace ABI is available. Natural `DEFAULT` and general-LU
+`NATIVE_REFERENCE` retain their previous policies. This is CPU ordering; row
 pivoting, value scaling, sparse numerical factors and retained N/T/H solves are
 unchanged. These checks establish correctness and array-payload accounting,
 not performance admission or completion of the broader memory roadmap.
@@ -63,7 +63,7 @@ symmetrized graph and workspace index limits.
 Cap admission includes all old factors, retained user-vector storage and original
 refinement CSC/work vectors, including a future refinement reservation if those
 buffers have not yet been populated. Both output arrays and the arena are charged
-before allocating them. After ordering, the arena and inverse are released;
+before allocating them. For general LU, after ordering the arena and inverse are released;
 the `4*n` permutation input stays charged through LU factorization and growth.
 A positive exhausted cap never becomes LU's zero-means-unlimited argument.
 
@@ -74,12 +74,67 @@ not observed allocated bytes. Fixed call frames, object/allocator metadata,
 loader/BLAS/runtime costs and RSS remain separate. A known ordering-wrapper floor
 is never substituted for the opaque uncapped path's complete peak.
 
-A successful same-pattern/same-strategy factor retains its column-order identity.
+A successful general-LU same-pattern/same-strategy factor retains its column-order identity.
 Refactor copies that order into a charged `4*n` input buffer and skips graph
 construction/AMD. Refused ordering setup preserves that identity for recovery;
 a numerical factor attempt invalidates it until a successful factor is available.
 Changed pattern or strategy recomputes ordering as needed. The original-matrix
 checker and user vector retain their existing lifetimes across same-shape reuse.
+
+## Real SPD lifetimes
+
+SPD keeps both permutation outputs. Its existing validator still requires
+finite, full, numerically symmetric canonical CSC before the shared graph query.
+The bounded C implementation, ABI/version guards and graph construction are the
+same implementation used by LU. No allocation hooks or ordering implementation
+are copied into the Cholesky backend. Strict `ORDER_DEFAULT` remains natural;
+explicit `ORDER_ND` and CUDA remain unsupported. LOW selects compact Cholesky;
+AUTO may build generated CPU panels, reduce thread scratch or use the compact
+fallback when the panel payload cannot fit. Vendor BLAS is disabled throughout
+strict numerical execution, including wide triangular panels.
+
+With n columns, m full CSC entries, L structural factor entries, and 32-bit
+indices/FP64 values, the ordered setup accounts these buffers:
+
+| Lifetime | Requested array payload bytes |
+|---|---:|
+| Retained permutation and inverse | `8*n` |
+| Temporary AMD construction/working arena | query result above |
+| Original pattern pointers/rows and ordered CSC pointers/rows/values, source map | `20*m+8*n+8` |
+| Temporary permutation cursor | `4*n` |
+| Analysis parent, L pointers, count, mark, reach, path and numeric work | `32*n+4` |
+| Temporary L row indices | `4*L` |
+| Compact numeric L | `8*L` |
+
+Large ordered analyses additionally reserve the count routine's complete heap
+scratch before calling it: `4*(5*n+2+(n+1)*(levels+1))+8*(n+1)`, where
+`levels=floor(log2(n))`. The byte query lives beside the allocating routine and
+uses its actual layout. That scratch is released before allocating L rows.
+All temporary arrays coexist with the other live buffers in the admission ledger.
+
+Compact ordered execution retains `12*L+20*m+48*n+12` bytes before refinement
+and user-vector payload. For blocked execution, the existing panel builder
+charges its descriptors, row maps, task metadata, workspaces and values while
+all analysis arrays remain live. Successful setup releases the L rows and six
+analysis integer arrays (`4*L+24*n+4`), then the source map and ordered values
+(`12*m`). Other ordering payload is `8*m+16*n+8`; the existing numeric n-vector
+and all panel payload remain charged. Failed partial allocation releases its
+owned buffers; post-OOM peak statistics describe an admission bound, not a
+measurement of which failed allocation reached the OS.
+
+Refinement reserves and retains the original full CSC plus two n-vectors
+(`12*m+20*n+4`) before ordering. Original-matrix residuals stay in caller order;
+corrections use the retained permutation and numeric work without allocating.
+Same-pattern/value-only refactor retains the order and graph, refreshes original
+values for refinement, and allocates no new arrays. Changed pattern, ordering,
+thread/device choice, cap or policy rebuilds through factorization, releasing
+old storage first. This SPD path has no old/new factor overlap during rebuild.
+
+`sparse_analyze` still returns `BACKEND_UNAVAILABLE` for AMD: the natural exact
+planner must not describe an ordered/blocked layout it has not planned. Bounded
+factorization support is independent of this planning limit. Array-payload caps
+exclude fixed descriptors, heap/OS page rounding, runtime/stack storage and RSS;
+see [memory limits](memory.md) for process headroom.
 
 ## Verification
 
@@ -99,3 +154,11 @@ call, changed pattern/strategy, original-matrix refinement, retained user vector
 raw borrowed CSC and both bounded policies. AMD-disabled and isolated
 missing-entry/unreviewed-header configurations fail closed; the ordinary SPD
 wrapper and uncapped behavior keep their existing regression checks.
+
+The SPD fixture compares successful compact, refined, blocked and large symbolic
+analysis payload against independent static-link allocation tracing. It injects
+failure at every compact allocation, checks exact/one-byte-under caps, optional
+AMD absence, same-pattern no-allocation/no-AMD reuse, changed patterns/strategy,
+failed pivots, N/T/H and block original-A solutions, implicit derivatives and
+forced permuted refinement corrections. Original values refresh after refactor;
+ordered pre-factor planning remains explicitly unavailable.

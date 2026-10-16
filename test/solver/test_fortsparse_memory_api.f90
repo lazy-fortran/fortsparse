@@ -115,9 +115,9 @@ program test_fortsparse_memory_api
     solver%options%host_memory_limit_bytes = required
     call sparse_factor(solver,a,status)
     call check(status_ok(status), 'recovery after exhausted budget')
-    solver%options%ordering = FORTSPARSE_ORDER_AMD
+    solver%options%ordering = FORTSPARSE_ORDER_ND
     call sparse_factor(solver,a,status)
-    call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, 'opaque ordering fail closed')
+    call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, 'unbounded ND fail closed')
     solver%options%ordering = FORTSPARSE_ORDER_DEFAULT
     solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
     call sparse_factor(solver,a,status)

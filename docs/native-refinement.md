@@ -48,8 +48,8 @@ factorization;
 a same-shape refactor keeps that storage live during factor growth. Obsolete
 buffers are released before a changed shape/type is allocated.
 
-`host_current_bytes` and `host_peak_bytes` report tracked allocated-array
-payload, including actual overlap with factor growth. They exclude unused
+After successful factorization, `host_current_bytes` and `host_peak_bytes`
+report tracked allocated-array payload, including actual overlap with factor growth. They exclude unused
 reservation, allocator overhead and process RSS. Consequently, a fresh observed
 `host_peak_bytes` alone does **not** guarantee that a same-pattern refactor fits.
 The conservative reservation gate can also require more than a fresh run's
@@ -72,10 +72,14 @@ HPD/LDLT, in-place/block solves, implicit derivatives, changed caps/patterns,
 caller mutation and retained user-vector lifetime. Neither those fixtures nor
 payload measurements establish external-solver performance admission.
 
-Real SPD refinement supports natural-order CPU simplicial and blocked Cholesky.
+Real SPD refinement supports natural-order and audited explicit-AMD CPU
+simplicial and blocked Cholesky.
 `ORDER_DEFAULT` selects natural order when refinement is requested, including
-uncapped inputs that might otherwise select automatic AMD. Explicit AMD/ND and
-GPU refinement return `BACKEND_UNAVAILABLE`. The ordinary unrefined planner and
+uncapped inputs that might otherwise select automatic AMD. Explicit AMD uses
+the shared bounded AMD 3.3.4 workspace even without a positive cap; unavailable
+ABI, nested dissection and GPU refinement return `BACKEND_UNAVAILABLE`.
+AMD correction RHS and results are permuted through existing numeric work,
+while residuals remain in the original matrix/RHS order. The ordinary unrefined planner and
 execution paths retain their existing behavior. Original CSC and two real vectors
 are reserved and populated before SPD analysis, so planning scratch and blocked
 construction overlap are included in the host budget. Same-pattern refactor

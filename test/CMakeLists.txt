@@ -492,3 +492,16 @@ add_test(NAME test_native_cxx_api COMMAND test_native_cxx_api)
 set_tests_properties(test_native_c_api test_native_cxx_api PROPERTIES
     LABELS "native;c-api;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_spd_amd_bounded
+        ../test-cmake/native/test_spd_amd_bounded.f90
+        ../test-cmake/native/probe_spd_amd_allocations.c)
+    target_link_libraries(test_spd_amd_bounded PRIVATE fortsparse)
+    target_include_directories(test_spd_amd_bounded PRIVATE ../src/native)
+    target_link_options(test_spd_amd_bounded PRIVATE
+        "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd"
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
+    add_test(NAME test_spd_amd_bounded COMMAND test_spd_amd_bounded)
+    set_tests_properties(test_spd_amd_bounded PROPERTIES LABELS "native;memory;refinement;fast"
+        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

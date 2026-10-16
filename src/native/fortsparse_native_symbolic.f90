@@ -6,9 +6,32 @@ module fortsparse_native_symbolic
         FORTSPARSE_INTERNAL_ERROR
     implicit none
     private
-    public :: native_symbolic_counts
+    public :: native_symbolic_counts, native_symbolic_workspace_bytes
 
 contains
+
+    pure integer function symbolic_levels(n) result(levels)
+        integer, intent(in) :: n
+        integer :: span
+        levels = 0
+        span = n
+        do while (span > 1)
+            levels = levels + 1
+            span = span/2
+        end do
+    end function symbolic_levels
+
+    pure integer(i8) function native_symbolic_workspace_bytes(n) result(bytes)
+        ! Actual temporary array payload below; no caller arrays or RSS overhead.
+        integer, intent(in) :: n
+        integer(i8) :: columns
+        bytes = 0_i8
+        if (n <= 0) return
+        columns = int(n, i8)
+        bytes = 4_i8*(5_i8*columns + 2_i8 + &
+            (columns + 1_i8)*(symbolic_levels(n) + 1_i8)) + &
+            8_i8*(columns + 1_i8)
+    end function native_symbolic_workspace_bytes
 
     subroutine native_symbolic_counts(n, col_ptr, row_idx, parent, count, status)
         ! Caller owns canonical, sorted, symmetric, one-based CSC validation.
@@ -20,7 +43,7 @@ contains
         integer, allocatable :: ancestor(:), sibling(:), preorder(:), depth(:)
         integer, allocatable :: up(:, :), starts(:)
         integer(i8), allocatable :: delta(:)
-        integer :: levels, span, ierr, j, p, i, previous, level, top, clock
+        integer :: levels, ierr, j, p, i, previous, level, top, clock
         integer :: child, number, common
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
@@ -37,12 +60,7 @@ contains
             call status_set(status, FORTSPARSE_OK, '')
             return
         end if
-        levels = 0
-        span = n
-        do while (span > 1)
-            levels = levels + 1
-            span = span/2
-        end do
+        levels = symbolic_levels(n)
         allocate (ancestor(0:n), sibling(n), preorder(n), depth(0:n), &
             up(0:n, 0:levels), starts(n), delta(0:n), stat=ierr)
         if (ierr /= 0) then

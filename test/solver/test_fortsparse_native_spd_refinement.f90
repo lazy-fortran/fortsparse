@@ -119,9 +119,9 @@ program test_fortsparse_native_spd_refinement
     call reference%solve_real(b,x,status)
     call checked()
     call oracle()
-    reference%options%ordering=FORTSPARSE_ORDER_AMD
+    reference%options%ordering=FORTSPARSE_ORDER_ND
     call reference%factor_real(a,.true.,status)
-    if(status%code/=FORTSPARSE_BACKEND_UNAVAILABLE) error stop 'opaque ordering accepted'
+    if(status%code/=FORTSPARSE_BACKEND_UNAVAILABLE) error stop 'unsupported ND accepted'
     reference%options%ordering=FORTSPARSE_ORDER_DEFAULT
     reference%options%host_memory_limit_bytes=0
     reference%options%device=0
