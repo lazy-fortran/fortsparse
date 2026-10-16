@@ -41,6 +41,17 @@ fortsparse_add_test(test_fortsparse_native
     solver/test_fortsparse_native.f90)
 fortsparse_add_test(test_fortsparse_native_supernodes
     solver/test_fortsparse_native_supernodes.f90)
+fortsparse_add_test(test_fortsparse_supernode_memory
+    solver/test_fortsparse_supernode_memory.f90)
+set_tests_properties(test_fortsparse_supernode_memory PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_sources(test_fortsparse_supernode_memory PRIVATE
+        ../test-cmake/native/forbid_supernode_blas.c)
+    target_link_options(test_fortsparse_supernode_memory PRIVATE
+        "LINKER:--wrap=dgemm_" "LINKER:--wrap=dsyrk_" "LINKER:--wrap=dgemv_"
+        "LINKER:--wrap=dtrsv_" "LINKER:--wrap=dtrsm_")
+endif()
 set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
     test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 1)
 add_executable(test_native_symbolic solver/test_native_symbolic.c)

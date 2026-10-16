@@ -1,11 +1,12 @@
 module fortsparse_native_supernodes
     use fortsparse_kinds, only: dp, i8
+    use fortsparse_memory, only: memory_budget_t, memory_checked_add, memory_checked_mul
     use fortsparse_csc, only: csc_t, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_NOT_FACTORED, FORTSPARSE_INDEX_OVERFLOW, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INTERNAL_ERROR, &
-        FORTSPARSE_NOT_POSITIVE_DEFINITE
+        FORTSPARSE_NOT_POSITIVE_DEFINITE, FORTSPARSE_RESOURCE_LIMIT
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
         spd_divide, spd_gather_update
@@ -45,6 +46,10 @@ module fortsparse_native_supernodes
     type, public :: supernodes_t
         integer :: n = 0, node_count = 0, active_threads = 1, task_groups = 0
         integer(i8) :: factor_nnz = 0_i8
+        logical :: budget_reduced_threads = .false.
+        logical, private :: strict_budget = .false.
+        integer(i8), private :: owned_budget_bytes = 0_i8
+        type(memory_budget_t), private :: build_ledger
         integer(i8) :: device_bytes = 0_i8
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         integer(i8), private :: cuda_host_bytes = 0_i8
@@ -110,7 +115,101 @@ module fortsparse_native_supernodes
         end subroutine dtrsv
     end interface
 contains
-    subroutine build(self, n, lp, li, nthreads, status, device)
+    subroutine charge(self, count, element_bytes, status, phase)
+        class(supernodes_t), intent(inout) :: self
+        integer(i8), intent(in) :: count, element_bytes
+        type(fortsparse_status_t), intent(out) :: status
+        character(*), intent(in) :: phase
+        integer(i8) :: bytes
+        bytes = 0_i8
+        call memory_checked_mul(count, element_bytes, bytes, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call self%build_ledger%reserve(bytes, status, phase)
+    end subroutine charge
+
+    subroutine fit_thread_scratch(self, maxwork, maxrows, status)
+        class(supernodes_t), intent(inout) :: self
+        integer, intent(in) :: maxwork, maxrows
+        type(fortsparse_status_t), intent(out) :: status
+        type(memory_budget_t) :: probe
+        integer(i8) :: rows, updates, per_thread, bytes, solve_bytes
+        rows = 0_i8
+        updates = 0_i8
+        per_thread = 0_i8
+        bytes = 0_i8
+        solve_bytes = 0_i8
+        call memory_checked_mul(int(self%n,i8), 4_i8, rows, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_mul(int(maxwork,i8), 8_i8, updates, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_add(rows, updates, per_thread, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_mul(int(maxrows,i8), 8_i8, solve_bytes, status)
+        if (status%code /= FORTSPARSE_OK) return
+        do
+            call memory_checked_mul(per_thread, int(self%active_threads,i8), &
+                bytes, status)
+            if (status%code /= FORTSPARSE_OK) return
+            call memory_checked_add(bytes, solve_bytes, rows, status)
+            if (status%code /= FORTSPARSE_OK) return
+            probe = self%build_ledger
+            call probe%reserve(rows, status, 'CPU supernode thread workspace')
+            if (status%code == FORTSPARSE_OK) return
+            if (status%code /= FORTSPARSE_RESOURCE_LIMIT) return
+            if (self%active_threads == 1) then
+                self%build_ledger = probe
+                return
+            end if
+            self%active_threads = max(1,self%active_threads/2)
+            self%budget_reduced_threads = .true.
+        end do
+    end subroutine fit_thread_scratch
+
+    subroutine build(self, n, lp, li, nthreads, status, device, budget)
+        ! The supplied ledger already includes caller-owned live allocations.
+        ! Pass the same ledger to free, or reset the whole owning context ledger.
+        ! No pointer to that caller ledger survives this call.
+        ! Charge variable-size panel descriptors and all owned array payload;
+        ! OpenMP task/runtime storage, stacks and allocator rounding are excluded.
+        class(supernodes_t), intent(inout) :: self
+        integer, intent(in) :: n, lp(:), li(:), nthreads
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: device
+        type(memory_budget_t), optional, intent(inout) :: budget
+        type(memory_budget_t) :: ledger
+        integer(i8) :: baseline
+
+        call self%free(budget, status)
+        if (status%code /= FORTSPARSE_OK) return
+        self%strict_budget = present(budget)
+        if (present(budget)) self%build_ledger = budget
+        call self%build_ledger%reserve(0_i8, status)
+        if (status%code /= FORTSPARSE_OK) return
+        baseline = self%build_ledger%current
+        if (self%strict_budget .and. present(device)) then
+            if (device >= 0) then
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    'supernode CPU budget does not cover CUDA allocations')
+                return
+            end if
+        end if
+        call build_storage(self, n, lp, li, nthreads, status, device)
+        if (status%code == FORTSPARSE_OK .and. self%strict_budget) then
+            self%owned_budget_bytes = self%memory_bytes()
+            if (self%build_ledger%current-baseline /= self%owned_budget_bytes) &
+                call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
+                    'supernode allocation ledger disagrees with retained layout')
+        end if
+        ledger = self%build_ledger
+        if (status%code /= FORTSPARSE_OK) then
+            ! All builder-local temporary arrays are already deallocated.
+            call self%free()
+            ledger%current = baseline
+        end if
+        if (present(budget)) budget = ledger
+    end subroutine build
+
+    subroutine build_storage(self, n, lp, li, nthreads, status, device)
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: n, lp(:), li(:), nthreads
         type(fortsparse_status_t), intent(out) :: status
@@ -119,8 +218,8 @@ contains
         integer :: s, j, p, row, m, first, last, group, q, dest, ierr, maxwork, maxrows
         integer :: candidate_m, candidate_w, exact_limit
         integer(i8) :: update_size, original_count, candidate_count, padded
+        integer(i8) :: graph_bytes, bytes
 
-        call self%free()
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'invalid symbolic Cholesky pattern')
         if (present(device)) self%device = device
         if (self%device < -1) return
@@ -130,7 +229,13 @@ contains
             return
         end if
 #endif
-        if (n < 0 .or. size(lp) /= n+1) return
+        if (n < 0) return
+        if (n == huge(n) .or. size(li,kind=i8) >= int(huge(n),i8)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                'supernode symbolic index range overflow')
+            return
+        end if
+        if (size(lp) /= n+1) return
         if (lp(1) /= 1 .or. lp(n+1) /= size(li)+1) return
         do j = 1, n
             if (lp(j+1) <= lp(j)) return
@@ -145,7 +250,14 @@ contains
         ! Wider dense panels pay only when the structural fill can amortize
         ! packing and diagonal storage. Keep the low-fill schedule compact.
         exact_limit = 64
-        if (self%symbolic_nnz > 128_i8*n) exact_limit = EXACT_WIDTH
+        if (.not. self%strict_budget) then
+            if (self%symbolic_nnz > 128_i8*n) exact_limit = EXACT_WIDTH
+        end if
+        graph_bytes = 0_i8
+        call memory_checked_mul(int(n,i8), 20_i8, graph_bytes, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call self%build_ledger%reserve(graph_bytes, status, 'panel graph scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(mark(n), starts(n), ends(n), counts(n), rowlist(n), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
@@ -189,6 +301,11 @@ contains
             counts(s) = m
             first = last+1
         end do
+        call charge(self, int(self%node_count,i8), &
+            int(storage_size(panel_t())/8,i8)+8_i8, status, 'panel descriptors/tokens')
+        if (status%code /= FORTSPARSE_OK) return
+        call charge(self, int(n,i8), 4_i8, status, 'column ownership')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%panels(self%node_count), self%colnode(n), &
             self%tokens(self%node_count), self%failures(self%node_count), stat=ierr)
         if (ierr /= 0) then
@@ -218,6 +335,8 @@ contains
             self%panels(s)%first = first
             self%panels(s)%width = last-first+1
             self%panels(s)%m = m
+            call charge(self, int(m,i8), 4_i8, status, 'panel row indices')
+            if (status%code /= FORTSPARSE_OK) return
             allocate(self%panels(s)%rows(m), stat=ierr)
             if (ierr /= 0) then
                 call allocation_error(self, status)
@@ -227,11 +346,23 @@ contains
             self%factor_nnz = self%factor_nnz + int(m,i8)*(last-first+1) &
                 -int(last-first+1,i8)*(last-first)/2
             self%panels(s)%offset = self%numeric_count
-            self%numeric_count = self%numeric_count+int(m,c_size_t)*(last-first+1)
+            bytes = 0_i8
+            call memory_checked_mul(int(m,i8), int(last-first+1,i8), bytes, status)
+            if (status%code /= FORTSPARSE_OK) return
+            update_size = 0_i8
+            call memory_checked_add(int(self%numeric_count,i8), bytes, &
+                update_size, status)
+            if (status%code /= FORTSPARSE_OK) return
+            self%numeric_count = int(update_size,c_size_t)
             self%flops = self%flops+real(m,dp)*(last-first+1)**2
             maxrows = max(maxrows, m)
         end do
-        self%factor_storage_bytes = 8_i8*int(self%numeric_count,i8)
+        call memory_checked_mul(int(self%numeric_count,i8), 8_i8, &
+            self%factor_storage_bytes, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call self%build_ledger%reserve(self%factor_storage_bytes, status, &
+            'panel values')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%host_values(self%numeric_count), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
@@ -258,7 +389,6 @@ contains
                 q = group-first
                 update_size = int(m-first+1,i8)*q
                 if (update_size > huge(maxwork)) then
-                    call self%free()
                     call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'supernode update too large')
                     return
                 end if
@@ -267,11 +397,17 @@ contains
                 first = group
             end do
         end do
+        if (self%strict_budget) then
+            deallocate(mark, starts, ends, counts, rowlist)
+            call self%build_ledger%release(graph_bytes, status)
+            if (status%code /= FORTSPARSE_OK) return
+        end if
         ! Below this work budget, generated contractions avoid the first
         ! BLAS workspace/code-page cost. Wide panels retain their BLAS TRSM
         ! schedule, and device factors already pay runtime initialization.
         self%use_blas = self%flops >= 1.0e7_dp .or. self%device >= 0
         if (any(self%panels%width >= 96)) self%use_blas = .true.
+        if (self%strict_budget) self%use_blas = .false.
         self%active_threads = 1
         if (nthreads == 0) then
             !$ self%active_threads = omp_get_max_threads()
@@ -285,11 +421,19 @@ contains
             call setup_incoming(self, status)
             if (status%code == FORTSPARSE_OK) call setup_groups(self, status)
             if (status%code /= FORTSPARSE_OK) then
-                call self%free()
                 return
             end if
             self%active_threads = min(self%active_threads, max(1,self%task_groups/4))
         end if
+        if (self%strict_budget) then
+            call fit_thread_scratch(self, maxwork, maxrows, status)
+            if (status%code /= FORTSPARSE_OK) return
+        end if
+        call charge(self, int(n,i8)*self%active_threads, 4_i8, status, &
+            'thread row maps')
+        if (status%code /= FORTSPARSE_OK) return
+        call charge(self, int(maxrows,i8), 8_i8, status, 'triangular solve scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%rowmap(n,self%active_threads), &
             self%solve_work(maxrows), stat=ierr)
         if (ierr /= 0) then
@@ -300,19 +444,26 @@ contains
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         if (self%device >= 0) then
             call setup_cuda(self, maxwork, status)
-            if (status%code /= FORTSPARSE_OK) call self%free()
             self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
             return
         end if
 #endif
+        call charge(self, int(maxwork,i8)*self%active_threads, 8_i8, status, &
+            'thread Schur scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%update_work(maxwork,self%active_threads), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
             return
         end if
         self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
+        if (allocated(mark)) then
+            deallocate(mark, starts, ends, counts, rowlist)
+            call self%build_ledger%release(graph_bytes, status)
+            if (status%code /= FORTSPARSE_OK) return
+        end if
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine build
+    end subroutine build_storage
 
     subroutine factor(self, a, status, perm, inverse)
         class(supernodes_t), target, intent(inout) :: self
@@ -698,10 +849,22 @@ contains
         end do
     end subroutine solve_block
 
-    subroutine supernodes_free(self)
+    subroutine supernodes_free(self, budget, status)
         class(supernodes_t), intent(inout) :: self
+        type(memory_budget_t), optional, intent(inout) :: budget
+        type(fortsparse_status_t), optional, intent(out) :: status
+        type(fortsparse_status_t) :: released
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         integer(c_int) :: code
+#endif
+        call status_set(released, FORTSPARSE_OK, '')
+        if (present(budget)) then
+            call budget%release(self%owned_budget_bytes, released)
+            if (present(status)) status = released
+            if (released%code /= FORTSPARSE_OK) return
+        end if
+        if (present(status)) status = released
+#ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         if (c_associated(self%cuda)) code = spd_cuda_destroy(self%cuda)
         if (allocated(self%cuda_wide_ptr)) deallocate(self%cuda_wide_ptr)
         if (allocated(self%cuda_wide_members)) deallocate(self%cuda_wide_members)
@@ -744,6 +907,10 @@ contains
         self%use_blas = .true.
         self%numeric_s = 0.0_dp
         self%ready = .false.
+        self%strict_budget = .false.
+        self%budget_reduced_threads = .false.
+        self%owned_budget_bytes = 0_i8
+        self%build_ledger = memory_budget_t()
     end subroutine supernodes_free
 
     subroutine finalize_supernodes(self)
@@ -761,6 +928,7 @@ contains
         if (allocated(self%cuda_wide_members)) bytes = bytes+4_i8*size(self%cuda_wide_members,kind=i8)
 #endif
         if (.not. allocated(self%panels)) return
+        bytes = bytes+int(storage_size(self%panels)/8,i8)*size(self%panels,kind=i8)
         do s = 1, self%node_count
             if (allocated(self%panels(s)%rows)) &
                 bytes = bytes+4_i8*size(self%panels(s)%rows,kind=i8)
@@ -792,6 +960,9 @@ contains
         integer, allocatable :: next(:)
         integer :: s, first, group, dest, p, ierr
         integer(i8) :: entries
+        call charge(self, 2_i8*self%node_count+1_i8, 4_i8, status, &
+            'incoming task headers and scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%incoming_ptr(self%node_count+1), next(self%node_count), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'incoming task map allocation failed')
@@ -816,6 +987,8 @@ contains
         do s = 1, self%node_count
             self%incoming_ptr(s+1) = self%incoming_ptr(s+1)+self%incoming_ptr(s)
         end do
+        call charge(self, entries, 12_i8, status, 'incoming task entries')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%incoming_source(int(entries)), self%incoming_first(int(entries)), &
             self%incoming_q(int(entries)), stat=ierr)
         if (ierr /= 0) then
@@ -835,7 +1008,8 @@ contains
                 first = group
             end do
         end do
-        call status_set(status, FORTSPARSE_OK, '')
+        deallocate(next)
+        call self%build_ledger%release(4_i8*self%node_count, status)
     end subroutine setup_incoming
 
     subroutine setup_groups(self, status)
@@ -851,6 +1025,9 @@ contains
         ! subtrees. Large separator/critical panels remain individual tasks.
         self%group_target_flops = max(1.0e6_dp, &
             self%flops/(12.0_dp*self%active_threads))
+        call charge(self, int(self%node_count,i8), 20_i8, status, &
+            'subtree group scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(node_group(self%node_count), parent(self%node_count), &
             root_group(self%node_count), subtree_work(self%node_count), stat=ierr)
         if (ierr /= 0) then
@@ -893,6 +1070,9 @@ contains
         do s = 1, self%node_count
             node_group(s) = root_group(node_group(s))
         end do
+        call charge(self, int(self%node_count,i8)+5_i8*self%task_groups+2_i8, &
+            4_i8, status, 'subtree group headers and scratch')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%group_member_ptr(self%task_groups+1), self%group_members(self%node_count), &
             self%group_tokens(self%task_groups), self%group_ptr(self%task_groups+1), &
             mark(self%task_groups), next(self%task_groups), stat=ierr)
@@ -945,6 +1125,8 @@ contains
         do g = 1, self%task_groups
             self%group_ptr(g+1) = self%group_ptr(g+1)+self%group_ptr(g)
         end do
+        call charge(self, entries, 4_i8, status, 'subtree group dependencies')
+        if (status%code /= FORTSPARSE_OK) return
         allocate(self%group_sources(int(entries)), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group edges allocation failed')
@@ -965,7 +1147,9 @@ contains
                 end do
             end do
         end do
-        call status_set(status, FORTSPARSE_OK, '')
+        deallocate(node_group, parent, root_group, subtree_work, mark, next)
+        call self%build_ledger%release( &
+            20_i8*self%node_count+8_i8*self%task_groups, status)
     end subroutine setup_groups
 
     subroutine update_group(self, s, first, group, dest)
@@ -1275,7 +1459,7 @@ contains
     subroutine allocation_error(self, status)
         class(supernodes_t), intent(inout) :: self
         type(fortsparse_status_t), intent(out) :: status
-        call self%free()
+        self%ready = .false.
         call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'supernode allocation failed')
     end subroutine allocation_error
 
