@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import unittest
+from unittest.mock import patch
 from run import select_calibration_level, validate_selected_levels, invoke, EXTERNAL, NATIVE, binary_name, positive_i8, memory_environment, record_memory_configuration, parse_csv
 from report import summarize, available_backends
 from report_ab import aggregates
@@ -141,7 +142,9 @@ class MemorySelections(unittest.TestCase):
             with self.assertRaises(argparse.ArgumentTypeError):
                 memory_environment('native-amd-capped',value)
         self.assertEqual(memory_environment('superlu',cap),{})
-        self.assertEqual(memory_environment('native-amd-low',cap),{})
+        self.assertEqual(memory_environment('native-amd-low'),{})
+        self.assertEqual(memory_environment('native-amd-low',cap),
+                         {'FORTSPARSE_BENCH_HOST_LIMIT_BYTES':str(cap)})
         for cap in (2**53+1,2**63-1):
             record=parse_csv('backend,family,level,threads,memory_policy,host_memory_limit_bytes\n'
                              f'native-amd-capped,drift-real,3,1,0,{cap}\n')
@@ -153,6 +156,10 @@ class MemorySelections(unittest.TestCase):
         record_memory_configuration(good,'native-amd-capped',123)
         self.assertEqual(good['status'],'ok')
         self.assertEqual(good['requested_memory_configuration']['host_memory_limit_bytes'],123)
+        low=dict(status='ok',record=dict(memory_policy=1,host_memory_limit_bytes=2**63-1))
+        record_memory_configuration(low,'native-amd-low',2**63-1)
+        self.assertEqual(low['status'],'ok')
+        self.assertEqual(low['requested_memory_configuration']['host_memory_limit_bytes'],2**63-1)
         bad=dict(status='ok',record=dict(memory_policy=0,host_memory_limit_bytes=0))
         record_memory_configuration(bad,'native-amd-capped',123)
         self.assertEqual(bad['status'],'configuration_mismatch')
@@ -173,6 +180,13 @@ class MemorySelections(unittest.TestCase):
 
 
 class ProcessCPU(unittest.TestCase):
+    def test_unrequested_inherited_cap_is_removed_from_child(self):
+        with patch.dict(os.environ, FORTSPARSE_BENCH_HOST_LIMIT_BYTES="17"):
+            receipt = invoke(sys.executable, ["-c",
+                "import os; print(os.getenv('FORTSPARSE_BENCH_HOST_LIMIT_BYTES','unset'))"],
+                1, [min(os.sched_getaffinity(0))], .8)
+        self.assertEqual(receipt["stdout"].strip(), "unset")
+
     @unittest.skipUnless(hasattr(os, "wait4"), "POSIX wait4 required")
     def test_completed_cpu_includes_waited_grandchild(self):
         # Independent fork oracle: child burns CPU, parent waits without burning.

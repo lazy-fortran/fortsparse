@@ -236,17 +236,20 @@ a different private case with this recipe. See the retained checkpoint in
 
 ## Bounded AMD memory selections
 
-The benchmark driver accepts `native-amd-low` (AMD with `MEMORY_LOW`, unlimited
-host cap) and `native-amd-capped` (AMD with `MEMORY_AUTO` and an explicit positive
+The benchmark driver accepts `native-amd-low` (AMD with `MEMORY_LOW`, optional
+host cap, default unlimited) and `native-amd-capped` (AMD with `MEMORY_AUTO` and an explicit positive
 host cap). These are benchmark labels for existing solver options. They add no
 production solver option and do not select synthetic sizes.
 
 For `run.py` or `run_private_real.py`, capped execution requires
 `--native-host-limit-bytes BYTES`, an exact positive decimal integer through
-9223372036854775807. The runner passes `FORTSPARSE_BENCH_HOST_LIMIT_BYTES` only to
-the capped child. Direct capped-driver execution requires that environment
+9223372036854775807. The runner passes `FORTSPARSE_BENCH_HOST_LIMIT_BYTES` to
+the capped child and to LOW when the positive cap is explicitly requested. Direct capped-driver execution requires that environment
 variable; missing, zero, negative, malformed or overflowing input fails before
-factorization. LOW does not inherit that cap and remains separately labeled.
+factorization. LOW accepts the same optional positive cap; without the option it remains
+unlimited. The runner clears an inherited cap variable so omitted options do
+not silently change that default. Direct LOW execution can use the environment
+variable; invalid supplied values fail before factorization.
 
 CSV records include actual `memory_policy` (0 AUTO, 1 LOW) and exact integer
 `host_memory_limit_bytes` (0 unlimited; -1 unavailable for comparators that do
