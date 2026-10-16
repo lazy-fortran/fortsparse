@@ -47,6 +47,18 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_MEMORY_AUTO = 0
     integer, parameter, public :: FORTSPARSE_MEMORY_LOW = 1
 
+    ! Native CPU real GENERAL LU method (sparse_options_t%lu_method). AUTO
+    ! behaves as SCALAR until its thresholds are calibrated; SUPERNODAL is
+    ! the static-structure supernodal LU (docs/lu-supernodal.md).
+    integer, parameter, public :: FORTSPARSE_LU_AUTO = 0
+    integer, parameter, public :: FORTSPARSE_LU_SCALAR = 1
+    integer, parameter, public :: FORTSPARSE_LU_SUPERNODAL = 2
+
+    ! sparse_factor_stats_t%matching_used.
+    integer, parameter, public :: FORTSPARSE_MATCHING_NONE = 0
+    integer, parameter, public :: FORTSPARSE_MATCHING_STRUCTURAL = 1
+    integer, parameter, public :: FORTSPARSE_MATCHING_WEIGHTED = 2
+
     ! Backend tuning, copied from the solver to the backend at every factor.
     ! Backends that have no use for a field ignore it.
     type :: sparse_options_t
@@ -64,6 +76,14 @@ module fortsparse_backend
         real(dp) :: pivot_tolerance = -1.0_dp
         ! UMFPACK estimated peak only, excluding caller/IPC storage; 0: no gate.
         integer(i8) :: memory_budget_bytes = 0_i8
+        ! Native CPU real GENERAL LU method; see FORTSPARSE_LU_*.
+        integer :: lu_method = FORTSPARSE_LU_SCALAR
+        ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
+        ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.
+        real(dp) :: pivot_perturbation = 1.0e-13_dp
+        ! Supernodal LU: validate every factor with one refined solve against
+        ! the original matrix (always done when pivots were perturbed).
+        logical :: verify_factor = .true.
     end type sparse_options_t
 
     ! Factorization statistics; -1 / -1.0 mark a quantity the backend does not
@@ -99,6 +119,18 @@ module fortsparse_backend
         character(16) :: native_factor_family = ''
         integer :: refinement_steps = 0
         real(dp) :: backward_error = -1.0_dp
+        ! Native LU pivoting report (-1 when not reported). The supernodal
+        ! counters describe the supernodal attempt, also after a fallback.
+        integer :: perturbed_pivots = -1, block_pivot_swaps = -1
+        real(dp) :: pivot_growth = -1.0_dp, min_pivot = -1.0_dp
+        integer :: lu_method_used = -1 ! FORTSPARSE_LU_SCALAR or _SUPERNODAL
+        ! A requested supernodal LU fell back to the scalar LU; the reason is
+        ! NONFINITE, PERTURBATION, GROWTH, REFINEMENT, SINGULAR or SOLVE.
+        logical :: lu_fallback = .false.
+        character(16) :: lu_fallback_reason = ''
+        integer :: matching_used = -1 ! FORTSPARSE_MATCHING_*
+        ! max(log10 range of the row scale, of the column scale).
+        real(dp) :: scaling_log10_range = -1.0_dp
     end type sparse_factor_stats_t
 
     type, abstract :: sparse_backend_t

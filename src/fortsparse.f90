@@ -10,7 +10,10 @@ module fortsparse
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
         FORTSPARSE_RESOURCE_LIMIT
     use fortsparse_backend, only: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
-        FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT
+        FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
+        FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL, &
+        FORTSPARSE_MATCHING_NONE, FORTSPARSE_MATCHING_STRUCTURAL, &
+        FORTSPARSE_MATCHING_WEIGHTED
     use fortsparse_memory, only: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, &
         MEMORY_PLAN_ESTIMATE
     use fortsparse_version, only: fortsparse_version_string
@@ -66,6 +69,9 @@ module fortsparse
     public :: sparse_auto_backend
     public :: sparse_solve_block, sparse_factor_stats
     public :: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW
+    public :: FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL
+    public :: FORTSPARSE_MATCHING_NONE, FORTSPARSE_MATCHING_STRUCTURAL, &
+        FORTSPARSE_MATCHING_WEIGHTED
     public :: sparse_solve_op, sparse_solve_block_op
     public :: FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT
     public :: sparse_analyze, sparse_memory_plan_t
