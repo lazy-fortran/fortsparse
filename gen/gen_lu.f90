@@ -29,12 +29,16 @@ program gen_lu
     write(unit,'(a)') '    private'
     write(unit,'(a)') '    public :: lu_z_update, lu_z_divide, lu_z_norm, lu_z_finite'
     write(unit,'(a)') '    public :: lu_z_scatter_update, lu_z_gather_update'
+    write(unit,'(a)') '    public :: lu_r_compensated_scatter, lu_z_compensated_scatter'
+    write(unit,'(a)') '    public :: lu_r_compensated_gather, lu_z_compensated_gather'
+    write(unit,'(a)') '    public :: lu_r_corrected_value, lu_z_corrected_value'
     write(unit,'(a)') '    public :: lu_z_update_value, lu_z_update_jvp, lu_z_update_vjp'
     write(unit,'(a)') '    public :: lu_z_quotient_value, lu_z_quotient_jvp, lu_z_quotient_vjp'
     write(unit,'(a)') 'contains'
     f=[x(1)-x(3)*x(5)+x(4)*x(6),x(2)-x(3)*x(6)-x(4)*x(5)]
     call leaf('update',6)
     call indexed_update()
+    call compensated_solve()
     denominator=x(3)*x(3)+x(4)*x(4)
     f=[(x(1)*x(3)+x(2)*x(4))/denominator,(x(2)*x(3)-x(1)*x(4))/denominator]
     call leaf('quotient',4)
@@ -137,6 +141,55 @@ contains
         end do
         close(input)
     end subroutine indexed_update
+    subroutine compensated_solve()
+        type(kernel_spec_t) :: spec
+        character(:), allocatable :: line,statement
+        type(expr_t) :: root(1)
+        integer :: input,ios,k
+        character(1024) :: buffer
+        logical :: ok
+        spec%name=str('lu_ordered_compensation_stage')
+        spec%generator=str('gen/gen_lu.f90')
+        spec%generator_revision=str(revision)
+        spec%regenerate_command=str('gen/regenerate_lu.sh /path/to/fortsym')
+        spec%mode=KERNEL_SNIPPET
+        spec%cse_level=CSE_NONE
+        allocate(spec%args(6),spec%outputs(1))
+        do k=1,6
+            spec%args(k)=str('x'//digit(k))
+        end do
+        spec%outputs=[str('vr')]
+        open(newunit=input,file='gen/lu_compensated_schedule.f90.inc',status='old')
+        do
+            read(input,'(a)',iostat=ios)buffer
+            if(ios/=0)exit
+            line=trim(buffer)
+            select case(line)
+            case('@DIFFERENCE@')
+                root=[x(1)-x(2)]
+            case('@SUM@')
+                root=[x(1)+x(2)]
+            case('@NEGATIVE_PRODUCT@')
+                root=[-(x(1)*x(2))]
+            case('@COMPLEX_INCREMENT@')
+                deallocate(spec%outputs)
+                spec%outputs=[str('vr'),str('vi')]
+                statement=chars(emit_kernel(f,spec,ok))
+                if(.not.ok)error stop 'FortSym refused complex compensation increment'
+                write(unit,'(a)')statement
+                deallocate(spec%outputs)
+                spec%outputs=[str('vr')]
+                cycle
+            case default
+                write(unit,'(a)')line
+                cycle
+            end select
+            statement=chars(emit_kernel(root,spec,ok))
+            if(.not.ok)error stop 'FortSym refused ordered compensation stage'
+            write(unit,'(a)')statement
+        end do
+        close(input)
+    end subroutine compensated_solve
     subroutine copy(path,out)
         character(*), intent(in) :: path
         integer, intent(in) :: out
@@ -167,18 +220,23 @@ contains
         character(:), allocatable :: finite,norm,zero,adjoint
         character(:), allocatable :: scatter,gather
         character(1024) :: buffer
-        character(9), parameter :: arrays(*)=[character(9) :: &
-            'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach','prune_end','lv','uv','work','row_norm']
+        character(10), parameter :: arrays(*)=[character(10) :: &
+            'lp','up','lr','ur','p','pinv','q','ap','ai','mark','stack','edge','reach', &
+            'prune_end','lv','uv','work','correction','row_norm']
         integer :: input,ios,i
         name='fortsparse_native_lu'; kind='lu_factor_t'; scalar='real(dp)'; csc='csc_t'
         leaves='fortsparse_spd_leaves';divide='spd_divide'
         scatter='spd_scatter_update';gather='spd_gather_update'
-        extra='';finite='ieee_is_finite';norm='abs';zero='0.0_dp';adjoint='a'
+        extra='use fortsparse_lu_leaves, only: solve_scatter => lu_r_compensated_scatter, &'//achar(10)// &
+            '        solve_gather => lu_r_compensated_gather, corrected_value => lu_r_corrected_value'
+        finite='ieee_is_finite';norm='abs';zero='0.0_dp';adjoint='a'
         if(z) then
             name=name//'_z';kind='lu_factor_z_t';scalar='complex(dp)';csc='csc_z_t'
             leaves='fortsparse_lu_leaves';divide='lu_z_divide'
             scatter='lu_z_scatter_update';gather='lu_z_gather_update'
-            extra='use fortsparse_lu_leaves, only: lu_z_finite, lu_z_norm'
+            extra='use fortsparse_lu_leaves, only: lu_z_finite, lu_z_norm, &'//achar(10)// &
+                '        solve_scatter => lu_z_compensated_scatter, &'//achar(10)// &
+                '        solve_gather => lu_z_compensated_gather, corrected_value => lu_z_corrected_value'
             finite='lu_z_finite';norm='lu_z_norm';zero='(0.0_dp,0.0_dp)';adjoint='conjg(a)'
         end if
         open(newunit=input,file='gen/lu_factor.f90.inc',status='old')
@@ -195,7 +253,7 @@ contains
                     else if(i<=14) then
                         write(unit,'(a)') '        if(allocated(self%'//trim(arrays(i))// &
                             ')) bytes=bytes+ib*size(self%'//trim(arrays(i))//',kind=i8)'
-                    else if(i<=17) then
+                    else if(i<=18) then
                         write(unit,'(a)') '        if(allocated(self%'//trim(arrays(i))// &
                             ')) bytes=bytes+vb*size(self%'//trim(arrays(i))//',kind=i8)'
                     else

@@ -627,3 +627,16 @@ endif()
 if(TARGET test_native_c_api_memory)
     target_link_options(test_native_c_api_memory PRIVATE "LINKER:--wrap=fsparse_native_order_general")
 endif()
+
+add_executable(test_native_lu_compensated ../test-cmake/native/test_native_lu_compensated.F90)
+target_link_libraries(test_native_lu_compensated PRIVATE fortsparse)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_sources(test_native_lu_compensated PRIVATE ../test-cmake/native/refinement_allocation_counter.c)
+    target_compile_definitions(test_native_lu_compensated PRIVATE FS_HAVE_ALLOC_PROBE)
+    target_link_options(test_native_lu_compensated PRIVATE
+        "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+endif()
+add_test(NAME test_native_lu_compensated COMMAND test_native_lu_compensated)
+set_tests_properties(test_native_lu_compensated PROPERTIES
+    LABELS "native;lu;memory;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
