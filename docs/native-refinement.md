@@ -85,8 +85,18 @@ Original norm preparation contributes to factor-entry overhead; scalar and block
 solves allocate no checker storage. These SPD checks use the same original-CSC
 norm and residual procedures as the native general adapter.
 
-`sparse_analyze` currently returns `BACKEND_UNAVAILABLE` when `solver%refine` is
-true, with an unfitted plan and without changing retained factors. Its exact
-layout contract covers the unrefined reference path; it must not omit checker
-storage and label that result exact. Factor/refactor still enforce refinement
-payload caps directly.
+`sparse_analyze` supports exact natural compact CPU SPD layout planning with
+refinement for `LOW_MEMORY` or `NATIVE_REFERENCE`. Its persistent payload includes
+the original CSC and two vectors; its peak covers their overlap with graph
+planning and factor storage. The same checked quota calculation is used by the
+factor adapters. Internal SPD analysis already has that quota charged and does
+not add it a second time. RHS count changes do not add retained vector storage:
+block refinement processes one RHS at a time.
+
+On an already factored solver, preflight shares the current host cap with all
+retained payload and verifies space for the proposed workflow, preserving the
+existing overlap policy. A refused forecast leaves those factors and their live
+allocation statistics unchanged. Forecast bytes are not reported as allocated
+storage. The plan describes array layout, not positive definiteness, conditioning,
+allocator overhead or RSS. Natural blocked `AUTO`, GPU and explicit ordering
+preflight remain unavailable; unrefined exact-layout numbers are unchanged.

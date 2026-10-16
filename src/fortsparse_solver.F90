@@ -269,11 +269,6 @@ contains
         integer, optional, intent(in) :: nrhs
         type(memory_budget_t) :: budget
         plan = sparse_memory_plan_t()
-        if (solver%refine) then
-            call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'memory analysis: refinement layout planning is not supported')
-            return
-        end if
         if (solver%backend_id /= FORTSPARSE_BACKEND_NATIVE .and. &
             solver%backend_id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
@@ -317,7 +312,7 @@ contains
                 return
             end select
         end if
-        call plan_natural_spd_memory(A, plan, status, budget, nrhs)
+        call plan_natural_spd_memory(A, plan, status, budget, nrhs, refine=solver%refine)
     end subroutine sparse_analyze
 
     ! Factor a real matrix. Ensures the concrete backend, then dispatches.

@@ -1,6 +1,7 @@
 module fortsparse_native_general
     ! Native general sparse factors; orchestration only, arithmetic is generated.
     use fortsparse_kinds, only: dp, i8
+    use fortsparse_memory, only: refinement_payload_bytes
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_MEMORY_LOW
@@ -674,8 +675,8 @@ contains
         if (refine) then
             value_bytes=8_i8
             if (is_complex) value_bytes=16_i8
-            planned=int(storage_size(0)/8,i8)*(int(n,i8)+1_i8+int(nz,i8)) &
-                +value_bytes*(int(nz,i8)+2_i8*int(n,i8))
+            call refinement_payload_bytes(int(n,i8),int(nz,i8),value_bytes,planned,status)
+            if (.not.status_ok(status)) return
         end if
         ! Reserving a positive quota must never turn an exhausted capped budget
         ! into the factors' zero-means-unlimited setting.

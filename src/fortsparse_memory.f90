@@ -9,7 +9,7 @@ module fortsparse_memory
     implicit none
     private
     public :: memory_budget_t, memory_checked_add, memory_checked_mul
-    public :: sparse_memory_plan_t, plan_natural_spd_memory
+    public :: sparse_memory_plan_t, plan_natural_spd_memory, refinement_payload_bytes
     public :: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, MEMORY_PLAN_ESTIMATE
     integer, parameter :: MEMORY_PLAN_EXACT_LAYOUT = 1
     integer, parameter :: MEMORY_PLAN_BOUND = 2, MEMORY_PLAN_ESTIMATE = 3
@@ -37,7 +37,7 @@ module fortsparse_memory
 
 contains
 
-    subroutine plan_natural_spd_memory(A, plan, status, budget, nrhs)
+    subroutine plan_natural_spd_memory(A, plan, status, budget, nrhs, refine)
         ! Exact natural-order simplicial reference layout, NOT blocked/padded
         ! panels or an SPD proof. Structural fill analysis allocates only 3*n
         ! integers, O(n); traversals may visit every filled graph entry.
@@ -46,11 +46,12 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         type(memory_budget_t), intent(inout), optional :: budget
         integer, intent(in), optional :: nrhs
-        type(memory_budget_t) :: tracker
+        logical, intent(in), optional :: refine
+        type(memory_budget_t) :: tracker, forecast
         type(fortsparse_status_t) :: ignored
         integer, allocatable :: parent(:), count(:), mark(:)
         integer :: n, rhs, j, p, i, ierr
-        integer(i8) :: scratch, nz, part, total
+        integer(i8) :: scratch, nz, part, total, checker, preparation
 
         plan = sparse_memory_plan_t()
         rhs = 1
@@ -66,9 +67,30 @@ contains
         call tracker%reserve(0_i8, status)
         if (status%code /= FORTSPARSE_OK) return
         n = A%ncol
+        checker = 0_i8
+        if (present(refine)) then
+            if (refine) then
+                call refinement_payload_bytes(int(n,i8),int(A%nnz,i8),8_i8,checker,status)
+                if (status%code /= FORTSPARSE_OK) return
+            end if
+        end if
         scratch = 0_i8
         call memory_checked_mul(int(n,i8), 12_i8, scratch, status)
         if (status%code /= FORTSPARSE_OK) return
+        preparation = 0_i8
+        call memory_checked_add(checker,scratch,preparation,status)
+        if (status%code /= FORTSPARSE_OK) return
+        ! The refinement workflow retains its original CSC before symbolic
+        ! planning. Check that overlap without reporting forecast bytes live.
+        forecast = tracker
+        call forecast%reserve(preparation,status,'SPD checker and planning graph scratch')
+        if (status%code /= FORTSPARSE_OK) then
+            if (present(budget)) then
+                budget%failed_required = forecast%failed_required
+                budget%failed_available = forecast%failed_available
+            end if
+            return
+        end if
         call tracker%reserve(scratch, status, 'SPD planning graph scratch')
         if (status%code /= FORTSPARSE_OK) then
             if (present(budget)) budget = tracker
@@ -134,9 +156,14 @@ contains
         if (status%code /= FORTSPARSE_OK) return
         call memory_checked_add(total, 8_i8, plan%persistent_host_bytes, status)
         if (status%code /= FORTSPARSE_OK) return
+        total = 0_i8
+        call memory_checked_add(plan%persistent_host_bytes,checker,total,status)
+        if (status%code /= FORTSPARSE_OK) return
+        plan%persistent_host_bytes = total
         call memory_checked_add(plan%factor_host_bytes, &
             plan%persistent_host_bytes, plan%peak_host_bytes, status)
         if (status%code /= FORTSPARSE_OK) return
+        plan%peak_host_bytes = max(plan%peak_host_bytes,preparation)
         ! Reserve only on a copy: predicted factor bytes are not allocated here
         ! and must not inflate the caller's measured live/peak ledger.
         call tracker%reserve(plan%peak_host_bytes, status, 'SPD reference plan')
@@ -207,6 +234,37 @@ contains
         end do
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine validate_spd_pattern
+
+    pure subroutine refinement_payload_bytes(n,nnz,value_bytes,bytes,status)
+        ! Retained original full CSC plus saved RHS and residual/correction.
+        ! Descriptors, caller storage and allocator/runtime overhead are excluded.
+        integer(i8), intent(in) :: n,nnz,value_bytes
+        integer(i8), intent(inout) :: bytes
+        type(fortsparse_status_t), intent(out) :: status
+        integer(i8) :: endpoints,indices,index_bytes,vectors,values,total
+        call status_set(status,FORTSPARSE_INVALID_MATRIX,'invalid refinement payload dimensions or value width')
+        if (n<0_i8 .or. nnz<0_i8) return
+        if (value_bytes/=8_i8 .and. value_bytes/=16_i8) return
+        endpoints=0_i8
+        indices=0_i8
+        index_bytes=0_i8
+        vectors=0_i8
+        values=0_i8
+        total=0_i8
+        call memory_checked_add(n,1_i8,endpoints,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_add(endpoints,nnz,indices,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_mul(indices,int(storage_size(0)/8,i8),index_bytes,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_mul(n,2_i8,vectors,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_add(nnz,vectors,values,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_mul(values,value_bytes,total,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_add(index_bytes,total,bytes,status)
+    end subroutine refinement_payload_bytes
 
     pure subroutine memory_checked_add(a, b, value, status)
         integer(i8), intent(in) :: a, b
