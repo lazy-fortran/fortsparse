@@ -128,9 +128,33 @@ See [native refinement](native-refinement.md) for failure,
 allocation and refactor-cap semantics. Production blocking/parallel
 factorization and conditioning diagnostics remain planned.
 
-`pivot_tolerance` selects LU's finite threshold in [0,1]; a negative value uses
-the native default 1.0 (maximum-candidate row pivoting after scaling). A numerical
-refactor always selects pivots anew. No derivative is taken through pivot choices.
+`pivot_tolerance` selects LU's finite threshold in [0,1]: the preferred (diagonal
+or matched) row is kept while its row-scaled magnitude is at least the threshold
+times the column maximum. A negative value selects the native default: 1.0
+(maximum-candidate row pivoting after scaling) without refinement and 0.01 with
+`refine=.true.`. Statistics report the resolved `effective_pivot_tolerance`.
+A numerical refactor always selects pivots anew. No derivative is taken through
+pivot choices.
+
+The refined default follows the KAMEL QL-Balance time-step system (n=43804,
+natural order, entries 5.8e-41..6.5e23, solution components 1e-10..1e14). Rows of one field
+couple to tiny-solution fields with coefficients up to 1e24; these dominate the
+row maxima but not `|A||x|`, so maximum pivoting selects off-diagonal rows. With
+threshold 1.0 the unrefined componentwise backward error is 1.1e-4 (transpose
+3.7e-2); refinement reaches 1.4e-15 at the three-correction cap and stagnates near
+4e-7 for the transpose. With 0.01 (factor size identical for 0.001 to 0.02):
+2.4e-16 unrefined and 1.8e-16 (transpose 1.7e-16) after one correction, with 15%
+fewer factor entries; forward agreement with UMFPACK stays at 1.6e-10.
+Row-sum scaling selects the same pivots as row-max scaling; Ruiz row/column
+equilibration made the unrefined error worse (4.9e-2). Unrefined thresholds
+below 1 can lose normwise accuracy (with AMD and 0.01, `gre_1107` moves from
+3.6e-16 to 1.7e-14 and `lns_3937` from 8e-17 to 5.7e-14), so the unrefined default
+stays 1.0. On 18 Harwell-Boeing
+general matrices with natural and AMD orderings, refined solves reached
+componentwise errors of at most 4.5e-16 with either threshold, except `fs_760_3`
+with AMD, where both stop at 1.4e-12 to 2e-12 (normal solve). Factor entries
+with 0.01 changed by -36% to +31%. These are single-run accuracy observations
+on one Mac build, not performance admission.
 
 Opt-in [native structural row matching](native-matching.md) supplies a nonzero
 preferred diagonal for real/complex GENERAL LU without changing the original

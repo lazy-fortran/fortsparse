@@ -73,6 +73,7 @@ module fortsparse_backend
         integer(i8) :: device_memory_limit_bytes = 0_i8
         integer :: memory_policy = FORTSPARSE_MEMORY_AUTO
         ! UMFPACK IPC: negative keeps its native pivot defaults; [0,1] overrides.
+        ! Native scalar LU: negative selects 1.0, or 0.01 with refinement.
         real(dp) :: pivot_tolerance = -1.0_dp
         ! UMFPACK estimated peak only, excluding caller/IPC storage; 0: no gate.
         integer(i8) :: memory_budget_bytes = 0_i8
@@ -110,7 +111,7 @@ module fortsparse_backend
         integer(i8) :: estimated_peak_bytes = -1_i8
         integer(i8) :: numeric_peak_bytes = -1_i8
         integer(i8) :: ipc_bytes = -1_i8
-        real(dp) :: effective_pivot_tolerance = -1.0_dp
+        real(dp) :: effective_pivot_tolerance = -1.0_dp ! UMFPACK or native scalar LU
         logical :: numeric_started = .false.
         integer(i8) :: host_current_bytes = -1_i8, host_peak_bytes = -1_i8
         integer(i8) :: budget_required_bytes = 0_i8, budget_available_bytes = 0_i8

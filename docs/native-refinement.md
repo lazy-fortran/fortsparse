@@ -7,6 +7,9 @@ complex HPD Cholesky, real pivoted LDLT, and complex Hermitian/transpose-symmetr
 pivoted LDL. This option is retained at factor
 entry; changing it requires a factor/refactor call. This is numerical backward
 error control, not a forward-error bound or a rigorous certificate.
+Refinement also changes the scalar LU default pivot threshold from 1.0 to 0.01
+when `pivot_tolerance` is negative ([native CPU](native-cpu.md)); an explicit
+threshold is kept.
 
 The backend retains the original canonical full CSC indices and values and two
 length-n vectors of the corresponding value type. The general-family adapter

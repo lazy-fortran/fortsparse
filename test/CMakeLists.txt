@@ -449,6 +449,10 @@ fortsparse_add_test(test_fortsparse_componentwise_refinement
     solver/test_fortsparse_componentwise_refinement.f90)
 set_tests_properties(test_fortsparse_componentwise_refinement PROPERTIES
     LABELS "native;refinement;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_refined_pivot_default
+    solver/test_fortsparse_refined_pivot_default.f90)
+set_tests_properties(test_fortsparse_refined_pivot_default PROPERTIES
+    LABELS "native;refinement;lu;fast" TIMEOUT 1)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_native_refinement_allocations
         ../test-cmake/native/test_native_refinement_allocations.f90
