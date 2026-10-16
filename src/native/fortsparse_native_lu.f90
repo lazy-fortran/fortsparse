@@ -60,7 +60,7 @@ contains
     end subroutine copy_column_order
 
     subroutine factor(self,a,status,column_permutation,pivot_threshold, &
-        memory_limit_bytes,low_memory,pruning)
+        memory_limit_bytes,low_memory,pruning,row_preference)
         class(lu_factor_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
@@ -68,6 +68,7 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
+        integer, intent(in), optional :: row_preference(:)
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -79,14 +80,14 @@ contains
             return
         end if
         call self%factor_raw(a%ncol,a%col_ptr,a%row_idx,a%val,status, &
-            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
+            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
     end subroutine factor
 
     ! Threshold partial row pivoting of D*A(:,q). Sparse triangular reach is
     ! Gilbert--Peierls style; no numerical or symbolic dense n-by-n storage.
     ! Caller input is borrowed, never copied into another CSC container.
     subroutine factor_raw(self,n,col_ptr,row_idx,values,status, &
-        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
+        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
         class(lu_factor_t), intent(inout) :: self
         integer, intent(in) :: n,col_ptr(:),row_idx(:)
         real(dp), intent(in) :: values(:)
@@ -95,6 +96,7 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
+        integer, intent(in), optional :: row_preference(:)
         integer :: j,i,k,t,e,row,col,pivot,count,lc,uc,ierr
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
@@ -150,6 +152,12 @@ contains
         if (present(column_permutation)) then
             if (size(column_permutation)/=n) then
                 call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU column permutation size mismatch')
+                return
+            end if
+        end if
+        if (present(row_preference)) then
+            if (size(row_preference)/=n) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference size mismatch')
                 return
             end if
         end if
@@ -246,6 +254,25 @@ contains
             self%q(j)=col
         end do
         self%mark=0
+        ! Borrow an original-column -> original-row hint during factor only.
+        ! Use existing bounded marks; no retained permutation or extra payload.
+        if (present(row_preference)) then
+            do j=1,n
+                row=row_preference(j)
+                if (row<1 .or. row>n) then
+                    self%last_reused_pattern=.false.
+                    call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference index out of range')
+                    return
+                end if
+                if (self%mark(row)/=0) then
+                    self%last_reused_pattern=.false.
+                    call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference is not bijective')
+                    return
+                end if
+                self%mark(row)=1
+            end do
+        end if
+        self%mark=0
         self%row_norm=0
         do e=1,size(values)
             row=row_idx(e)
@@ -335,6 +362,7 @@ contains
                 pivot=row
             else
                 row=self%q(j)
+                if (present(row_preference)) row=row_preference(self%q(j))
                 if (self%pinv(row)==0 .and. self%mark(row)==j) then
                     magnitude=abs(self%work(row))
                     if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
@@ -883,7 +911,7 @@ contains
     end subroutine copy_column_order
 
     subroutine factor(self,a,status,column_permutation,pivot_threshold, &
-        memory_limit_bytes,low_memory,pruning)
+        memory_limit_bytes,low_memory,pruning,row_preference)
         class(lu_factor_z_t), intent(inout) :: self
         type(csc_z_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
@@ -891,6 +919,7 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
+        integer, intent(in), optional :: row_preference(:)
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -902,14 +931,14 @@ contains
             return
         end if
         call self%factor_raw(a%ncol,a%col_ptr,a%row_idx,a%val,status, &
-            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
+            column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
     end subroutine factor
 
     ! Threshold partial row pivoting of D*A(:,q). Sparse triangular reach is
     ! Gilbert--Peierls style; no numerical or symbolic dense n-by-n storage.
     ! Caller input is borrowed, never copied into another CSC container.
     subroutine factor_raw(self,n,col_ptr,row_idx,values,status, &
-        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning)
+        column_permutation,pivot_threshold,memory_limit_bytes,low_memory,pruning,row_preference)
         class(lu_factor_z_t), intent(inout) :: self
         integer, intent(in) :: n,col_ptr(:),row_idx(:)
         complex(dp), intent(in) :: values(:)
@@ -918,6 +947,7 @@ contains
         real(dp), intent(in), optional :: pivot_threshold
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
+        integer, intent(in), optional :: row_preference(:)
         integer :: j,i,k,t,e,row,col,pivot,count,lc,uc,ierr
         integer(i8) :: cap,fixed
         real(dp) :: threshold,best,magnitude
@@ -973,6 +1003,12 @@ contains
         if (present(column_permutation)) then
             if (size(column_permutation)/=n) then
                 call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU column permutation size mismatch')
+                return
+            end if
+        end if
+        if (present(row_preference)) then
+            if (size(row_preference)/=n) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference size mismatch')
                 return
             end if
         end if
@@ -1069,6 +1105,25 @@ contains
             self%q(j)=col
         end do
         self%mark=0
+        ! Borrow an original-column -> original-row hint during factor only.
+        ! Use existing bounded marks; no retained permutation or extra payload.
+        if (present(row_preference)) then
+            do j=1,n
+                row=row_preference(j)
+                if (row<1 .or. row>n) then
+                    self%last_reused_pattern=.false.
+                    call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference index out of range')
+                    return
+                end if
+                if (self%mark(row)/=0) then
+                    self%last_reused_pattern=.false.
+                    call status_set(status,FORTSPARSE_INVALID_MATRIX,'LU row preference is not bijective')
+                    return
+                end if
+                self%mark(row)=1
+            end do
+        end if
+        self%mark=0
         self%row_norm=0
         do e=1,size(values)
             row=row_idx(e)
@@ -1158,6 +1213,7 @@ contains
                 pivot=row
             else
                 row=self%q(j)
+                if (present(row_preference)) row=row_preference(self%q(j))
                 if (self%pinv(row)==0 .and. self%mark(row)==j) then
                     magnitude=lu_z_norm(self%work(row))
                     if (magnitude>0 .and. magnitude>=threshold*best) pivot=row
