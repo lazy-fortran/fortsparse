@@ -11,6 +11,11 @@ pivot validation belong to the calling solver.
 right-side triangular solve and rectangular Schur-update schedules. The solver
 owns task parallelism; the panel schedules use SIMD without nested teams.
 Large contractions may use BLAS rather than these reference schedules.
+The Schur schedule accepts an optional first-row index (default one), allowing
+strided panel tails to share their original contiguous storage. CPU factors
+below ten million estimated operations use the generated contraction and
+indexed triangular solves to avoid BLAS initialization; panels of at least
+96 columns and device factors retain the BLAS schedules.
 
 From the repository root, with a built FortSym at the retained revision:
 

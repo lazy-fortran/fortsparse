@@ -10,6 +10,8 @@ program test_fortsparse_spd_leaves
     real(dp) :: a, b, c, da, db, dc, value, tangent, abar, bbar, cbar, fd
     real(dp) :: l(4,4), matrix(4,4), reconstruction(4,4), panel(3,4), rhs(3,4)
     real(dp) :: left(3,2), right(4,2), schur(3,4), expected(3,4)
+    real(dp) :: offset_schur(21,5), offset_expected(19,4)
+    real(dp) :: offset_left(23,3), offset_right(25,3)
     real(dp) :: sparse_x(10), sparse_expected(10), sparse_values(4), dot_expected
     real(dp) :: large_l(133,128), large_b(65,128), large_exact(64,128)
     real(dp) :: large_rhs(64,128)
@@ -97,6 +99,23 @@ program test_fortsparse_spd_leaves
     call spd_schur_update(schur, 3, left, 3, right, 4, 3, 4, 2)
     if (maxval(abs(schur-expected)) > 2.0e-14_dp) &
         error stop 'Schur update differs from independent matmul'
+    do j = 1, 3
+        do i = 1, 23
+            offset_left(i,j) = real(mod(i-3*j,7),dp)/8.0_dp
+        end do
+        do i = 1, 25
+            offset_right(i,j) = real(mod(2*i-j,11),dp)/16.0_dp
+        end do
+    end do
+    offset_schur = 12345.0_dp
+    offset_schur(:19,:4) = 0.125_dp
+    offset_expected = offset_schur(:19,:4) &
+        -matmul(offset_left(3:21,:), transpose(offset_right(3:6,:)))
+    call spd_schur_update(offset_schur, 21, offset_left, 23, offset_right, 25, 19, 4, 3, 3)
+    if (maxval(abs(offset_schur(:19,:4)-offset_expected)) > 2.0e-14_dp) &
+        error stop 'offset Schur update differs from independent matmul'
+    if (any(offset_schur(20:,:) /= 12345.0_dp) .or. any(offset_schur(:,5) /= 12345.0_dp)) &
+        error stop 'offset Schur update changed row/column padding'
     sparse_values = [0.2_dp, -0.3_dp, 0.5_dp, 1.2_dp]
     do i = 1, 10
         sparse_x(i) = real(i, dp)/8.0_dp
