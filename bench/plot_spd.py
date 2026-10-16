@@ -148,7 +148,8 @@ def case_label(groups, case):
     rows = [r for g in groups if (g["family"], g["level"]) == case for r in g["good"]]
     size = f", n={int(rows[0]['n']):,}" if rows else ""
     return {"grid2": "Anisotropic 2D", "grid3": "3D diffusion",
-            "band": "Banded SPD"}.get(case[0], case[0]) + f" · level {int(case[1])}" + size
+            "band": "Banded SPD", "bcsstk09": "HB/bcsstk09 stiffness"}.get(
+                case[0], case[0]) + f" · level {int(case[1])}" + size
 
 
 def errorbars(axis, x, y, backend, **kwargs):
@@ -259,15 +260,17 @@ def scaling_plot(groups, sources, cases, workload, title, output):
                         axis.text(0.02, 0.03, f"CPU {int(last['threads'])}t: {speedup:.2f}×; "
                                   f"efficiency {100*speedup/last['threads']:.0f}%", transform=axis.transAxes,
                                   fontsize=8, color=color)
+                if backend in ("native", "native-nd") and column == 0:
                     for g in series:
                         if g["active"] and min(g["active"]) < g["threads"]:
-                            axis.annotate("active "+"/".join(map(str, g["active"])),
+                            label = ("ND " if backend == "native-nd" else "") + "active "
+                            axis.annotate(label+"/".join(map(str, g["active"])),
                                           (g["threads"], g[metric][0]), xytext=(0, 9),
                                           textcoords="offset points", ha="center", fontsize=7, color=color)
             if backend == "umfpack":
                 axes[row, 2].plot([g["threads"] for g in series], [g["helper"][0] for g in series],
                                   ":", color=color, alpha=0.8)
-                axes[row, 2].text(0.02, 0.95, "UMFPACK dotted = helper RSS, separate",
+                axes[row, 2].text(0.02, 0.87, "UMFPACK dotted = helper RSS, separate",
                                   transform=axes[row, 2].transAxes, fontsize=7)
         for column, axis in enumerate(axes[row]):
             axis.set(xscale="log", yscale="log", xticks=[1, 2, 4, 8, 16],
@@ -323,8 +326,10 @@ def cpu_gpu_plot(groups, sources, cases, title, output):
                                   color=color, marker=marker, markersize=11, capsize=3, linestyle="none",
                                   markerfacecolor="white" if backend == "native-cuda" else color)
                     if column == 0:
+                        label_offset = -9 if backend == "native-nd" else 4
                         axis.annotate(f" {int(group['threads'])}t", (value[0], y),
-                                      textcoords="offset points", xytext=(5, 4), fontsize=7, color=color)
+                                      textcoords="offset points", xytext=(5, label_offset),
+                                      fontsize=7, color=color)
                 else:
                     if group and group["failures"]:
                         text = str(group["failures"])
@@ -424,9 +429,10 @@ def main():
     plt.rcParams.update({"font.size": 10, "axes.titlepad": 10, "axes.spines.top": False,
                          "axes.spines.right": False, "savefig.facecolor": "white"})
     outputs = [args.outdir/name for name in ("pareto.png", "scaling.png", "cpu-vs-gpu.png")]
-    pareto_plot(groups, sources, cases, args.workload, args.title, outputs[0])
-    scaling_plot(groups, sources, scaling, args.workload, args.title, outputs[1])
-    cpu_gpu_plot(groups, sources, gpu_cases, args.title, outputs[2])
+    figure_title = args.title + f" ({args.variant})"
+    pareto_plot(groups, sources, cases, args.workload, figure_title, outputs[0])
+    scaling_plot(groups, sources, scaling, args.workload, figure_title, outputs[1])
+    cpu_gpu_plot(groups, sources, gpu_cases, figure_title, outputs[2])
     used_cases = set(cases+scaling+gpu_cases)
     rows = numeric_rows([g for g in groups if (g["family"], g["level"]) in used_cases
                          and g["workload"] in (args.workload, "rhs1", "refactor")])
