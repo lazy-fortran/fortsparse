@@ -39,16 +39,25 @@ For default-width integers, additional payload is
 `4*(n+1+nnz) + value_bytes*(nnz+2*n)`, with value_bytes 8 real or 16 complex.
 The implementation uses `storage_size` for the actual integer width. It reserves
 this quota and any live `sparse_vector` payload before invoking the factors, so
-factor growth/reuse copies cannot consume the refinement quota. Original storage
-is populated after a successful factorization. Reserving future storage is
-conservative for a fresh workflow: its observed peak can be smaller than the
-cap needed to reserve that storage throughout a retained refactor's growth.
-Same-shape storage is reused;
-obsolete buffers are released before a changed shape/type is allocated. All
-retained arrays and their actual overlap with factor growth contribute to
-`host_current_bytes` and `host_peak_bytes`. These are allocation payloads;
-allocator overhead and process RSS are separate. Zero residual budget remaining
-never becomes the factor interface's zero-means-unlimited setting.
+factor growth/reuse copies cannot consume that quota. This reservation is an
+allocation gate, not a measurement of simultaneously live arrays. A fresh
+workflow allocates/populates new original-matrix storage after factorization;
+a same-shape refactor keeps that storage live during factor growth. Obsolete
+buffers are released before a changed shape/type is allocated.
+
+`host_current_bytes` and `host_peak_bytes` report tracked allocated-array
+payload, including actual overlap with factor growth. They exclude unused
+reservation, allocator overhead and process RSS. Consequently, a fresh observed
+`host_peak_bytes` alone does **not** guarantee that a same-pattern refactor fits.
+The conservative reservation gate can also require more than a fresh run's
+observed live peak. In the three-by-three complex fixture, the refinement quota
+is 292 bytes: refactoring with only the fresh observed peak as the cap returned
+`RESOURCE_LIMIT`; adding that exact quota allowed the tested retained workflow.
+The tight-cap failure is retained as evidence, not removed from the test history.
+Changed numerical values can alter pivots, fill and growth even with the same
+input pattern, so that fixture's accepted cap is not a general prediction.
+Zero residual budget remaining never becomes the factors' zero-means-unlimited
+setting.
 
 Refinement adds no solve-time allocations. The focused Linux linker-wrapper
 oracle measures the additional retained allocation payload and verifies zero
