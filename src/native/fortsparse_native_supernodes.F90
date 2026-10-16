@@ -36,17 +36,20 @@ module fortsparse_native_supernodes
     end type update_t
 
     type, public :: supernodes_t
-        integer :: n = 0, node_count = 0, active_threads = 1
+        integer :: n = 0, node_count = 0, active_threads = 1, task_groups = 0
         integer(i8) :: factor_nnz = 0_i8
         integer(i8) :: device_bytes = 0_i8
         integer(i8) :: symbolic_nnz = 0_i8
         integer(i8) :: factor_storage_bytes = 0_i8, workspace_bytes = 0_i8
         real(dp) :: flops = 0.0_dp, numeric_s = 0.0_dp
+        real(dp) :: group_target_flops = 0.0_dp
         logical, private :: ready = .false.
         type(panel_t), allocatable, private :: panels(:)
         integer, allocatable, private :: colnode(:), tokens(:), failures(:), rowmap(:,:)
         integer, allocatable, private :: incoming_ptr(:), incoming_source(:)
         integer, allocatable, private :: incoming_first(:), incoming_q(:)
+        integer, allocatable, private :: group_first(:), group_last(:), group_tokens(:)
+        integer, allocatable, private :: group_ptr(:), group_sources(:)
         real(dp), allocatable, private :: update_work(:,:), solve_work(:)
         ! One owning allocation permits one factor upload/download. Panel
         ! views share it without maintaining a second full host factor copy.
@@ -250,6 +253,15 @@ contains
         end if
         if (self%flops < 1.0e6_dp) self%active_threads = 1
         if (self%device >= 0) self%active_threads = 1
+        if (self%device < 0) then
+            call setup_incoming(self, status)
+            if (status%code == FORTSPARSE_OK) call setup_groups(self, status)
+            if (status%code /= FORTSPARSE_OK) then
+                call self%free()
+                return
+            end if
+            self%active_threads = min(self%active_threads, max(1,self%task_groups/4))
+        end if
         allocate(self%rowmap(n,self%active_threads), &
             self%solve_work(maxrows), stat=ierr)
         if (ierr /= 0) then
@@ -268,11 +280,6 @@ contains
         allocate(self%update_work(maxwork,self%active_threads), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(self, status)
-            return
-        end if
-        call setup_incoming(self, status)
-        if (status%code /= FORTSPARSE_OK) then
-            call self%free()
             return
         end if
         self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
@@ -328,28 +335,29 @@ contains
             return
         end if
 #endif
-        token => self%tokens
         if (self%active_threads == 1) then
             call factor_serial(self)
         else
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
-            sources => self%incoming_source
+            token => self%group_tokens
+            sources => self%group_sources
             !$omp parallel num_threads(self%active_threads) default(shared)
             !$omp single
             !$ self%active_threads = omp_get_num_threads()
-            do s = 1, self%node_count
-                incoming_start = self%incoming_ptr(s)
+            do s = 1, self%task_groups
+                incoming_start = self%group_ptr(s)
                 ! OpenMP iterator end is exclusive, including in Fortran.
-                incoming_end = self%incoming_ptr(s+1)
+                incoming_end = self%group_ptr(s+1)
                 !$omp task firstprivate(s) &
                 !$omp depend(iterator(incoming=incoming_start:incoming_end), &
                 !$omp in:token(sources(incoming))) depend(out:token(s))
-                call factor_destination(self, s)
+                call factor_group(self, s)
                 !$omp end task
             end do
             !$omp end single
             !$omp end parallel
 #else
+            token => self%tokens
             !$omp parallel num_threads(self%active_threads) default(shared)
             !$omp single
             !$ self%active_threads = omp_get_num_threads()
@@ -388,6 +396,17 @@ contains
             call factor_destination(self, s)
         end do
     end subroutine factor_serial
+
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+    subroutine factor_group(self, group)
+        class(supernodes_t), intent(inout) :: self
+        integer, intent(in) :: group
+        integer :: s
+        do s = self%group_first(group), self%group_last(group)
+            call factor_destination(self, s)
+        end do
+    end subroutine factor_group
+#endif
 
     subroutine factor_destination(self, dest)
         class(supernodes_t), intent(inout) :: self
@@ -534,11 +553,18 @@ contains
         if (allocated(self%incoming_source)) deallocate(self%incoming_source)
         if (allocated(self%incoming_first)) deallocate(self%incoming_first)
         if (allocated(self%incoming_q)) deallocate(self%incoming_q)
+        if (allocated(self%group_first)) deallocate(self%group_first)
+        if (allocated(self%group_last)) deallocate(self%group_last)
+        if (allocated(self%group_tokens)) deallocate(self%group_tokens)
+        if (allocated(self%group_ptr)) deallocate(self%group_ptr)
+        if (allocated(self%group_sources)) deallocate(self%group_sources)
         if (allocated(self%update_work)) deallocate(self%update_work)
         if (allocated(self%solve_work)) deallocate(self%solve_work)
         self%n = 0
         self%node_count = 0
         self%active_threads = 1
+        self%task_groups = 0
+        self%group_target_flops = 0.0_dp
         self%factor_nnz = 0_i8
         self%symbolic_nnz = 0_i8
         self%factor_storage_bytes = 0_i8
@@ -575,6 +601,11 @@ contains
         if (allocated(self%incoming_source)) bytes = bytes+4_i8*size(self%incoming_source,kind=i8)
         if (allocated(self%incoming_first)) bytes = bytes+4_i8*size(self%incoming_first,kind=i8)
         if (allocated(self%incoming_q)) bytes = bytes+4_i8*size(self%incoming_q,kind=i8)
+        if (allocated(self%group_first)) bytes = bytes+4_i8*size(self%group_first,kind=i8)
+        if (allocated(self%group_last)) bytes = bytes+4_i8*size(self%group_last,kind=i8)
+        if (allocated(self%group_tokens)) bytes = bytes+4_i8*size(self%group_tokens,kind=i8)
+        if (allocated(self%group_ptr)) bytes = bytes+4_i8*size(self%group_ptr,kind=i8)
+        if (allocated(self%group_sources)) bytes = bytes+4_i8*size(self%group_sources,kind=i8)
         if (allocated(self%update_work)) bytes = bytes+8_i8*size(self%update_work,kind=i8)
         if (allocated(self%solve_work)) bytes = bytes+8_i8*size(self%solve_work,kind=i8)
         if (allocated(self%updates)) &
@@ -632,6 +663,96 @@ contains
         end do
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine setup_incoming
+
+    subroutine setup_groups(self, status)
+        class(supernodes_t), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        integer, allocatable :: node_group(:), first_node(:), last_node(:), mark(:)
+        integer :: s, p, source, g, predecessor, ierr, position
+        integer(i8) :: entries
+        real(dp) :: work, accumulated
+
+        ! About twelve groups per requested worker, with enough useful work
+        ! to amortize task creation. A single expensive panel remains atomic.
+        self%group_target_flops = max(1.0e6_dp, &
+            self%flops/(12.0_dp*self%active_threads))
+        allocate(node_group(self%node_count), first_node(self%node_count), &
+            last_node(self%node_count), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group allocation failed')
+            return
+        end if
+        accumulated = self%group_target_flops
+        do s = 1, self%node_count
+            if (accumulated >= self%group_target_flops) then
+                self%task_groups = self%task_groups+1
+                first_node(self%task_groups) = s
+                accumulated = 0.0_dp
+            end if
+            node_group(s) = self%task_groups
+            last_node(self%task_groups) = s
+            work = real(self%panels(s)%m,dp)*self%panels(s)%width**2
+            do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
+                source = self%incoming_source(p)
+                work = work+2.0_dp*(self%panels(source)%m-self%incoming_first(p)+1) &
+                    *self%incoming_q(p)*self%panels(source)%width
+            end do
+            accumulated = accumulated+work
+        end do
+        allocate(self%group_first(self%task_groups), self%group_last(self%task_groups), &
+            self%group_tokens(self%task_groups), self%group_ptr(self%task_groups+1), &
+            mark(self%task_groups), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group headers allocation failed')
+            return
+        end if
+        self%group_first = first_node(:self%task_groups)
+        self%group_last = last_node(:self%task_groups)
+        self%group_tokens = 0
+        self%group_ptr = 0
+        mark = 0
+        entries = 0_i8
+        do g = 1, self%task_groups
+            do s = self%group_first(g), self%group_last(g)
+                do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
+                    predecessor = node_group(self%incoming_source(p))
+                    if (predecessor == g) cycle
+                    if (mark(predecessor) == g) cycle
+                    mark(predecessor) = g
+                    self%group_ptr(g+1) = self%group_ptr(g+1)+1
+                    entries = entries+1
+                end do
+            end do
+        end do
+        if (entries >= huge(position)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'task group dependencies too large')
+            return
+        end if
+        self%group_ptr(1) = 1
+        do g = 1, self%task_groups
+            self%group_ptr(g+1) = self%group_ptr(g+1)+self%group_ptr(g)
+        end do
+        allocate(self%group_sources(int(entries)), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group edges allocation failed')
+            return
+        end if
+        mark = 0
+        do g = 1, self%task_groups
+            position = self%group_ptr(g)
+            do s = self%group_first(g), self%group_last(g)
+                do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
+                    predecessor = node_group(self%incoming_source(p))
+                    if (predecessor == g) cycle
+                    if (mark(predecessor) == g) cycle
+                    mark(predecessor) = g
+                    self%group_sources(position) = predecessor
+                    position = position+1
+                end do
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine setup_groups
 
     subroutine update_group(self, s, first, group, dest)
         class(supernodes_t), intent(in) :: self
