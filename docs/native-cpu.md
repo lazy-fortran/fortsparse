@@ -21,7 +21,11 @@ LDLT validate full ordinary symmetry. Invalid declared structures return
 Existing CSC factor/refactor, in-place/vector/block solve and lifetime APIs are
 preserved. LU raw CSC input is borrowed directly, including under a host cap;
 no intermediate input value copy or split-complex conversion is needed.
-Structured raw CSC factorization remains unsupported in this first adapter.
+Real symmetric-indefinite raw CSC factor/refactor uses an owned conversion and
+retains the pivoted LDLT family, including zero-diagonal 2x2 pivots. This
+conversion is uncapped: positive memory caps and LOW_MEMORY reject it before
+copying. Complete peak memory is unknown (`-1`) for this path; retained payload
+is still counted. Other structured raw paths remain unsupported by this adapter.
 Default AUTO prefers eligible in-process external backends when built; a
 native-only build uses native AUTO. This is capability selection, not additional
 performance admission.

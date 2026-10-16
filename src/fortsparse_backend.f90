@@ -7,10 +7,12 @@ module fortsparse_backend
     use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, &
-        FORTSPARSE_OK, FORTSPARSE_BACKEND_UNAVAILABLE
+        FORTSPARSE_OK, FORTSPARSE_BACKEND_UNAVAILABLE, &
+        FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_INDEX_OVERFLOW
     implicit none
     private
 
+    public :: backend_factor_real_raw, backend_refactor_real_raw
     public :: sparse_backend_t
     public :: sparse_options_t
     public :: sparse_factor_stats_t
@@ -320,8 +322,8 @@ contains
     ! Factor directly from caller-owned 1-based CSC arrays. The default wraps
     ! the arrays into a csc_t (one copy) and dispatches to factor_real; a
     ! backend that can stream the arrays into its own storage overrides this to
-    ! skip that copy. The arrays are trusted as-is: col_ptr(ncol+1),
-    ! row_idx(nz), val(nz).
+    ! skip that copy. The real conversion checks requested extents before
+    ! slicing; the concrete backend validates CSC contents.
     subroutine backend_factor_real_raw(self, nrow, ncol, nz, col_ptr, &
             row_idx, val, refine, status)
         class(sparse_backend_t),   intent(inout) :: self
@@ -333,14 +335,39 @@ contains
 
         type(csc_t) :: A
 
+        call copy_raw_real(nrow, ncol, nz, col_ptr, row_idx, val, A, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call self%factor_real(A, refine, status)
+    end subroutine backend_factor_real_raw
+
+    subroutine copy_raw_real(nrow, ncol, nz, col_ptr, row_idx, val, A, status)
+        ! Owned uncapped conversion shared by default/structured raw dispatch.
+        integer, intent(in) :: nrow, ncol, nz, col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
+        type(csc_t), intent(out) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: ierr
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'raw CSC extent mismatch')
+        if (nrow < 0 .or. ncol < 0 .or. nz < 0) return
+        if (ncol == huge(ncol)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'raw CSC pointer extent overflow')
+            return
+        end if
+        if (size(col_ptr) < ncol + 1) return
+        if (size(row_idx) < nz .or. size(val) < nz) return
+        allocate(A%col_ptr(ncol+1), A%row_idx(nz), A%val(nz), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'raw CSC conversion allocation failed')
+            return
+        end if
         A%nrow = nrow
         A%ncol = ncol
         A%nnz = nz
-        A%col_ptr = col_ptr(1:ncol + 1)
+        A%col_ptr = col_ptr(1:ncol+1)
         A%row_idx = row_idx(1:nz)
         A%val = val(1:nz)
-        call self%factor_real(A, refine, status)
-    end subroutine backend_factor_real_raw
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine copy_raw_real
 
     ! Complex twin of backend_factor_real_raw.
     subroutine backend_factor_complex_raw(self, nrow, ncol, nz, col_ptr, &
@@ -400,12 +427,9 @@ contains
 
         type(csc_t) :: A
 
-        A%nrow = nrow
-        A%ncol = ncol
-        A%nnz = nz
-        A%col_ptr = col_ptr(1:ncol + 1)
-        A%row_idx = row_idx(1:nz)
-        A%val = val(1:nz)
+        reused = .false.
+        call copy_raw_real(nrow, ncol, nz, col_ptr, row_idx, val, A, status)
+        if (status%code /= FORTSPARSE_OK) return
         call self%refactor_real(A, refine, status, reused)
     end subroutine backend_refactor_real_raw
 

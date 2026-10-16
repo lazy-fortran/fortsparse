@@ -530,3 +530,8 @@ fortsparse_add_test(test_native_lu_singletons ../test-cmake/native/test_native_l
 set_tests_properties(test_native_lu_singletons PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+
+fortsparse_add_test(test_fortsparse_native_raw_ldlt solver/test_fortsparse_native_raw_ldlt.f90)
+set_tests_properties(test_fortsparse_native_raw_ldlt PROPERTIES
+    LABELS "native;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
