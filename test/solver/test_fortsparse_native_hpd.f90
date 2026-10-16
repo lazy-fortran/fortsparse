@@ -4,7 +4,8 @@ program test_fortsparse_native_hpd
     use fortsparse_csc, only: csc_z_t, csc_from_triplet
     use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, &
                           FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
-                                 FORTSPARSE_NOT_FACTORED, FORTSPARSE_RESOURCE_LIMIT
+                                 FORTSPARSE_NOT_FACTORED, FORTSPARSE_RESOURCE_LIMIT, &
+        FORTSPARSE_INTERNAL_ERROR
     use fortsparse_native_hpd, only: native_hpd_t
     implicit none
     type(native_hpd_t) :: solver, capped
@@ -58,11 +59,31 @@ program test_fortsparse_native_hpd
     call solver%solve(rhs, solution, status)
     call require(status%code == FORTSPARSE_OK, 'normal solve')
     call require(maxval(abs(solution - truth)) < 2.e-14_dp, 'known normal solution')
+    solution = rhs
+    call solver%solve_inplace(solution, status)
+    call require(status%code == FORTSPARSE_OK, 'in-place normal status')
+    call require(maxval(abs(solution - truth)) < 2.e-14_dp, 'in-place normal solution')
     call solver%solve(rhs, solution, status, operation=2)
     call require(maxval(abs(solution - truth)) < 2.e-14_dp, 'Hermitian solve')
     rhs = matmul(transpose(dense), truth)
     call solver%solve(rhs, solution, status, operation=1)
     call require(maxval(abs(solution - truth)) < 2.e-14_dp, 'transpose conjugation')
+    solution = rhs
+    call solver%solve_inplace(solution, status, operation=1)
+    call require(status%code == FORTSPARSE_OK, 'in-place transpose status')
+    call require(maxval(abs(solution - truth)) < 2.e-14_dp, &
+                 'in-place transpose solution')
+    solution = matmul(dense, truth)
+    call solver%solve_inplace(solution, status, operation=2)
+    call require(status%code == FORTSPARSE_OK, 'in-place adjoint status')
+    call require(maxval(abs(solution - truth)) < 2.e-14_dp, 'in-place adjoint solution')
+    call solver%solve_inplace(solution(:n - 1), status)
+    call require(status%code == FORTSPARSE_INVALID_MATRIX, 'in-place shape guard')
+    call solver%solve_inplace(solution, status, operation=3)
+    call require(status%code == FORTSPARSE_INVALID_MATRIX, 'in-place operation guard')
+    solution(1) = cmplx(ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp, dp)
+    call solver%solve_inplace(solution, status)
+    call require(status%code == FORTSPARSE_INVALID_MATRIX, 'in-place finite RHS guard')
     do k = 1, 10
         reference(:, k) = truth*cmplx(real(k, dp), -0.2_dp, dp)
         blocks(:, k) = matmul(dense, reference(:, k))
@@ -134,9 +155,62 @@ program test_fortsparse_native_hpd
     call solver%free()
     call capped%free()
     call require(solver%memory_current_bytes() == 0_i8, 'free exact payload zero')
+    call changed_pattern_cap_fixture()
     call sparse_storage_fixture()
     print '(a)', 'native HPD known-solution, transpose, reuse, cap and failures: PASS'
 contains
+    subroutine changed_pattern_cap_fixture()
+        type(native_hpd_t) :: factor
+        type(csc_z_t) :: small, larger
+        type(fortsparse_status_t) :: st
+        complex(dp) :: rhs(3)
+        integer(i8) :: required, available
+        logical :: did_reuse
+        integer(i8), parameter :: small_bytes = 144_i8, large_bytes = 212_i8
+
+        call csc_from_triplet(2, 2, [1, 2], [1, 2], &
+                              cmplx([2.0_dp, 3.0_dp], 0.0_dp, dp), small, st)
+        call require(st%code == FORTSPARSE_OK, 'small diagonal fixture')
+        call csc_from_triplet(3, 3, [1, 2, 3], [1, 2, 3], &
+                              cmplx([2.0_dp, 3.0_dp, 4.0_dp], 0.0_dp, dp), larger, st)
+        call require(st%code == FORTSPARSE_OK, 'larger diagonal fixture')
+        call factor%factor(small, st, memory_limit_bytes=small_bytes, low_memory=.true.)
+        call require(st%code == FORTSPARSE_OK, 'changed-pattern initial cap')
+        call factor%refactor(larger, st, did_reuse)
+       call require(st%code == FORTSPARSE_RESOURCE_LIMIT, 'changed pattern retains cap')
+        call require(.not. did_reuse, 'changed pattern rebuilds analysis')
+     call require(factor%memory_current_bytes() == 0_i8, 'changed cap releases payload')
+     call require(factor%memory_peak_bytes() <= small_bytes, 'changed cap peak bounded')
+        call factor%memory_failure_bytes(required, available)
+        call require(required > available, 'denied allocation diagnostics')
+        call factor%factor(small, st, memory_limit_bytes=0_i8)
+        call require(st%code == FORTSPARSE_OK, 'changed-pattern reset fixture')
+        call factor%refactor(larger, st, did_reuse, &
+                             memory_limit_bytes=large_bytes - 1_i8, low_memory=.true.)
+      call require(st%code == FORTSPARSE_RESOURCE_LIMIT, 'changed pattern supplied cap')
+        call factor%refactor(larger, st, did_reuse, memory_limit_bytes=large_bytes)
+        call require(st%code == FORTSPARSE_OK, 'changed pattern exact cap fits')
+        call require(factor%memory_current_bytes() == large_bytes, 'new exact payload')
+        rhs = cmplx([2.0_dp, 6.0_dp, 12.0_dp], 0.0_dp, dp)
+        call factor%solve_inplace(rhs, st)
+        call require(st%code == FORTSPARSE_OK, 'changed pattern in-place solve')
+        call require(maxval(abs(rhs - cmplx([1.0_dp, 2.0_dp, 3.0_dp], 0.0_dp, dp))) &
+                     < 1.e-15_dp, 'changed pattern known solution')
+    call require(factor%memory_current_bytes() == large_bytes, 'in-place no allocation')
+      call require(factor%memory_peak_bytes() == large_bytes, 'in-place no peak growth')
+        call factor%free()
+        call factor%solve_inplace(rhs, st)
+        call require(st%code == FORTSPARSE_NOT_FACTORED, 'in-place readiness guard')
+        larger%val(1) = cmplx(1.e-300_dp,0.0_dp,dp)
+        call factor%factor(larger,st)
+        call require(st%code == FORTSPARSE_OK, 'small positive diagonal fixture')
+        rhs = cmplx(1.0_dp,0.0_dp,dp)
+        rhs(1) = cmplx(huge(1.0_dp),0.0_dp,dp)
+        call factor%solve_inplace(rhs,st)
+        call require(st%code == FORTSPARSE_INTERNAL_ERROR, &
+                     'in-place finite result guard')
+    end subroutine changed_pattern_cap_fixture
+
     subroutine sparse_storage_fixture()
         integer, parameter :: large_n = 2000, large_nz = 3*large_n - 2
         type(native_hpd_t) :: sparse
