@@ -23,6 +23,21 @@ int32_t fs_native_free(void **handle);
  * Native ordering is DEFAULT (natural); no external factorization fallback.
  */
 int32_t fs_native_set_refine(void *handle, int32_t refine);
+enum fs_native_ordering {
+    FS_NATIVE_ORDER_DEFAULT = 0,
+    FS_NATIVE_ORDER_AMD = 1,
+    FS_NATIVE_ORDER_ND = 2
+};
+/* Returns status 0 supported, 3 unavailable, 2 invalid enum. No context/error
+ * mutation. ND is recognized but unavailable for this general-LU API.
+ */
+int32_t fs_native_ordering_available(int32_t ordering);
+/* Default remains natural. Successful policy changes invalidate factors;
+ * setting the same policy retains them. Invalid/unavailable requests preserve
+ * policy and factors, and store the error; a valid setter clears that error.
+ * AMD requires the optional ordering library, never an external factor backend.
+ */
+int32_t fs_native_set_ordering(void *handle, int32_t ordering);
 /* Canonical zero-based CSC: n>0, 0<=nnz<INT32_MAX, colptr[n+1] starts at 0,
  * ends at nnz, monotone; rowind[nnz] strictly increasing within each column.
  * Arrays must contain their declared number of accessible elements. Input is

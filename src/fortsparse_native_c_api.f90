@@ -6,6 +6,13 @@ module fortsparse_native_c_api
     implicit none
     private
 
+    interface
+        integer(c_int) function amd_available() &
+                bind(C,name='fsparse_native_order_amd_available')
+            import :: c_int
+        end function
+    end interface
+
     type :: context_t
         type(sparse_solver_t) :: solver
         type(fortsparse_status_t) :: status
@@ -74,6 +81,50 @@ contains
             call status_set(ctx%status, FORTSPARSE_OK, '')
         end if
         code = ctx%status%code
+    end function
+
+    function fs_native_ordering_available(ordering) bind(C) result(code)
+        integer(c_int32_t), value :: ordering
+        integer(c_int32_t) :: code
+
+        select case(ordering)
+        case(FORTSPARSE_ORDER_DEFAULT)
+            code = FORTSPARSE_OK
+        case(FORTSPARSE_ORDER_AMD)
+            code = FORTSPARSE_BACKEND_UNAVAILABLE
+            if (amd_available() == 1) code = FORTSPARSE_OK
+        case(FORTSPARSE_ORDER_ND)
+            ! ND exists for other native matrix classes, not general LU.
+            code = FORTSPARSE_BACKEND_UNAVAILABLE
+        case default
+            code = FORTSPARSE_INVALID_MATRIX
+        end select
+    end function
+
+    function fs_native_set_ordering(handle, ordering) bind(C) result(code)
+        type(c_ptr), value :: handle
+        integer(c_int32_t), value :: ordering
+        integer(c_int32_t) :: code
+        type(context_t), pointer :: ctx
+
+        code = FORTSPARSE_INVALID_MATRIX
+        if (.not. c_associated(handle)) return
+        call c_f_pointer(handle, ctx)
+        code = fs_native_ordering_available(ordering)
+        if (code == FORTSPARSE_INVALID_MATRIX) then
+            call status_set(ctx%status, code, 'invalid native ordering enum')
+            return
+        end if
+        if (code == FORTSPARSE_BACKEND_UNAVAILABLE) then
+            call status_set(ctx%status, code, 'native general LU ordering unavailable')
+            return
+        end if
+        if (ctx%solver%options%ordering /= ordering) then
+            call sparse_free(ctx%solver)
+            ctx%n = 0
+        end if
+        ctx%solver%options%ordering = ordering
+        call status_set(ctx%status, FORTSPARSE_OK, '')
     end function
 
     function fs_native_last_error(handle, message, capacity) bind(C) result(code)

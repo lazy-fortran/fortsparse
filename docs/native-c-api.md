@@ -24,6 +24,17 @@ all external sparse solver backends may be disabled in this API's minimal build.
 next factor. Changing the flag invalidates factors. It does not promise another
 vendor's iteration sequence or a rigorous forward-error certificate.
 
+`set_ordering(handle,FS_NATIVE_ORDER_AMD)` explicitly enables optional AMD
+ordering. `FS_NATIVE_ORDER_DEFAULT=0` stays the default; `AMD=1` uses only the
+optional BSD ordering library, with no external sparse factorization fallback.
+`ordering_available(order)` returns status 0 for supported, 3 for unavailable,
+and 2 for an invalid enum; it does not change any context diagnostic. ND=2 is
+recognized but currently unavailable for this general-LU boundary. The setter
+checks support before changing policy: invalid/unavailable requests preserve
+policy and factors, successful changes invalidate factors, and successful
+same-policy calls retain them. A valid setter clears the previous diagnostic.
+This does not change refinement or add a memory-cap policy.
+
 `solve_d/z` accepts N/T/H operations 0/1/2 and a contiguous column-major
 `n*nrhs` block. It validates the dimension, finite input, operation, and finite
 output; output changes only on success. Input/output may alias because the
@@ -54,4 +65,7 @@ ctest --test-dir build-c-api -R '^test_native_c(xx)?_api$' --output-on-failure -
 The tests cover independent dense-known-x block RHS, retained input lifetimes,
 N/T/H, in-place output, real/complex refinement, refactor and changed patterns,
 singular/invalid/nonfinite failures, recovery, shape/overflow checks, independent
-contexts and repeated create/factor/free. No performance admission is inferred.
+contexts and repeated create/factor/free. With AMD enabled and disabled, they
+also check ordering support/status, retained factors after rejected/same-policy
+requests, invalidation on policy changes and actual AMD dispatch. No performance
+admission is inferred.
