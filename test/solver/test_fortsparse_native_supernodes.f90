@@ -18,7 +18,11 @@ program test_fortsparse_native_supernodes
         call run_case(193, .true.)
     else
         do k = 1, size(sizes)
-            call run_case(sizes(k), sizes(k) >= 193)
+            if (sizes(k) == 513) then
+                call run_interleaved()
+            else
+                call run_case(sizes(k), sizes(k) >= 193)
+            end if
         end do
     end if
     call run_grid(17, 17)
@@ -91,6 +95,26 @@ contains
         end do
         call verify(matrix, .false.)
     end subroutine run_scattered
+
+    subroutine run_interleaved()
+        integer, parameter :: n = 513
+        real(dp) :: matrix(n,n)
+        integer :: i, j
+        ! Two independent dense components interleaved in panel order. Small
+        ! complete subtrees therefore have noncontiguous group membership.
+        matrix = 0.0_dp
+        do j = 1, n
+            do i = j+2, n, 2
+                matrix(i,j) = -0.01_dp/(1+i-j)
+                matrix(j,i) = matrix(i,j)
+            end do
+        end do
+        ! Set diagonal dominance after both triangles are complete.
+        do j = 1, n
+            matrix(j,j) = 1.0_dp+sum(abs(matrix(:,j)))
+        end do
+        call verify(matrix, .true.)
+    end subroutine run_interleaved
 
     subroutine verify(matrix, parallel_expected)
         real(dp), intent(in) :: matrix(:,:)

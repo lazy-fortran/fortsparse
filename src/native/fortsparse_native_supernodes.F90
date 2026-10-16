@@ -48,7 +48,7 @@ module fortsparse_native_supernodes
         integer, allocatable, private :: colnode(:), tokens(:), failures(:), rowmap(:,:)
         integer, allocatable, private :: incoming_ptr(:), incoming_source(:)
         integer, allocatable, private :: incoming_first(:), incoming_q(:)
-        integer, allocatable, private :: group_first(:), group_last(:), group_tokens(:)
+        integer, allocatable, private :: group_member_ptr(:), group_members(:), group_tokens(:)
         integer, allocatable, private :: group_ptr(:), group_sources(:)
         real(dp), allocatable, private :: update_work(:,:), solve_work(:)
         ! One owning allocation permits one factor upload/download. Panel
@@ -408,9 +408,9 @@ contains
     subroutine factor_group(self, group)
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: group
-        integer :: s
-        do s = self%group_first(group), self%group_last(group)
-            call factor_destination(self, s)
+        integer :: member
+        do member = self%group_member_ptr(group), self%group_member_ptr(group+1)-1
+            call factor_destination(self, self%group_members(member))
         end do
     end subroutine factor_group
 #endif
@@ -599,8 +599,8 @@ contains
         if (allocated(self%incoming_source)) deallocate(self%incoming_source)
         if (allocated(self%incoming_first)) deallocate(self%incoming_first)
         if (allocated(self%incoming_q)) deallocate(self%incoming_q)
-        if (allocated(self%group_first)) deallocate(self%group_first)
-        if (allocated(self%group_last)) deallocate(self%group_last)
+        if (allocated(self%group_member_ptr)) deallocate(self%group_member_ptr)
+        if (allocated(self%group_members)) deallocate(self%group_members)
         if (allocated(self%group_tokens)) deallocate(self%group_tokens)
         if (allocated(self%group_ptr)) deallocate(self%group_ptr)
         if (allocated(self%group_sources)) deallocate(self%group_sources)
@@ -647,8 +647,8 @@ contains
         if (allocated(self%incoming_source)) bytes = bytes+4_i8*size(self%incoming_source,kind=i8)
         if (allocated(self%incoming_first)) bytes = bytes+4_i8*size(self%incoming_first,kind=i8)
         if (allocated(self%incoming_q)) bytes = bytes+4_i8*size(self%incoming_q,kind=i8)
-        if (allocated(self%group_first)) bytes = bytes+4_i8*size(self%group_first,kind=i8)
-        if (allocated(self%group_last)) bytes = bytes+4_i8*size(self%group_last,kind=i8)
+        if (allocated(self%group_member_ptr)) bytes = bytes+4_i8*size(self%group_member_ptr,kind=i8)
+        if (allocated(self%group_members)) bytes = bytes+4_i8*size(self%group_members,kind=i8)
         if (allocated(self%group_tokens)) bytes = bytes+4_i8*size(self%group_tokens,kind=i8)
         if (allocated(self%group_ptr)) bytes = bytes+4_i8*size(self%group_ptr,kind=i8)
         if (allocated(self%group_sources)) bytes = bytes+4_i8*size(self%group_sources,kind=i8)
@@ -713,56 +713,95 @@ contains
     subroutine setup_groups(self, status)
         class(supernodes_t), intent(inout) :: self
         type(fortsparse_status_t), intent(out) :: status
-        integer, allocatable :: node_group(:), first_node(:), last_node(:), mark(:)
-        integer :: s, p, source, g, predecessor, ierr, position
+        integer, allocatable :: node_group(:), parent(:), root_group(:), mark(:), next(:)
+        real(dp), allocatable :: subtree_work(:)
+        integer :: s, p, source, g, predecessor, ierr, position, member
         integer(i8) :: entries
-        real(dp) :: work, accumulated
 
-        ! About twelve groups per requested worker, with enough useful work
-        ! to amortize task creation. A single expensive panel remains atomic.
+        ! Collapse complete small elimination subtrees. Grouping arbitrary
+        ! consecutive nodes can introduce false chains between independent
+        ! subtrees. Large separator/critical panels remain individual tasks.
         self%group_target_flops = max(1.0e6_dp, &
             self%flops/(12.0_dp*self%active_threads))
-        allocate(node_group(self%node_count), first_node(self%node_count), &
-            last_node(self%node_count), stat=ierr)
+        allocate(node_group(self%node_count), parent(self%node_count), &
+            root_group(self%node_count), subtree_work(self%node_count), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group allocation failed')
             return
         end if
-        accumulated = self%group_target_flops
         do s = 1, self%node_count
-            if (accumulated >= self%group_target_flops) then
-                self%task_groups = self%task_groups+1
-                first_node(self%task_groups) = s
-                accumulated = 0.0_dp
-            end if
-            node_group(s) = self%task_groups
-            last_node(self%task_groups) = s
-            work = real(self%panels(s)%m,dp)*self%panels(s)%width**2
+            parent(s) = 0
+            if (self%panels(s)%m > self%panels(s)%width) &
+                parent(s) = self%colnode(self%panels(s)%rows(self%panels(s)%width+1))
+            subtree_work(s) = real(self%panels(s)%m,dp)*self%panels(s)%width**2
             do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
                 source = self%incoming_source(p)
-                work = work+2.0_dp*(self%panels(source)%m-self%incoming_first(p)+1) &
+                subtree_work(s) = subtree_work(s) &
+                    +2.0_dp*(self%panels(source)%m-self%incoming_first(p)+1) &
                     *self%incoming_q(p)*self%panels(source)%width
             end do
-            accumulated = accumulated+work
         end do
-        allocate(self%group_first(self%task_groups), self%group_last(self%task_groups), &
+        ! Parent indices are larger: this ascending pass accumulates every
+        ! completed child's work before its parent contributes farther up.
+        do s = 1, self%node_count
+            p = parent(s)
+            if (p > 0) subtree_work(p) = subtree_work(p)+subtree_work(s)
+        end do
+        do s = self%node_count, 1, -1
+            node_group(s) = s
+            p = parent(s)
+            if (p > 0) then
+                if (subtree_work(p) <= self%group_target_flops) node_group(s) = node_group(p)
+            end if
+        end do
+        root_group = 0
+        do s = 1, self%node_count
+            if (node_group(s) /= s) cycle
+            self%task_groups = self%task_groups+1
+            root_group(s) = self%task_groups
+        end do
+        ! Roots are each group's largest panel, so ascending root order is
+        ! also a topological creation order for inter-group dependencies.
+        do s = 1, self%node_count
+            node_group(s) = root_group(node_group(s))
+        end do
+        allocate(self%group_member_ptr(self%task_groups+1), self%group_members(self%node_count), &
             self%group_tokens(self%task_groups), self%group_ptr(self%task_groups+1), &
-            mark(self%task_groups), stat=ierr)
+            mark(self%task_groups), next(self%task_groups), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'task group headers allocation failed')
             return
         end if
-        self%group_first = first_node(:self%task_groups)
-        self%group_last = last_node(:self%task_groups)
+        self%group_member_ptr = 0
+        do s = 1, self%node_count
+            g = node_group(s)
+            self%group_member_ptr(g+1) = self%group_member_ptr(g+1)+1
+        end do
+        self%group_member_ptr(1) = 1
+        do g = 1, self%task_groups
+            self%group_member_ptr(g+1) = self%group_member_ptr(g+1)+self%group_member_ptr(g)
+        end do
+        next = self%group_member_ptr(:self%task_groups)
+        do s = 1, self%node_count
+            g = node_group(s)
+            self%group_members(next(g)) = s
+            next(g) = next(g)+1
+        end do
         self%group_tokens = 0
         self%group_ptr = 0
         mark = 0
         entries = 0_i8
         do g = 1, self%task_groups
-            do s = self%group_first(g), self%group_last(g)
+            do member = self%group_member_ptr(g), self%group_member_ptr(g+1)-1
+                s = self%group_members(member)
                 do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
                     predecessor = node_group(self%incoming_source(p))
                     if (predecessor == g) cycle
+                    if (predecessor > g) then
+                        call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
+                            'invalid elimination-subtree task dependency')
+                        return
+                    end if
                     if (mark(predecessor) == g) cycle
                     mark(predecessor) = g
                     self%group_ptr(g+1) = self%group_ptr(g+1)+1
@@ -786,7 +825,8 @@ contains
         mark = 0
         do g = 1, self%task_groups
             position = self%group_ptr(g)
-            do s = self%group_first(g), self%group_last(g)
+            do member = self%group_member_ptr(g), self%group_member_ptr(g+1)-1
+                s = self%group_members(member)
                 do p = self%incoming_ptr(s), self%incoming_ptr(s+1)-1
                     predecessor = node_group(self%incoming_source(p))
                     if (predecessor == g) cycle
