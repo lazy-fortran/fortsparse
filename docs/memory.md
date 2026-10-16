@@ -145,6 +145,11 @@ With `solver%refine=.true.`, add `4*(n+1+m) + 8*(m+2*n)` for the retained
 original CSC and two checker vectors. The returned plan already includes this
 quota and checks its overlap with planning scratch; do not add it twice.
 See [refinement](native-refinement.md) for the numerical contract.
+This SPD quota is unchanged by componentwise refinement. The general-family
+adapter (LU, supernodal LU, HPD, LDLT/LDLH) additionally retains one real
+n-vector for the componentwise backward-error denominator, so its quota is
+`4*(n+1+m) + value_bytes*(m+2*n) + 8*n` (`refinement_payload_bytes` with
+`componentwise=.true.`).
 
 For explicit AMD with LOW_MEMORY, the retained unrefined compact layout is
 `12*L + 20*m + 48*n + 12` bytes. Add the same refinement quota above. The exact

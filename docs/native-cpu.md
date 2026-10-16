@@ -121,8 +121,10 @@ ordering, or the audited bounded AMD path for general LU; these matrix classes
 currently execute on CPU. LU, HPD and
 real/complex LDL support `solver%refine=.true.` with
 retained original-matrix residuals, a 32-epsilon normwise backward-error target
-and at most three corrections. Statistics report correction steps and final
-backward error. See [native refinement](native-refinement.md) for failure,
+and at most three corrections; corrections also continue while the componentwise
+backward error exceeds eps and still halves (LAPACK xGERFS style). Statistics
+report correction steps and the final normwise and componentwise backward errors.
+See [native refinement](native-refinement.md) for failure,
 allocation and refactor-cap semantics. Production blocking/parallel
 factorization and conditioning diagnostics remain planned.
 

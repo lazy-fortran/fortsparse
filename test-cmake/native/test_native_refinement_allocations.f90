@@ -29,7 +29,7 @@ program test_native_refinement_allocations
     call sparse_factor(solver,2,2,a%nnz,a%col_ptr,a%row_idx,a%val,status)
     call finish(count,bytes)
     call checked(status)
-    expected=int(storage_size(0)/8,c_int64_t)*7+8_c_int64_t*8
+    expected=int(storage_size(0)/8,c_int64_t)*7+8_c_int64_t*10 ! incl. denominator
     if(bytes/=expected) error stop 'measured original CSC/scratch allocations differ from planned payload'
     call sparse_factor_stats(solver,after,status)
     call checked(status)

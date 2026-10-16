@@ -286,7 +286,8 @@ contains
             end if
             ! Original/checker storage is retained during a refactor's growth.
             ! Add its exact quota to the independently observed fresh peak.
-            cap=cap+int(storage_size(0)/8,i8)*(4+9)+16_i8*(9+2*3)
+            ! The componentwise denominator adds one real 3-vector.
+            cap=cap+int(storage_size(0)/8,i8)*(4+9)+16_i8*(9+2*3)+8_i8*3
             solver%options%host_memory_limit_bytes=cap
             call sparse_refactor(solver,a,status,reused)
             call checked(status)
@@ -386,7 +387,7 @@ contains
             value_bytes=8_i8*kind
             entry=int(storage_size(0)/8,i8)+value_bytes
             fixed=int(storage_size(0)/8,i8)*(11_i8*n+3_i8+n*n)+(2_i8*value_bytes+8_i8)*n
-            quota=int(storage_size(0)/8,i8)*(n+1_i8+n*n)+value_bytes*(n*n+2_i8*n)
+            quota=int(storage_size(0)/8,i8)*(n+1_i8+n*n)+value_bytes*(n*n+2_i8*n)+8_i8*n
             cap=fixed+(lower+2*upper-n)*entry+quota+24_i8
             ! The checker is reserved before LU; one byte below the old exact
             ! factor schedule still fails, with the live user vector preserved.
@@ -473,7 +474,7 @@ contains
         call sparse_factor(solver,a,status)
         call checked(status)
         call sparse_factor_stats(solver,refined,status)
-        extra=int(storage_size(0)/8,i8)*(3+4)+8_i8*(4+2*2)
+        extra=int(storage_size(0)/8,i8)*(3+4)+8_i8*(4+2*2)+8_i8*2 ! + denominator
         call check(refined%host_current_bytes-plain%host_current_bytes==extra,'all original CSC/scratch payload counted')
         owned=>sparse_vector(solver,2)
         call check(associated(owned),'retained user vector')

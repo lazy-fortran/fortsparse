@@ -185,7 +185,7 @@ Landed (stage 4, serial): `factor(ptr, rows, values, status)` assembles M throug
 - **Mandatory validation.** Perturbed pivots > 0, or option `verify_factor` (default ON while opt-in), run one validation solve at factor time: b = A·x̂ for a fixed deterministic x̂. Refine with `refine_real` (:1235) against the retained ORIGINAL A, and compute `backward_error` (:157) independently.
   - If ≤3 steps do not reach the existing ≤32·eps gate, fall back (reason `REFINEMENT`).
   - Cost: two triangular solves per step plus one SpMV, i.e. O(nnz(L+U)).
-- **Solve-time behaviour.** Refinement as today. If the user RHS misses the gate and the original A is retained, one refactor-with-fallback is allowed, then the solve is repeated. Otherwise SINGULAR, as today.
+- **Solve-time behaviour.** Refinement as today, plus the componentwise criterion of [native refinement](native-refinement.md): corrections continue while the componentwise backward error exceeds eps and halves, within the three-correction cap; acceptance stays the normwise gate. The validation solve above keeps the normwise-only loop. If the user RHS misses the gate and the original A is retained, one refactor-with-fallback is allowed, then the solve is repeated. Otherwise SINGULAR, as today.
 - **Fallback under a cap.** The fallback must pass its own preflight. If it cannot, return RESOURCE_LIMIT with the scalar LU's `failed_required/available` and keep `fallback_reason`. Never silently exceed the cap.
 - **Reporting** (new `sparse_factor_stats_t` fields; `src/fortsparse_backend.f90` is currently being edited by another worker, so add them in a separate commit):
   - `perturbed_pivots`, `block_pivot_swaps`, `pivot_growth`, `min_pivot`, `lu_method_used`, `lu_fallback` (logical), `lu_fallback_reason`;

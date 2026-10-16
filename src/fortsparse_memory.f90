@@ -250,13 +250,17 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine validate_spd_pattern
 
-    pure subroutine refinement_payload_bytes(n,nnz,value_bytes,bytes,status)
+    pure subroutine refinement_payload_bytes(n,nnz,value_bytes,bytes,status, &
+            componentwise)
         ! Retained original full CSC plus saved RHS and residual/correction.
+        ! componentwise (general adapter) adds one real n-vector for the
+        ! componentwise backward-error denominator; real SPD omits it.
         ! Descriptors, caller storage and allocator/runtime overhead are excluded.
         integer(i8), intent(in) :: n,nnz,value_bytes
         integer(i8), intent(inout) :: bytes
         type(fortsparse_status_t), intent(out) :: status
-        integer(i8) :: endpoints,indices,index_bytes,vectors,values,total
+        logical, intent(in), optional :: componentwise
+        integer(i8) :: endpoints,indices,index_bytes,vectors,values,total,extra,subtotal
         call status_set(status,FORTSPARSE_INVALID_MATRIX,'invalid refinement payload dimensions or value width')
         if (n<0_i8 .or. nnz<0_i8) return
         if (value_bytes/=8_i8 .and. value_bytes/=16_i8) return
@@ -278,7 +282,17 @@ contains
         if (status%code/=FORTSPARSE_OK) return
         call memory_checked_mul(values,value_bytes,total,status)
         if (status%code/=FORTSPARSE_OK) return
-        call memory_checked_add(index_bytes,total,bytes,status)
+        extra=0_i8
+        if (present(componentwise)) then
+            if (componentwise) then
+                call memory_checked_mul(n,8_i8,extra,status)
+                if (status%code/=FORTSPARSE_OK) return
+            end if
+        end if
+        subtotal=0_i8
+        call memory_checked_add(index_bytes,total,subtotal,status)
+        if (status%code/=FORTSPARSE_OK) return
+        call memory_checked_add(subtotal,extra,bytes,status)
     end subroutine refinement_payload_bytes
 
     pure subroutine memory_checked_add(a, b, value, status)
