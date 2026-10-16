@@ -1,0 +1,21 @@
+{
+  "uploaded_utc": "2026-10-16T11:25:46.820597+00:00",
+  "retention": "ephemeral; expires after three days",
+  "artifacts": [
+    {
+      "name": "runtime-training.png",
+      "url": "https://box.sloppy.at/083a3.png",
+      "sha256": "e13ec2b2bd4186a684ad25549ba4d740137aa733a0242644fd28a3266fb88e3a"
+    },
+    {
+      "name": "runtime-heldout.png",
+      "url": "https://box.sloppy.at/58b2d.png",
+      "sha256": "36819a9578d74270c8804f57fa3da96509e6cbfed7da87f7b2d285474f7e7a26"
+    },
+    {
+      "name": "owned-and-rss.png",
+      "url": "https://box.sloppy.at/85226.png",
+      "sha256": "06e7b71273312ad6e00ede59a494117838811668ab600af35d86957c159591fa"
+    }
+  ]
+}

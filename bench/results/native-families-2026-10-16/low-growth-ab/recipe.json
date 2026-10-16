@@ -1,0 +1,66 @@
+{
+  "ordinary_sources": {
+    "baseline": "7e1f123ea21fd8412480ec6a6ddf0696893acb2a",
+    "candidate": "2f0cb01f902d5b38768402eddefbcea3de225692"
+  },
+  "input": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-ab",
+  "diagnostic": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic",
+  "files": [
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-ab/attempts.jsonl",
+      "sha256": "7292b8d45799c621f12e06d9a066450625aad6e73e94407948bd0181c2495832"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-ab/manifest.json",
+      "sha256": "7fc0172f97052a1f2be318afaa3b3421c566435d6534ef36eb146739a7158697"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-ab/run_ab.py",
+      "sha256": "e1353eb60df58d8c3c34222dc9ac29a233c62d0f303ea4a3f936884b226eb0d3"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/manifest.json",
+      "sha256": "abd99975d46efdab434eb484efadd25d00393a32975bc78ace6a9e1f7a86127c"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/README.md",
+      "sha256": "3ef9116bc0eec9cb03322eaa5cec844236b2005d952c85e9e9b1130bf1ed3b56"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/before/replay.csv",
+      "sha256": "202461ed9db412370d6b7dad61697a2819f63498ff6a808731392c8603270937"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/before/replay.stderr",
+      "sha256": "65c2bbacc9acf09e1d50014f152ef5f0dcd3e1497cb5fb1b1241aee886e36d43"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/candidate/final-replay.csv",
+      "sha256": "935ca53d5725adafb05146194d19dffe195fed675a1864988c68910ce589fb96"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/candidate/final-replay.stderr",
+      "sha256": "3a680a5ecb921ba8abef44663d719c44365750bd935144c0de314cc819ade887"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/candidate/final-dense-exact.txt",
+      "sha256": "dd1cfb53f3b1c3aa42886277e129453c887a56677cd0653308c095c90675e0de"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/candidate/final-dense-under.txt",
+      "sha256": "b53fff9a049783752f49806e0d8402425be82dd6f53a8a180d3556a41c0c7870"
+    },
+    {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/low-growth-diagnostic/profile/before-report.txt",
+      "sha256": "6c6fe39e42ddbaf2599611272993cd51a1413674d0bf17846ffbe22e5dee5158"
+    }
+  ],
+  "recipe_sha256": "c92d3be24921bff1a709d1b333d555ce0e8c9ede51dbeee56d5a8410fd9bde3b",
+  "report_sources": {
+    "report.py": "39d13d53d086cf69e6d0b374bbce4277179629ae6a112c77ae8720bd96e44199",
+    "run.py": "d374ec4855c1dca9184d4515f90daddbaf90ae1f222869d07c0450fd42bed4c2"
+  },
+  "coverage": "native-only policy A/B, CPU0; no frontier admission",
+  "omitted_campaign": "ordinary LOW with positive cap not measured here",
+  "units": "payload bytes; cumulative copy/allocation bytes are traffic, not peak; RSS KiB"
+}

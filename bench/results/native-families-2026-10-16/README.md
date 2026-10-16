@@ -81,3 +81,10 @@ wall/CPU-versus-RSS assessments. It joins no historical chain measurements and
 makes no robust frontier claim. It retains requested-budget scaling, pinned
 reproduction metadata and ephemeral links to inspected plots. The later
 contract-v4-six no-refinement UMFPACK comparator is outside this cohort.
+
+`low-growth-ab/` is a separate native-policy CPU0 A/B (7e1f123 versus 2f0cb01):
+240 attempts, baseline 100 passes/20 real-LOW timeouts, candidate 120 passes.
+Cumulative copy traffic falls sharply in separate instrumented diagnostics,
+while candidate real LOW has higher process RSS than AUTO despite lower
+retained payload. The report makes no RSS-saving or external-frontier claim;
+ordinary LOW with a positive cap is outside this frozen campaign.
