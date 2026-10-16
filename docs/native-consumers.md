@@ -7,13 +7,13 @@ AMD/METIS graph ordering are allowed; external sparse factorizations are not.
 
 | Consumer | State | Evidence or remaining gate |
 |---|---|---|
-| FortFEM | [Draft PR 82](https://github.com/lazy-fortran/fortfem/pull/82) | Native factor/solve, derivative, C API and actual fpm checks pass. Preserve KIN6D's newer scientific dependency sources when selecting its pin. |
-| NEO-2 | [Draft PR 212](https://github.com/itpplasma/NEO-2/pull/212) | PAR/QL builds, adapter/lifecycle and Arnoldi checks pass; external sparse linkage absent. Unchanged spline node-reconstruction regression fails. Lorentz output differences remain under investigation; the retained old run also fails the strict golden comparator, so not every discrepancy is attributable to migration. Not ready to merge. |
-| MEPHIT | In progress | Native Fortran adapters and default binary checks pass; optional MFEM sites and the FreeFem Maxwell daemon both require native migration and independent application checks. Binary linkage alone is insufficient. |
-| KAMEL | In progress | Native real/complex compatibility adapter tests pass; actual KIM/QL consumer builds and checks pending. |
-| KIN6D | In progress | Explicit native adapters and dependency configuration; scientific dependency pin and affected physics/derivative checks pending. |
-| NEO-EQ | In progress | Actual pressure/current complex sparse paths identified; native adapter and application build checks pending. |
-| NEO-RT | Default path independent | Optional non-standalone path inherits NEO-2; update its dependency after a qualified NEO-2 revision exists. |
+| FortFEM | [Draft PR 82](https://github.com/lazy-fortran/fortfem/pull/82) | Native CMake/fpm checks pass. Preserves KIN6D's newer scientific modules; exact Hermitian Gram assembly fixed and independently checked upstream. Nine-repeat adapter CPU/RSS table included; that table predates the Gram fix. |
+| NEO-2 | [Draft PR 212](https://github.com/itpplasma/NEO-2/pull/212) | PAR/QL builds and all four focused checks pass, including the unchanged spline gate after upstream row-singleton preprocessing. Lorentz stages complete; strict application golden still fails. Fresh legacy repeats have identical scientific datasets but differing metadata. Draft reports native CPU +7.07%, largest-process RSS +3.71% for the matched Lorentz run. Not ready to merge. |
+| MEPHIT | [Draft PR 71](https://github.com/itpplasma/MEPHIT/pull/71) | Native FDM, both optional MFEM sites and shared FreeFem module. Stock 10/10 and minimal-runtime/MFEM 11/11 focused checks pass; complete cylinder passes unchanged scientific gates. Corrected stock-native CPU +20.89%; component RSS and optional-runtime results included. Failed initial IPC run and its bounded protocol repair retained. |
+| KAMEL | [Draft PR 357](https://github.com/itpplasma/KAMEL/pull/357) | Actual KIM/QL builds and 11 affected checks pass. Matched five-case CPU/RSS table included; long periodic/global CPU -0.7%, RSS +2.4%. Coarse diagnostics remain explicitly qualified; full golden/cross-platform admission pending. |
+| KIN6D | In progress | Native-only branch pushed with updated FortFEM, explicit AMD KKT/general ordering and explicit assembly-roundoff normalization. Final affected physics/derivative checks and matched measurements pending. |
+| NEO-EQ | [Draft PR 9](https://github.com/itpplasma/NEO-EQ/pull/9) | Native pressure/current and shared FreeFem Ampere paths build; three affected checks and fresh component CI pass. Three-repeat CPU/RSS tables included. Full physical run blocked by stale minimal input and missing current device field data; no tolerance/control relaxation. FreeFem runtime migration is not an isolated solver comparison. |
+| NEO-RT | [Draft PR 198](https://github.com/itpplasma/NEO-RT/pull/198) | Optional coupling pins native NEO-2; default standalone remains independent and three focused checks pass with CPU/RSS tables. Optional application compile is blocked by an existing incompatible field-adapter interface; optional-native runtime deltas unavailable. |
 
 The audited default paths of libneo, SIMPLE, GORILLA/GORILLA_APPLETS, ARES,
 NEO, tiago, KiLCA/KiLCA-FLR2 and REALSPACE_WITH_COLLISIONS have no external
@@ -31,8 +31,15 @@ consumer tolerances. An external fallback or a smaller residual alone does not
 establish scientific equivalence. Keep failures visible in draft PRs, repair
 generic defects upstream, then pin and recheck the original consumer.
 
+Every draft includes baseline/native CPU seconds, individual-process peak RSS,
+absolute/relative deltas, exact tested commands, repeats, thread settings and
+correctness status. Short process timings include startup. Failed or unbuilt
+paths have no successful comparison. Multi-process component peaks are not an
+aggregate concurrent peak, and waited-descendant CPU is counted only once.
+These shared-host migration observations do not establish a Pareto-front claim.
+
 The FortSparse public C ABI and native-default fpm configuration support these
 migrations. C ABI input conversion and solve staging do not yet expose a strict
-user memory cap. Explicit-AMD real SPD CPU factors support payload caps and
-refinement; ordered planning and strict ND/GPU caps remain unsupported. These
+user memory cap. Explicit-AMD real SPD and pivoted LDLT CPU factors support
+payload caps; ordered planning and strict ND/GPU caps remain unsupported. These
 limits and the later CPU/GPU Pareto requirement remain active roadmap work.
