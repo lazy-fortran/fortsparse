@@ -290,7 +290,7 @@ static int32_t do_solve_real(fsparse_shm_header *h, void *region, factors_t *f)
     /* Reads the RHS from off_b and writes the solution to off_x. When both are
      * fortsparse vectors in shared memory, UMFPACK reads and writes the caller's
      * slots directly, so the solve copies nothing. */
-    st = umfpack_dl_solve(UMFPACK_A, colptr, rowidx, ax, x, b, f->numeric,
+    st = umfpack_dl_solve(h->opcode == FSPARSE_OP_SOLVE_REAL_T ? UMFPACK_At : UMFPACK_A, colptr, rowidx, ax, x, b, f->numeric,
                           Control, NULL);
     return norm_status(st);
 }
@@ -311,7 +311,8 @@ static int32_t do_solve_complex(fsparse_shm_header *h, void *region,
 
     if (f->numeric == NULL) return FSPARSE_ST_ERROR;
     solve_control(h, Control);
-    st = umfpack_zl_solve(UMFPACK_A, colptr, rowidx, ax, az, xx, xz, bx, bz,
+    st = umfpack_zl_solve(h->opcode == FSPARSE_OP_SOLVE_COMPLEX_T ? UMFPACK_Aat :
+                          h->opcode == FSPARSE_OP_SOLVE_COMPLEX_H ? UMFPACK_At : UMFPACK_A, colptr, rowidx, ax, az, xx, xz, bx, bz,
                           f->numeric, Control, NULL);
     return norm_status(st);
 }
@@ -325,6 +326,12 @@ static int dispatch(fsparse_shm_header *h, void *region, factors_t *f)
             h->factor_protocol = 2;
             h->status = FSPARSE_ST_OK;
         }
+        /* Retained op negotiation uses only the existing fixed header.
+         * Request 1/response 2 remains the factor-controls protocol. */
+        if (h->factor_protocol == 3) {
+            h->factor_protocol = 4;
+            h->status = FSPARSE_ST_OK;
+        }
         return 0;
     case FSPARSE_OP_FACTOR_REAL:
         h->status = do_factor_real(h, region, f);
@@ -332,9 +339,12 @@ static int dispatch(fsparse_shm_header *h, void *region, factors_t *f)
     case FSPARSE_OP_FACTOR_COMPLEX:
         h->status = do_factor_complex(h, region, f);
         return 0;
+    case FSPARSE_OP_SOLVE_REAL_T:
     case FSPARSE_OP_SOLVE_REAL:
         h->status = do_solve_real(h, region, f);
         return 0;
+    case FSPARSE_OP_SOLVE_COMPLEX_T:
+    case FSPARSE_OP_SOLVE_COMPLEX_H:
     case FSPARSE_OP_SOLVE_COMPLEX:
         h->status = do_solve_complex(h, region, f);
         return 0;

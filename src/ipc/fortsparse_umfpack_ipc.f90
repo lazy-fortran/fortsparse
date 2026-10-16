@@ -11,7 +11,8 @@ module fortsparse_umfpack_ipc
         c_null_char, c_size_t
     use fortsparse_kinds, only: dp, i8
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t
+    use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
+                                  FORTSPARSE_OP_NORMAL
     use fortsparse_csc, only: csc_t, csc_z_t
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
@@ -19,7 +20,7 @@ module fortsparse_umfpack_ipc
         FORTSPARSE_NOT_FACTORED, FORTSPARSE_RESOURCE_LIMIT
     use fortsparse_ipc_proto, only: shm_header_t, &
         OP_FACTOR_REAL, OP_FACTOR_COMPLEX, OP_SOLVE_REAL, OP_SOLVE_COMPLEX, &
-        OP_CAPABILITIES, &
+             OP_CAPABILITIES, OP_SOLVE_REAL_T, OP_SOLVE_COMPLEX_T, OP_SOLVE_COMPLEX_H, &
         ST_OK, ST_SINGULAR, ST_RESOURCE_LIMIT, find_helper
     implicit none
     private
@@ -40,6 +41,7 @@ module fortsparse_umfpack_ipc
         integer     :: pool_next = 0 ! next free pool slot
         integer     :: n = 0
         logical     :: is_complex = .false.
+        logical :: op_checked = .false., op_supported = .false.
         type(sparse_factor_stats_t) :: stats
     contains
         procedure :: factor_real => umf_factor_real
@@ -50,6 +52,8 @@ module fortsparse_umfpack_ipc
         procedure :: solve_complex => umf_solve_complex
         procedure :: solve_real_inplace => umf_solve_real_inplace
         procedure :: solve_complex_inplace => umf_solve_complex_inplace
+        procedure :: solve_real_op => umf_solve_real_op
+        procedure :: solve_complex_op => umf_solve_complex_op
         procedure :: vector => umf_vector
         procedure :: free => umf_free
         procedure :: factor_stats => umf_stats
@@ -217,12 +221,32 @@ contains
         real(dp), target, contiguous, intent(in)    :: b(:)
         real(dp), target, contiguous, intent(out)   :: x(:)
         type(fortsparse_status_t),    intent(out)   :: status
+        call umf_solve_real_op(self, b, x, FORTSPARSE_OP_NORMAL, status)
+    end subroutine umf_solve_real
 
+    subroutine umf_solve_real_op(self, b, x, operation, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(in)    :: b(:)
+        real(dp), target, contiguous, intent(out)   :: x(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        integer, intent(in) :: operation
+        integer(c_int32_t) :: opcode
         type(shm_header_t), pointer :: h
         integer(i8)                 :: o_b_fixed, o_x_fixed
         integer(c_int64_t)          :: ob, ox
 
         if (no_session(self, status)) return
+        if (size(b) /= self%n .or. size(x) /= self%n .or. self%is_complex) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                            "umfpack ipc: incompatible solve dimensions or factor type")
+            return
+        end if
+        opcode = OP_SOLVE_REAL
+        if (operation /= FORTSPARSE_OP_NORMAL) then
+            if (.not. retained_ops_available(self, status)) return
+            opcode = OP_SOLVE_REAL_T
+        end if
         call header_of(self%sess, h)
         o_b_fixed = fsparse_ipc_header_bytes()
         o_x_fixed = o_b_fixed + int(self%n, i8)*8_i8
@@ -243,10 +267,10 @@ contains
         else
             h%off_x = int(o_x_fixed, c_int64_t)
         end if
-        call run(self, OP_SOLVE_REAL, status)
+        call run(self, opcode, status)
         if (status%code /= FORTSPARSE_OK) return
         if (ox < 0_c_int64_t) call read_real(self%sess, o_x_fixed, x)
-    end subroutine umf_solve_real
+    end subroutine umf_solve_real_op
 
     ! Solve a complex RHS through the resident factorization.
     subroutine umf_solve_complex(self, b, x, status)
@@ -254,16 +278,37 @@ contains
         complex(dp),                  intent(in)    :: b(:)
         complex(dp),                  intent(out)   :: x(:)
         type(fortsparse_status_t),    intent(out)   :: status
+        call umf_solve_complex_op(self, b, x, FORTSPARSE_OP_NORMAL, status)
+    end subroutine umf_solve_complex
 
+    subroutine umf_solve_complex_op(self, b, x, operation, status)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        complex(dp), intent(in)    :: b(:)
+        complex(dp), intent(out)   :: x(:)
+        type(fortsparse_status_t), intent(out)   :: status
+
+        integer, intent(in) :: operation
+        integer(c_int32_t) :: opcode
         type(shm_header_t), pointer :: h
 
         if (no_session(self, status)) return
+        if (size(b) /= self%n .or. size(x) /= self%n .or. .not. self%is_complex) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                            "umfpack ipc: incompatible solve dimensions or factor type")
+            return
+        end if
+        opcode = OP_SOLVE_COMPLEX
+        if (operation /= FORTSPARSE_OP_NORMAL) then
+            if (.not. retained_ops_available(self, status)) return
+            opcode = OP_SOLVE_COMPLEX_T
+            if (operation == 2) opcode = OP_SOLVE_COMPLEX_H
+        end if
         call header_of(self%sess, h)
         call write_split(self%sess, int(h%off_b, i8), int(h%off_bz, i8), b)
-        call run(self, OP_SOLVE_COMPLEX, status)
+        call run(self, opcode, status)
         if (status%code /= FORTSPARSE_OK) return
         call read_split(self%sess, int(h%off_x, i8), int(h%off_xz, i8), x)
-    end subroutine umf_solve_complex
+    end subroutine umf_solve_complex_op
 
     ! In-place real solve: write the RHS from b, then read the solution back
     ! into b. Saves the caller a temporary and the final copy a separate-output
@@ -338,6 +383,8 @@ contains
         self%pool_next = 0
         self%n = 0
         self%is_complex = .false.
+        self%op_checked = .false.
+        self%op_supported = .false.
     end subroutine umf_free
 
     ! Shut the helper down when the backend is destroyed. Runs automatically when
@@ -411,6 +458,26 @@ contains
             call status_set(status, FORTSPARSE_OK, "")
         end if
     end function no_session
+
+    logical function retained_ops_available(self, status) result(available)
+        class(umfpack_ipc_backend_t), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        type(shm_header_t), pointer :: h
+        integer(c_int) :: reply
+        if (.not. self%op_checked) then
+            call header_of(self%sess, h)
+            h%opcode = OP_CAPABILITIES
+            h%factor_protocol = 3_c_int64_t
+            reply = fsparse_ipc_call(self%sess)
+            self%op_supported = reply == ST_OK .and. h%factor_protocol == 4_c_int64_t
+            self%op_checked = .true.
+            h%factor_protocol = 2_c_int64_t
+        end if
+        available = self%op_supported
+        call status_set(status, FORTSPARSE_OK, "")
+        if (.not. available) call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                          "umfpack ipc: helper lacks retained transpose/adjoint solves")
+    end function retained_ops_available
 
     ! Post an opcode and map the helper's normalized status onto fortsparse.
     subroutine run(self, opcode, status)

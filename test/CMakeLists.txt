@@ -351,3 +351,38 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     add_test(NAME test_native_refinement_allocations COMMAND test_native_refinement_allocations)
     set_tests_properties(test_native_refinement_allocations PROPERTIES LABELS "native;refinement;fast" TIMEOUT 1)
 endif()
+
+# Independent dense manufactured RHS tests for retained N/T/H on external factors.
+add_executable(test_external_retained_ops ../test-cmake/test_external_retained_ops.F90)
+target_link_libraries(test_external_retained_ops PRIVATE fortsparse)
+if(FORTSPARSE_ENABLE_MUMPS)
+    target_compile_definitions(test_external_retained_ops PRIVATE FS_TEST_MUMPS)
+    target_link_libraries(test_external_retained_ops PRIVATE fs_test_mpi)
+endif()
+foreach(_backend IN ITEMS superlu umfpack mumps)
+    if(_backend STREQUAL "superlu")
+        set(_id 1)
+    elseif(_backend STREQUAL "umfpack")
+        set(_id 2)
+    else()
+        set(_id 3)
+    endif()
+    add_test(NAME test_external_retained_ops_${_backend}
+        COMMAND test_external_retained_ops ${_id})
+    set_tests_properties(test_external_retained_ops_${_backend} PROPERTIES
+        SKIP_RETURN_CODE 77 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endforeach()
+if(TARGET fortsparse_umfpack_helper)
+    add_dependencies(test_external_retained_ops fortsparse_umfpack_helper)
+    set_tests_properties(test_external_retained_ops_umfpack PROPERTIES
+        ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:fortsparse_umfpack_helper>;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    add_executable(test_factor_only_umfpack_helper ../test-cmake/ipc/test_factor_only_umfpack_helper.c)
+    target_include_directories(test_factor_only_umfpack_helper PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    target_link_libraries(test_factor_only_umfpack_helper PRIVATE ${FORTSPARSE_UMFPACK_TARGET} Threads::Threads)
+    if(NOT WIN32)
+        target_link_libraries(test_factor_only_umfpack_helper PRIVATE m)
+    endif()
+    add_test(NAME test_external_retained_ops_stale COMMAND test_external_retained_ops 2 stale)
+    set_tests_properties(test_external_retained_ops_stale PROPERTIES
+        ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:test_factor_only_umfpack_helper>;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

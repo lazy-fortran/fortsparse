@@ -35,6 +35,13 @@ int fsparse_mumps_solve_z(void *handle, int nrhs, void *rhs, long ld,
     return -2000;
 }
 
+int fsparse_mumps_solve_op_z(void *handle, int nrhs, void *rhs, long ld,
+                             int operation, int *info2)
+{
+    (void) operation;
+    return fsparse_mumps_solve_z(handle, nrhs, rhs, ld, info2);
+}
+
 void fsparse_mumps_stats_z(void *handle, long *istat, double *rstat)
 {
     (void) handle; (void) istat; (void) rstat;

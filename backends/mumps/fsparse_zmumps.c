@@ -290,8 +290,8 @@ mismatch:
     return -1;
 }
 
-int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
-                          long ld, int *info2)
+int fsparse_mumps_solve_op_z(void *handle, int nrhs, mumps_double_complex *rhs,
+                          long ld, int operation, int *info2)
 {
     fsparse_zmumps_t *h = (fsparse_zmumps_t *) handle;
 
@@ -299,12 +299,29 @@ int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
         *info2 = 0;
         return -1004;
     }
+    if (operation < 0 || operation > 2) { *info2 = 0; return -1005; }
     h->id.nrhs = nrhs;
     h->id.lrhs = (MUMPS_INT) ld;
     h->id.rhs = rhs;
+    /* MUMPS zsol_driver.F: ICNTL(9)=1 is A, other values are A^T.
+     * A^H x=b is conj(A^T\conj(b)); symmetric mode ignores ICNTL(9). */
+    h->id.ICN(9) = operation == 0 ? 1 : 0;
+    if (operation == 2)
+        for (int j = 0; j < nrhs; ++j)
+            for (long i = 0; i < h->id.n; ++i) rhs[j*ld+i].i = -rhs[j*ld+i].i;
     mumps_call(h, 3);
+    if (operation == 2)
+        for (int j = 0; j < nrhs; ++j)
+            for (long i = 0; i < h->id.n; ++i) rhs[j*ld+i].i = -rhs[j*ld+i].i;
+    h->id.ICN(9) = 1;
     *info2 = h->id.INFOG(2);
     return h->id.INFOG(1);
+}
+
+int fsparse_mumps_solve_z(void *handle, int nrhs, mumps_double_complex *rhs,
+                          long ld, int *info2)
+{
+    return fsparse_mumps_solve_op_z(handle, nrhs, rhs, ld, 0, info2);
 }
 
 /* Same layout as fsparse_mumps_stats_d. */

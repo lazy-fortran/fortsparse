@@ -218,21 +218,28 @@ int fsparse_slu_refactor_d(void *handle, int n, int nnz, const int *colptr1,
     return 0;
 }
 
-int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n)
+int fsparse_slu_solve_op_d(void *handle, const double *b, double *x, long n,
+                            int operation)
 {
     slu_real_t *h = (slu_real_t *) handle;
     SuperMatrix B;
     SuperLUStat_t stat;
     int info = 0;
 
-    if (h == NULL) return -1;
+    if (h == NULL || n != h->n || operation < 0 || operation > 2) return -1;
     memcpy(x, b, (size_t) n * sizeof(double));
     dCreate_Dense_Matrix(&B, (int) n, 1, x, (int) n, SLU_DN, SLU_D, SLU_GE);
     StatInit(&stat);
-    dgstrs(NOTRANS, &h->L, &h->U, h->perm_c, h->perm_r, &B, &stat, &info);
+    dgstrs(operation == 0 ? NOTRANS : TRANS, &h->L, &h->U,
+           h->perm_c, h->perm_r, &B, &stat, &info);
     StatFree(&stat);
     Destroy_SuperMatrix_Store(&B);
     return info;
+}
+
+int fsparse_slu_solve_d(void *handle, const double *b, double *x, long n)
+{
+    return fsparse_slu_solve_op_d(handle, b, x, n, 0);
 }
 
 void fsparse_slu_free_d(void *handle)
@@ -309,22 +316,29 @@ void *fsparse_slu_factor_z(long n, long nnz, const long *colptr1,
     return h;
 }
 
-int fsparse_slu_solve_z(void *handle, const double *b, double *x, long n)
+int fsparse_slu_solve_op_z(void *handle, const double *b, double *x, long n,
+                            int operation)
 {
     slu_cplx_t *h = (slu_cplx_t *) handle;
     SuperMatrix B;
     SuperLUStat_t stat;
     int info = 0;
 
-    if (h == NULL) return -1;
+    if (h == NULL || n != h->n || operation < 0 || operation > 2) return -1;
     memcpy(x, b, (size_t) n * sizeof(doublecomplex));
     zCreate_Dense_Matrix(&B, (int) n, 1, (doublecomplex *) x, (int) n, SLU_DN,
                          SLU_Z, SLU_GE);
     StatInit(&stat);
-    zgstrs(NOTRANS, &h->L, &h->U, h->perm_c, h->perm_r, &B, &stat, &info);
+    zgstrs(operation == 0 ? NOTRANS : (operation == 1 ? TRANS : CONJ),
+           &h->L, &h->U, h->perm_c, h->perm_r, &B, &stat, &info);
     StatFree(&stat);
     Destroy_SuperMatrix_Store(&B);
     return info;
+}
+
+int fsparse_slu_solve_z(void *handle, const double *b, double *x, long n)
+{
+    return fsparse_slu_solve_op_z(handle, b, x, n, 0);
 }
 
 void fsparse_slu_free_z(void *handle)

@@ -24,7 +24,10 @@ enum {
     FSPARSE_OP_SOLVE_COMPLEX = 4,
     FSPARSE_OP_FREE = 5,
     FSPARSE_OP_SHUTDOWN = 6,
-    FSPARSE_OP_CAPABILITIES = 7
+    FSPARSE_OP_CAPABILITIES = 7,
+    FSPARSE_OP_SOLVE_REAL_T = 8,
+    FSPARSE_OP_SOLVE_COMPLEX_T = 9,
+    FSPARSE_OP_SOLVE_COMPLEX_H = 10
 };
 
 /* Normalized status codes written by the helper into header->status. */
@@ -54,7 +57,7 @@ typedef struct fsparse_shm_header {
     int64_t off_x;      /* double solution (real, or complex real parts) */
     int64_t off_xz;     /* double complex solution imaginary parts */
     int64_t data_bytes; /* size of the data region after the header */
-    int64_t factor_protocol; /* request1 -> response2; rejects stale helpers */
+    int64_t factor_protocol; /* factor CAPS 1->2, retained-op CAPS 3->4; fixed layout */
     double pivot_tolerance;
     int64_t memory_budget_bytes;
     int64_t symbolic_peak_bytes;

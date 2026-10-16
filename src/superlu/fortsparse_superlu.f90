@@ -5,9 +5,10 @@ module fortsparse_superlu
     ! 0-based int_t internally. The opaque factorization lives behind a c_ptr
     ! held in the backend object and is reused for every solve.
     use, intrinsic :: iso_c_binding, only: c_ptr, c_null_ptr, c_associated, &
-        c_int, c_int64_t, c_double
+                                            c_int, c_int64_t, c_double, c_double_complex
     use fortsparse_kinds, only: dp, i8
-    use fortsparse_backend, only: sparse_backend_t, FORTSPARSE_SYM_GENERAL
+    use fortsparse_backend, only: sparse_backend_t, FORTSPARSE_SYM_GENERAL, &
+                                  FORTSPARSE_OP_NORMAL
     use fortsparse_csc, only: csc_t, csc_z_t, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_SINGULAR, FORTSPARSE_INTERNAL_ERROR, &
@@ -39,6 +40,8 @@ module fortsparse_superlu
         type(csc_z_t) :: a_cplx
         real(dp),    allocatable :: xbuf(:)
         complex(dp), allocatable :: zbuf(:)
+        real(dp), allocatable :: residual_real(:), correction_real(:)
+        complex(dp), allocatable :: residual_complex(:), correction_complex(:)
         type(rvec_t), allocatable :: vlist(:) ! vectors handed out by vector()
         integer                   :: nvec = 0
     contains
@@ -51,6 +54,8 @@ module fortsparse_superlu
         procedure :: solve_complex => slu_solve_complex
         procedure :: solve_real_inplace => slu_solve_real_inplace
         procedure :: solve_complex_inplace => slu_solve_complex_inplace
+        procedure :: solve_real_op => slu_solve_real_op
+        procedure :: solve_complex_op => slu_solve_complex_op
         procedure :: vector => slu_vector
         procedure :: free => slu_free
         final :: slu_final
@@ -119,6 +124,26 @@ module fortsparse_superlu
             import :: c_ptr
             type(c_ptr), value :: h
         end subroutine fsparse_slu_free_z
+
+        integer(c_int) function fsparse_slu_solve_op_d(h, b, x, n, op) &
+            bind(c, name="fsparse_slu_solve_op_d")
+            import :: c_ptr, c_int, c_int64_t, c_double, c_double_complex
+            type(c_ptr), value :: h
+            real(c_double), intent(in) :: b(*)
+            real(c_double), intent(out) :: x(*)
+            integer(c_int64_t), value :: n
+            integer(c_int), value :: op
+        end function fsparse_slu_solve_op_d
+
+        integer(c_int) function fsparse_slu_solve_op_z(h, b, x, n, op) &
+            bind(c, name="fsparse_slu_solve_op_z")
+            import :: c_ptr, c_int, c_int64_t, c_double, c_double_complex
+            type(c_ptr), value :: h
+            complex(c_double_complex), intent(in) :: b(*)
+            complex(c_double_complex), intent(out) :: x(*)
+            integer(c_int64_t), value :: n
+            integer(c_int), value :: op
+        end function fsparse_slu_solve_op_z
 
     end interface
 
@@ -252,55 +277,99 @@ contains
         real(dp), target, contiguous, intent(in)    :: b(:)
         real(dp), target, contiguous, intent(out)   :: x(:)
         type(fortsparse_status_t),    intent(out)   :: status
-
-        real(dp), allocatable :: r(:), dx(:)
-        integer(c_int)        :: info
-        integer               :: step
-
-        info = fsparse_slu_solve_d(self%h_real, b, x, int(size(b), i8))
-        call map_solve_status(info, status)
-        if (info /= 0 .or. .not. self%refine) return
-        allocate (dx(size(b)))
-        do step = 1, REFINE_STEPS
-            r = b - csc_matvec(self%a_real, x)
-            info = fsparse_slu_solve_d(self%h_real, r, dx, int(size(b), i8))
-            if (info /= 0) exit
-            x = x + dx
-        end do
-        call map_solve_status(info, status)
+        call slu_solve_real_op(self, b, x, FORTSPARSE_OP_NORMAL, status)
     end subroutine slu_solve_real
 
-    ! Solve A x = b for a complex RHS using the retained factorization.
+    subroutine slu_solve_real_op(self, b, x, operation, status)
+        class(superlu_backend_t), intent(inout) :: self
+        real(dp), target, contiguous, intent(in) :: b(:)
+        real(dp), target, contiguous, intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
+        integer(c_int)        :: info
+        integer :: step, j, k
+        real(dp) :: coefficient
+        info = fsparse_slu_solve_op_d(self%h_real, b, x, &
+                                      int(size(b), i8), int(operation, c_int))
+        call map_solve_status(info, status)
+        if (info /= 0 .or. .not. self%refine) return
+        if (.not. allocated(self%residual_real)) then
+            allocate (self%residual_real(size(b)), self%correction_real(size(b)))
+        end if
+        do step = 1, REFINE_STEPS
+            self%residual_real = b
+            do j = 1, self%a_real%ncol
+                do k = self%a_real%col_ptr(j), &
+                    self%a_real%col_ptr(j + 1) - 1
+                    coefficient = self%a_real%val(k)
+                    if (operation == 0) then
+                        self%residual_real(self%a_real%row_idx(k)) = &
+                            self%residual_real(self%a_real%row_idx(k)) - &
+                            coefficient*x(j)
+                    else
+                        self%residual_real(j) = self%residual_real(j) - &
+                                                coefficient*x(self%a_real%row_idx(k))
+                    end if
+                end do
+            end do
+            info = fsparse_slu_solve_op_d(self%h_real, &
+                           self%residual_real, self%correction_real, int(size(b), i8), &
+                                          int(operation, c_int))
+            if (info /= 0) exit
+            x = x + self%correction_real
+        end do
+        call map_solve_status(info, status)
+    end subroutine slu_solve_real_op
+
     subroutine slu_solve_complex(self, b, x, status)
         class(superlu_backend_t),  intent(inout) :: self
         complex(dp),               intent(in)    :: b(:)
         complex(dp),               intent(out)   :: x(:)
         type(fortsparse_status_t), intent(out)   :: status
+        call slu_solve_complex_op(self, b, x, FORTSPARSE_OP_NORMAL, status)
+    end subroutine slu_solve_complex
 
-        real(dp), allocatable    :: bi(:), xi(:), ri(:), dxi(:)
-        complex(dp), allocatable :: r(:), dx(:)
+    subroutine slu_solve_complex_op(self, b, x, operation, status)
+        class(superlu_backend_t), intent(inout) :: self
+        complex(dp), intent(in) :: b(:)
+        complex(dp), intent(out) :: x(:)
+        integer, intent(in) :: operation
+        type(fortsparse_status_t), intent(out) :: status
         integer(c_int)           :: info
-        integer                  :: n, step
-
-        n = size(b)
-        bi = interleave_complex(b)
-        allocate (xi(2*n))
-        info = fsparse_slu_solve_z(self%h_cplx, bi, xi, int(n, i8))
+        integer :: step, j, k
+        complex(dp) :: coefficient
+        info = fsparse_slu_solve_op_z(self%h_cplx, b, x, &
+                                      int(size(b), i8), int(operation, c_int))
         call map_solve_status(info, status)
-        if (info /= 0) return
-        x = deinterleave_complex(xi)
-        if (.not. self%refine) return
-        allocate (dxi(2*n))
+        if (info /= 0 .or. .not. self%refine) return
+        if (.not. allocated(self%residual_complex)) then
+            allocate (self%residual_complex(size(b)), self%correction_complex(size(b)))
+        end if
         do step = 1, REFINE_STEPS
-            r = b - csc_matvec(self%a_cplx, x)
-            ri = interleave_complex(r)
-            info = fsparse_slu_solve_z(self%h_cplx, ri, dxi, int(n, i8))
+            self%residual_complex = b
+            do j = 1, self%a_cplx%ncol
+                do k = self%a_cplx%col_ptr(j), &
+                    self%a_cplx%col_ptr(j + 1) - 1
+                    coefficient = self%a_cplx%val(k)
+                    if (operation == 2) coefficient = conjg(coefficient)
+                    if (operation == 0) then
+                        self%residual_complex(self%a_cplx%row_idx(k)) = &
+                            self%residual_complex(self%a_cplx%row_idx(k)) - &
+                            coefficient*x(j)
+                    else
+                        self%residual_complex(j) = self%residual_complex(j) - &
+                                                   coefficient*x(self%a_cplx%row_idx(k))
+                    end if
+                end do
+            end do
+            info = fsparse_slu_solve_op_z(self%h_cplx, &
+                     self%residual_complex, self%correction_complex, int(size(b), i8), &
+                                          int(operation, c_int))
             if (info /= 0) exit
-            dx = deinterleave_complex(dxi)
-            x = x + dx
+            x = x + self%correction_complex
         end do
         call map_solve_status(info, status)
-    end subroutine slu_solve_complex
+    end subroutine slu_solve_complex_op
 
     ! In-place real solve: b is the RHS on entry, the solution on return. Uses a
     ! backend-held scratch (grown once, not per solve) so the in-process solve
@@ -367,6 +436,12 @@ contains
         self%h_cplx = c_null_ptr
         self%is_complex = .false.
         self%refine = .false.
+        if (allocated(self%residual_real)) then
+            deallocate (self%residual_real, self%correction_real)
+        end if
+        if (allocated(self%residual_complex)) then
+            deallocate (self%residual_complex, self%correction_complex)
+        end if
         self%a_real = csc_t()
         self%a_cplx = csc_z_t()
     end subroutine slu_free
