@@ -939,6 +939,8 @@ contains
             select type (backend => solver%backend)
             type is (native_backend_t)
                 backend%reference_only = id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
+            type is (native_general_backend_t)
+                backend%reference_only = id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
             end select
 #ifdef FORTSPARSE_HAVE_SUPERLU
         case (FORTSPARSE_BACKEND_SUPERLU)
@@ -967,6 +969,8 @@ contains
         backend_is = .false.
         select type (backend)
             type is (native_general_backend_t)
+            if (backend%reference_only .neqv. &
+                (backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE)) return
             backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE .or. &
                 backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE) .and. &
                 (is_complex .or. symmetry /= FORTSPARSE_SYM_SPD)

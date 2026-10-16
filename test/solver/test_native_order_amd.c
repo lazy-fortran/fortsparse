@@ -2,6 +2,7 @@
 #include <string.h>
 
 int fsparse_native_order_amd(int, int, const int *, const int *, int *, int *);
+int fsparse_native_order_amd_general(int, int, const int *, const int *, int *, int *);
 
 static int check_inverse(const int *perm, const int *inverse, int n) {
     for (int i = 0; i < n; ++i) {
@@ -42,9 +43,23 @@ int main(void) {
     const int empty_ptr[4] = {1, 1, 1, 1};
     if (fsparse_native_order_amd(3, 0, empty_ptr, NULL, perm, inverse) != 0 ||
         !check_inverse(perm, inverse, 3)) return 9;
+    /* Genuinely one-way edges: AMD forms its own A+A^T ordering graph. */
+    const int general_ptr[6] = {1, 3, 5, 7, 9, 10};
+    const int general_row[9] = {1, 3, 2, 5, 3, 4, 1, 4, 5};
+    if (fsparse_native_order_amd_general(5, 9, general_ptr, general_row,
+                                        perm, inverse) != 0 ||
+        !check_inverse(perm, inverse, 5)) return 11;
+    if (fsparse_native_order_amd(5, 9, general_ptr, general_row, perm, inverse) != 2)
+        return 12;
+    if (fsparse_native_order_amd_general(2, 2, bad_ptr, row, perm, inverse) != 2 ||
+        fsparse_native_order_amd_general(2, 2, two_ptr, bad_row, perm, inverse) != 2 ||
+        fsparse_native_order_amd_general(2, 2, duplicate_ptr, duplicate_row,
+                                        perm, inverse) != 2) return 13;
 #else
     (void)check_inverse; (void)again; (void)again_inverse;
     if (status != 3) return 10;
+    if (fsparse_native_order_amd_general(6, 18, ptr, row, perm, inverse) != 3)
+        return 14;
 #endif
     puts("PASS AMD permutation, inverse, deterministic ordering and status");
     return 0;

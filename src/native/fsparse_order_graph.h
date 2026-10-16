@@ -14,8 +14,8 @@ static int fsparse_graph_has_row(const int *ptr, const int *row,
     return lo < ptr[column + 1] - 1 && row[lo] == wanted;
 }
 
-/* Full symmetric canonical CSC, with one-based indices. */
-static int fsparse_graph_valid(int n, int nnz, const int *ptr, const int *row) {
+/* Canonical square CSC, with one-based indices; symmetry is optional. */
+static int fsparse_csc_graph_valid(int n, int nnz, const int *ptr, const int *row) {
     if (n <= 0 || nnz < 0 || nnz == INT_MAX || !ptr) return 0;
     if (nnz && !row) return 0;
     if (ptr[0] != 1 || ptr[n] != nnz + 1) return 0;
@@ -29,6 +29,12 @@ static int fsparse_graph_valid(int n, int nnz, const int *ptr, const int *row) {
             previous = row[entry];
         }
     }
+    return 1;
+}
+
+/* Preserve the SPD/METIS contract: every off-diagonal edge is mirrored. */
+static int fsparse_graph_valid(int n, int nnz, const int *ptr, const int *row) {
+    if (!fsparse_csc_graph_valid(n, nnz, ptr, row)) return 0;
     for (int col = 0; col < n; ++col) {
         for (int entry = ptr[col] - 1; entry < ptr[col + 1] - 1; ++entry) {
             if (row[entry] != col + 1 &&

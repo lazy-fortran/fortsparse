@@ -408,3 +408,16 @@ fortsparse_add_test(test_fortsparse_refined_memory_plan solver/test_fortsparse_r
 set_tests_properties(test_fortsparse_refined_memory_plan PROPERTIES
     LABELS "native;refinement;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_general_amd
+        ../test-cmake/native/test_general_amd.f90
+        ../test-cmake/native/count_general_amd.c)
+    target_link_libraries(test_general_amd PRIVATE fortsparse)
+    target_link_options(test_general_amd PRIVATE
+        "LINKER:--wrap=fsparse_native_order_amd_general")
+    if(FORTSPARSE_NATIVE_AMD_FOUND)
+        target_compile_definitions(test_general_amd PRIVATE FORTSPARSE_TEST_AMD)
+    endif()
+    add_test(NAME test_general_amd COMMAND test_general_amd)
+    set_tests_properties(test_general_amd PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+endif()
