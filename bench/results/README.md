@@ -10,6 +10,11 @@ The [GPU device-solve checkpoint](2026-10-16-gpu-device-solve.md) retains
 prior GPU-factor/CPU-solve binary. It is shared-GPU diagnostic evidence with
 319 passes and one retained timeout, rather than a performance admission.
 
+The [general-LU target-panel experiments](2026-10-16-lu-panels/README.md)
+retain all 60 internal A/B observations and portable plot recipes. All
+correctness gates pass, but the captured case remains slower than scalar
+execution; no default or external-frontier admission follows.
+
 ## 2026-10-16: simplicial reference checkpoint
 
 This is an intermediate reference, not the competitive production MVP.

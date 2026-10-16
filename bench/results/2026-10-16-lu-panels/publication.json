@@ -1,0 +1,7 @@
+{
+  "url": "https://box.sloppy.at/d0a8e.png",
+  "expires_after_days": 3,
+  "png_sha256": "046fdb349edd298beba9f2378e849635b0ef0d71d060d40f2c55487af0539d98",
+  "recipe": "python plot.py trials.csv OUTPUT_DIR",
+  "scope": "60 internal width-one/eight trials; no external-frontier or default admission"
+}
