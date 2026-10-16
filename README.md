@@ -9,11 +9,17 @@ integer tag on the solver; switching it never changes the calling code.
 The [roadmap](ROADMAP.md) defines the native single-node solver development
 track, generated CPU/GPU kernels and performance/memory admission gates.
 
+The [measured real-SPD MVP](bench/results/2026-10-16-mvp.md) is on the observed
+CPU time/memory Pareto front for all 115 frozen case/workload groups, including
+held-out coefficients and HB/bcsstk09. This uses explicit measured ordering and
+thread configurations. CUDA correctness is verified; GPU performance is not
+admitted on this corpus. The report retains ranges, CPU costs and limitations.
+
 `FORTSPARSE_BACKEND_NATIVE` selects the developing project-owned real SPD
 Cholesky solver. Set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
 supply full symmetric CSC with strictly sorted, unique row indices and finite
-values; `csc_from_triplet` canonicalizes duplicates and ordering. The reference
-uses a simplicial path for low fill and blocked OpenMP tasks for larger fronts.
+values; `csc_from_triplet` canonicalizes duplicates and ordering. The native
+backend uses a simplicial path for low fill and blocked OpenMP tasks for larger fronts.
 Optional BSD AMD provides default ordering for larger non-banded systems,
 with METIS nested dissection as an alternative. Explicit
 `FORTSPARSE_ORDER_AMD` and `FORTSPARSE_ORDER_ND` require the corresponding

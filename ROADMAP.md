@@ -47,6 +47,14 @@ status-bearing solve contracts.
 These implementation checks do not establish performance admission. The frozen
 corpus, external baselines and current per-case results live in `bench/`.
 
+The [2026-10-16 CPU MVP report](bench/results/2026-10-16-mvp.md) now establishes
+robust observed-range nondominance for all 115 frozen case/workload groups on
+the declared host, separately for elapsed/RSS and whole-workflow CPU/RSS.
+The stronger same-comparator gate passes 109 groups; four remain indeterminate
+and two are nondominated tradeoffs. GPU correctness is verified, but its
+performance is not admitted. These are case-specific measured configurations,
+not universal or AUTO-selection claims.
+
 ## One mathematical source, several execution schedules
 
 Follow the KIN6D separation between mathematics, indexed operator structure
@@ -189,10 +197,12 @@ mathematical implementations.
   analysis/factor/solve path, permutation handling and nonpositive-pivot
   rejection. Verify factor reuse, block RHS, derivatives and error statuses
   against independent small-matrix and retained-backend oracles.
-- [ ] **M5.3 — Native production SPD.** Add blocked/supernodal factorization,
+- [x] **M5.3 — Native production SPD, CPU MVP.** Add blocked/supernodal factorization,
   generated kernels, OpenMP task scheduling and CPU/GPU placement. Admit cases
   only after full-workflow time, accuracy and peak-memory gates pass, including
   setup, transfers, reuse, requested derivatives and checking.
+  CPU admission is established on the declared corpus. The optional native
+  GPU engine is verified and measured but remains outside performance admission.
 - [ ] **M5.4 — Additional matrix classes.** Admit complex Hermitian positive
   definite and robust symmetric-indefinite paths as separate slices. The latter
   needs stable 1x1/2x2 pivots, delayed-pivot memory handling and adversarial
@@ -204,12 +214,13 @@ mathematical implementations.
 
 Develop M5.1 and the SPD reference together so a CPU-only prototype does not
 dictate the production architecture. A slow reference is a verifier, not a
-performance admission. The active work is M5.3 admission on the frozen SPD
-corpus, including the public HB/bcsstk09 structural stiffness matrix. Generated
-leaves and the CPU/CUDA engines run; remaining measured losses determine further
-optimization. CPU and GPU admission remain separate. Explicit AMD/ND and thread
-configurations are measured independently; a case-specific tuned win does not
-establish that AUTO or the default ordering always wins.
+performance admission. The real-SPD CPU MVP exit is established on the frozen
+corpus, including HB/bcsstk09. Further work is driven by a concrete consumer:
+many-RHS batching and stronger thread scaling can improve existing tradeoffs;
+GPU work needs a justified crossover case. Wider standalone microbenchmark
+coverage in M5.1 remains open. Explicit AMD/ND and thread configurations remain
+independent measurements; a case-specific tuned win does not establish that
+AUTO or the default ordering always wins.
 
 ## Ownership and retained work
 
