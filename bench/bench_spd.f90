@@ -1,9 +1,10 @@
 program bench_spd
-    use fortsparse, only: dp, csc_t, sparse_solver_t, fortsparse_status_t, &
+    use fortsparse, only: dp, i8, csc_t, sparse_solver_t, fortsparse_status_t, &
         status_ok, sparse_factor, sparse_solve, sparse_solve_block, &
         sparse_refactor, sparse_free, sparse_factor_stats_t, &
         sparse_factor_stats, sparse_solve_jvp, sparse_solve_vjp, &
-        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_ND
+        FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_ND, FORTSPARSE_MEMORY_LOW, &
+        sparse_analyze, sparse_memory_plan_t
     use spd_fixtures, only: fixture_t, make_fixture, fixture_product, &
         backward_error, wall_time
     use, intrinsic :: iso_c_binding, only: c_double
@@ -18,11 +19,13 @@ program bench_spd
     type(fixture_t) :: fixture
     type(csc_t) :: a, a_dot
     type(sparse_solver_t) :: solver
-    type(fortsparse_status_t) :: status
-    type(sparse_factor_stats_t) :: stats
+    type(fortsparse_status_t) :: status, plan_status
+    type(sparse_memory_plan_t) :: plan
+    type(sparse_factor_stats_t) :: stats, memory_stats
     character(32) :: backend, family, argument, workload
     character(1024) :: matrix_path
-    integer :: level, threads, nrhs, j, profile_iterations
+    integer :: level, threads, nrhs, j, profile_iterations, prediction_quality
+    integer(i8) :: predicted_host_peak_bytes
     logical :: held_out, reused, reused_one
     real(dp), allocatable :: b(:, :), x(:, :), reference(:)
     real(dp), allocatable :: tangent(:), adjoint(:), matrix_bar(:), b_dot(:)
@@ -31,7 +34,7 @@ program bench_spd
     real(dp) :: error, rss, child_rss, child_cpu, total_start, total_s
     real(dp) :: jvp_s, vjp_s, lhs, rhs, cold_factor_s
     real(dp) :: profile_start, profile_s, factor_sum, solve_sum, refactor_sum
-    real(dp) :: iteration_start, predicted_s, scale
+    real(dp) :: iteration_start, predicted_s, scale, plan_s
 
     total_start = wall_time()
     call cpu_time(cpu_start)
@@ -48,6 +51,9 @@ program bench_spd
     call get_command_argument(7, argument)
     if (len_trim(argument) > 0) read (argument, *) solver%options%ordering
     call get_command_argument(8, matrix_path)
+    call get_command_argument(9, argument)
+    if (len_trim(argument) > 0) &
+        read (argument, *) solver%options%host_memory_limit_bytes
     nrhs = 1
     if (trim(workload) == "rhs8") nrhs = 8
     select case (trim(backend))
@@ -59,6 +65,9 @@ program bench_spd
         solver%backend_id = 3
     case ("native")
         solver%backend_id = 4
+    case ("native-low-memory")
+        solver%backend_id = 4
+        solver%options%memory_policy = FORTSPARSE_MEMORY_LOW
     case ("native-nd")
         solver%backend_id = 4
         solver%options%ordering = FORTSPARSE_ORDER_ND
@@ -92,10 +101,28 @@ program bench_spd
     solver%options%symmetry = FORTSPARSE_SYM_SPD
     solver%options%nthreads = threads
     start = wall_time()
+    call sparse_analyze(solver, a, plan, plan_status, nrhs=nrhs)
+    plan_s = wall_time() - start
+    prediction_quality = -1
+    predicted_host_peak_bytes = -1_i8
+    if (status_ok(plan_status)) then
+        prediction_quality = plan%prediction_quality
+        predicted_host_peak_bytes = plan%peak_host_bytes
+    end if
+    start = wall_time()
     call sparse_factor(solver, a, status)
     factor_s = wall_time() - start
     if (.not. status_ok(status)) then
         write (*, '(a,i0)') "backend status: ", status%code
+        call sparse_factor_stats(solver, stats, status)
+        write (*, '(a)') "memory_failure,plan_status,prediction_quality,"// &
+            "predicted_host_peak_bytes,host_current_bytes,host_peak_bytes,"// &
+            "host_memory_limit_bytes,budget_required_bytes,budget_available_bytes"
+        write (*, '(*(g0,:,","))') "memory_failure", plan_status%code, &
+            prediction_quality, predicted_host_peak_bytes, &
+            stats%host_current_bytes, stats%host_peak_bytes, &
+            solver%options%host_memory_limit_bytes, &
+            stats%budget_required_bytes, stats%budget_available_bytes
         stop 2
     end if
     cold_factor_s = factor_s
@@ -210,6 +237,10 @@ program bench_spd
         if (abs(lhs - rhs) > 1.0e-10_dp*max(1.0_dp, abs(lhs))) &
             error stop "derivative adjoint identity failed"
     end if
+    ! Snapshot live/peak attributed payload after the complete workload and
+    ! before releasing retained factors; RSS remains the process high-water.
+    call sparse_factor_stats(solver, memory_stats, status)
+    if (.not. status_ok(status)) error stop "factor statistics failed"
     call sparse_free(solver)
     call cpu_time(cpu_s)
     cpu_s = cpu_s - cpu_start
@@ -221,7 +252,11 @@ program bench_spd
         "analysis_s,numeric_s,backward_error,jvp_s,vjp_s,cold_factor_s,"// &
         "requested_threads,active_threads,requested_device,actual_device,"// &
         "profile_iterations,profile_s,ordering_used,symbolic_nnz,"// &
-        "factor_storage_bytes,workspace_bytes,device_bytes"
+        "factor_storage_bytes,workspace_bytes,device_bytes,plan_s,"// &
+        "memory_plan_status,memory_prediction_quality,"// &
+        "predicted_host_peak_bytes,host_current_bytes,host_peak_bytes,"// &
+        "host_memory_limit_bytes,memory_policy,strict_memory_supported,"// &
+        "budget_required_bytes,budget_available_bytes"
     write (*, '(*(g0,:,","))') trim(backend), trim(family), level, a%nrow, &
         a%nnz, threads, nrhs, factor_s, solve_s, refactor_s, reused, cpu_s, &
         total_s, rss, child_rss, child_cpu, stats%factor_nnz, &
@@ -229,5 +264,10 @@ program bench_spd
         vjp_s, cold_factor_s, threads, stats%active_threads, &
         solver%options%device, stats%active_device, profile_iterations, profile_s, &
         stats%ordering_used, stats%symbolic_nnz, stats%factor_storage_bytes, &
-        stats%workspace_bytes, stats%device_bytes
+        stats%workspace_bytes, stats%device_bytes, plan_s, plan_status%code, &
+        prediction_quality, predicted_host_peak_bytes, &
+        memory_stats%host_current_bytes, memory_stats%host_peak_bytes, &
+        solver%options%host_memory_limit_bytes, solver%options%memory_policy, &
+        merge(1, 0, memory_stats%strict_memory_supported), &
+        memory_stats%budget_required_bytes, memory_stats%budget_available_bytes
 end program

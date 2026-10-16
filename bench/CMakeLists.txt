@@ -35,6 +35,12 @@ if(FORTSPARSE_BUILD_TESTING)
     set_tests_properties(spd_matrix_market PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        add_test(NAME spd_benchmark_memory COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_memory_benchmark.py
+            $<TARGET_FILE:bench_spd>)
+        set_tests_properties(spd_benchmark_memory PROPERTIES
+            LABELS "native;benchmark;memory;fast" TIMEOUT 1
+            ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
         add_test(NAME spd_benchmark_analysis COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/test_benchmark_analysis.py)
         set_tests_properties(spd_benchmark_analysis PROPERTIES
