@@ -44,6 +44,8 @@ host-payload caps. Structured RAW input conversion supports the CPU matrix
 classes, including old/new factor overlap. Explicit-AMD real SPD supports exact
 compact LOW planning and strict execution; real LDLT and general LU support
 bounded AMD execution. Optional general-LU ND is available without a strict
-budget; ND/GPU caps and broader production planning remain open. A solver
-payload cap does not bound consumer assembly or whole-process RSS. These limits
+budget. CUDA real SPD enforces explicit device-payload caps; GPU host caps,
+GPU LOW, ND host caps and broader production planning remain open. A solver
+payload cap does not bound consumer assembly, opaque runtime memory or
+whole-process RSS. These limits
 and the later CPU/GPU Pareto requirement remain active roadmap work.
