@@ -97,6 +97,10 @@ Complex LU and AUTO execution do not issue this advice. This is an allocator
 retention tradeoff with syscall/page-fault cost, not a hard RSS limit or a
 performance-admission claim. Automatic low-level scope deallocation does not
 issue the extra hint; explicit factor free and public backend finalization do.
+The [two-workload current-source checkpoint](../bench/results/2026-10-16-low-dead-pages/report.md)
+observes 12–14% lower RSS at about 19% higher completed-process CPU. This is a
+LOW resident-RAM/CPU tradeoff; it strengthens neither the payload cap nor any
+external-solver frontier claim. AUTO and complex LU retain ordinary free.
 HPD already uses compact exact structural storage. Separate contexts own their
 mutable work independently. Strict-budget and LOW_MEMORY execution use natural
 ordering, or the audited bounded AMD path for general LU; these matrix classes

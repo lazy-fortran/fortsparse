@@ -1,0 +1,37 @@
+{
+  "observer_sha256": "e3e0692499cc35e0863bae67aab8476345ee2c126ee8980b1ca75cfafcf5ebda",
+  "python_parent_buffer_bytes": 67108864,
+  "measured": {
+    "wall_s": 0.001231491,
+    "user_s": 0.0,
+    "system_s": 0.001118,
+    "cpu_s": 0.001118,
+    "maxrss_kib": 10392,
+    "exit_status": 0,
+    "cpu_affinity": "0,1,2,3"
+  },
+  "target_postexec_oracle": {
+    "pid": 2947089,
+    "postexec_vmhwm_kib": 10152,
+    "self_ru_maxrss_kib": 9776,
+    "cpus": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "watchdog_preflight_returncode": 124,
+  "watchdog_observer_receipt": {
+    "wall_s": 1.001888527,
+    "user_s": 0.0,
+    "system_s": 0.002927,
+    "cpu_s": 0.002927,
+    "maxrss_kib": 10384,
+    "exit_status": 143,
+    "cpu_affinity": "0,1,2,3"
+  },
+  "watchdog_target_reaped": true,
+  "status": "PASS",
+  "rss_scope": "individual completed process peak Linux KiB, not workflow union"
+}
