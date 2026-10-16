@@ -1,5 +1,10 @@
 module fortsparse_native_slu
-    ! Static-structure supernodal LU (docs/lu-supernodal.md), real values.
+    ! Static-structure supernodal LU (docs/lu-supernodal.md), real values and,
+    ! through the submodules fortsparse_native_slu_z_factor/_z_solve, complex
+    ! values. analyze fixes the value type: a factor analyzed with complex
+    ! values owns complex panels and scratch (16-byte entries in every ledger
+    ! charge and in the exact plan) and accepts only complex factor/solve
+    ! calls, and conversely. The structure, scaling and schedule are shared.
     !
     ! Factor M = Q'^T Dr Pm A Dc Q' = L U with the maximum-product matching
     ! Pm and its dual scaling Dr, Dc (fortsparse_native_mpm), a fill-reducing
@@ -36,7 +41,7 @@ module fortsparse_native_slu
         native_symbolic_workspace_bytes
     use fortsparse_native_supernode_schedule, only: supernode_t, &
         supernode_schedule_t, supernode_partition, supernode_gather_rows, &
-        supernode_sort_rows, supernode_scatter_mapped_update
+        supernode_sort_rows, supernode_scatter_mapped_update, supernode_find_row
     use fortsparse_spd_leaves, only: spd_scatter_update, spd_gather_update
     use fortsparse_slu_leaves, only: slu_update, slu_scale, slu_block_factor, &
         slu_trsm_upper, slu_trsm_unit_lower_t, slu_schur_update, slu_apply_swaps, &
@@ -110,11 +115,22 @@ module fortsparse_native_slu
         ! reduced in thread order after a factorization: counts are exact and
         ! extrema order independent, so the totals match the serial factor.
         real(dp), allocatable, private :: thread_stats(:,:)
+        ! Complex-valued factor (analyze with complex values): panels, update
+        ! and solve scratch. values, solve_work and sched%update_work stay
+        ! unallocated; the real arrays are unallocated for a real factor.
+        logical, private :: complex_values = .false.
+        complex(dp), allocatable, private :: zvalues(:), zsolve_work(:)
+        complex(dp), allocatable, private :: zupdate_work(:,:)
     contains
-        procedure :: analyze
-        procedure :: factor
-        procedure :: solve
-        procedure :: solve_block
+        procedure, private :: analyze_real, analyze_complex
+        generic :: analyze => analyze_real, analyze_complex
+        procedure, private :: factor_real, factor_complex
+        generic :: factor => factor_real, factor_complex
+        procedure, private :: solve_real, solve_complex
+        generic :: solve => solve_real, solve_complex
+        procedure, private :: solve_block_real, solve_block_complex
+        generic :: solve_block => solve_block_real, solve_block_complex
+        procedure :: is_complex
         procedure :: is_factored
         procedure :: gate_reason
         procedure :: free => slu_free
@@ -124,6 +140,7 @@ module fortsparse_native_slu
         procedure :: node_structure
         procedure :: ordering
         procedure, private :: structure_bytes
+        procedure, private :: element_bytes
     end type slu_factor_t
 
     interface
@@ -156,9 +173,77 @@ module fortsparse_native_slu
             real(dp), intent(inout) :: b(ldb,*)
         end subroutine dtrsm
     end interface
+
+    ! Complex numerics (submodules fortsparse_native_slu_z_factor/_z_solve).
+    ! The submodules call no private procedure of this module: GNU Fortran
+    ! gives those internal linkage.
+    interface
+        module subroutine assemble_z(self, ptr, rows, values, status)
+            class(slu_factor_t), intent(inout) :: self
+            integer, intent(in) :: ptr(:), rows(:)
+            complex(dp), intent(in) :: values(:)
+            type(fortsparse_status_t), intent(out) :: status
+        end subroutine assemble_z
+        module subroutine factor_destination_z(self, dest, thread)
+            class(slu_factor_t), intent(inout) :: self
+            integer, intent(in) :: dest, thread
+        end subroutine factor_destination_z
+        module subroutine factor_tasks_z(self)
+            class(slu_factor_t), target, intent(inout) :: self
+        end subroutine factor_tasks_z
+        module subroutine solve_complex(self, x, status, operation)
+            class(slu_factor_t), intent(inout) :: self
+            complex(dp), intent(inout) :: x(:)
+            type(fortsparse_status_t), intent(out) :: status
+            integer, optional, intent(in) :: operation
+        end subroutine solve_complex
+        module subroutine solve_block_complex(self, b, status, operation)
+            class(slu_factor_t), intent(inout) :: self
+            complex(dp), intent(inout) :: b(:,:)
+            type(fortsparse_status_t), intent(out) :: status
+            integer, optional, intent(in) :: operation
+        end subroutine solve_block_complex
+    end interface
 contains
-    subroutine analyze(self, n, ptr, rows, values, status, ordering, low_memory, &
-            pivot_perturbation, budget, inject_phase, force_blas, nthreads)
+    subroutine analyze_real(self, n, ptr, rows, values, status, ordering, &
+            low_memory, pivot_perturbation, budget, inject_phase, force_blas, nthreads)
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: ordering
+        logical, optional, intent(in) :: low_memory
+        real(dp), optional, intent(in) :: pivot_perturbation
+        type(memory_budget_t), optional, intent(inout) :: budget
+        integer, optional, intent(in) :: inject_phase
+        logical, optional, intent(in) :: force_blas
+        integer, optional, intent(in) :: nthreads
+        call analyze_common(self, n, ptr, rows, values, .false., status, ordering, &
+            low_memory, pivot_perturbation, budget, inject_phase, force_blas, nthreads)
+    end subroutine analyze_real
+
+    subroutine analyze_complex(self, n, ptr, rows, values, status, ordering, &
+            low_memory, pivot_perturbation, budget, inject_phase, force_blas, nthreads)
+        ! As analyze_real; the matching and scaling use |a_ij|, and the
+        ! retained panels and scratch are complex.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        complex(dp), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: ordering
+        logical, optional, intent(in) :: low_memory
+        real(dp), optional, intent(in) :: pivot_perturbation
+        type(memory_budget_t), optional, intent(inout) :: budget
+        integer, optional, intent(in) :: inject_phase
+        logical, optional, intent(in) :: force_blas
+        integer, optional, intent(in) :: nthreads
+        call analyze_common(self, n, ptr, rows, values, .true., status, ordering, &
+            low_memory, pivot_perturbation, budget, inject_phase, force_blas, nthreads)
+    end subroutine analyze_complex
+
+    subroutine analyze_common(self, n, ptr, rows, values, complex_values, status, &
+            ordering, low_memory, pivot_perturbation, budget, inject_phase, &
+            force_blas, nthreads)
         ! Matching, scaling, ordering, symbolic structure, schedule and the
         ! allocation of all retained arrays. values are read only by the
         ! matching and scaling; factor assembles them later.
@@ -178,7 +263,8 @@ contains
         ! scratch reduce it (see active_threads, budget_reduced_threads).
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: n, ptr(:), rows(:)
-        real(dp), intent(in) :: values(:)
+        class(*), intent(in) :: values(:)
+        logical, intent(in) :: complex_values
         type(fortsparse_status_t), intent(out) :: status
         integer, optional, intent(in) :: ordering
         logical, optional, intent(in) :: low_memory
@@ -196,6 +282,7 @@ contains
         started = seconds()
         call self%free(budget, status)
         if (.not. status_ok(status)) return
+        self%complex_values = complex_values
         order_kind = SLU_ORDER_AMD
         if (present(ordering)) order_kind = ordering
         low = .false.
@@ -245,7 +332,7 @@ contains
         self%inject = 0
         if (present(budget)) budget = ledger
         self%analysis_s = seconds()-started
-    end subroutine analyze
+    end subroutine analyze_common
 
     subroutine release_on_failure(self)
         ! Keep the failure diagnostics; release every owned array.
@@ -312,7 +399,7 @@ contains
             status)
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: n, ptr(:), rows(:), order_kind
-        real(dp), intent(in) :: values(:)
+        class(*), intent(in) :: values(:)
         logical, intent(in) :: low
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
@@ -356,11 +443,11 @@ contains
         if (ierr /= 0) goto 910
         ! row_old temporarily holds cmatch (column -> original row) and
         ! row_new the inverse rmatch; drp/dcp hold dr/dc in original labels.
-        call max_product_matching(n, ptr, rows, values, self%row_old, u, v, iwork, &
-            rwork, status, mstats)
+        call match_values(self, n, ptr, rows, values, u, v, iwork, rwork, mstats, &
+            status)
         if (.not. status_ok(status)) return
         self%row_new = iwork(1:n)
-        call mpm_scaling(n, ptr, rows, values, u, v, self%drp, self%dcp, status)
+        call scale_values(self, n, ptr, rows, values, u, v, status)
         if (.not. status_ok(status)) then
             if (status%code /= FORTSPARSE_INVALID_MATRIX) &
                 call status_set(status, FORTSPARSE_SINGULAR, status%msg)
@@ -493,9 +580,48 @@ contains
             'supernodal LU: analysis allocation failed')
     end subroutine analyze_phases
 
+    subroutine match_values(self, n, ptr, rows, values, u, v, iwork, rwork, &
+            mstats, status)
+        ! Maximum-product matching on |a_ij|: row_old receives cmatch.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        class(*), intent(in) :: values(:)
+        real(dp), intent(inout) :: u(:), v(:), rwork(:)
+        integer, intent(inout) :: iwork(:)
+        type(mpm_stats_t), intent(out) :: mstats
+        type(fortsparse_status_t), intent(out) :: status
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: unsupported value type')
+        select type (values)
+        type is (real(dp))
+            call max_product_matching(n, ptr, rows, values, self%row_old, u, v, &
+                iwork, rwork, status, mstats)
+        type is (complex(dp))
+            call max_product_matching(n, ptr, rows, values, self%row_old, u, v, &
+                iwork, rwork, status, mstats)
+        end select
+    end subroutine match_values
+
+    subroutine scale_values(self, n, ptr, rows, values, u, v, status)
+        ! Dual scaling in original labels into drp/dcp.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        class(*), intent(in) :: values(:)
+        real(dp), intent(in) :: u(:), v(:)
+        type(fortsparse_status_t), intent(out) :: status
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: unsupported value type')
+        select type (values)
+        type is (real(dp))
+            call mpm_scaling(n, ptr, rows, values, u, v, self%drp, self%dcp, status)
+        type is (complex(dp))
+            call mpm_scaling(n, ptr, rows, values, u, v, self%drp, self%dcp, status)
+        end select
+    end subroutine scale_values
+
     subroutine validate_csc(n, ptr, rows, values, status)
         integer, intent(in) :: n, ptr(:), rows(:)
-        real(dp), intent(in) :: values(:)
+        class(*), intent(in) :: values(:)
         type(fortsparse_status_t), intent(out) :: status
         integer :: j, p
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
@@ -511,9 +637,21 @@ contains
                 if (p > ptr(j)) then
                     if (rows(p) <= rows(p-1)) return
                 end if
-                if (.not. ieee_is_finite(values(p))) return
             end do
         end do
+        select type (values)
+        type is (real(dp))
+            do p = 1, size(values)
+                if (.not. ieee_is_finite(values(p))) return
+            end do
+        type is (complex(dp))
+            do p = 1, size(values)
+                if (.not. ieee_is_finite(real(values(p),dp))) return
+                if (.not. ieee_is_finite(aimag(values(p)))) return
+            end do
+        class default
+            return
+        end select
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine validate_csc
 
@@ -735,9 +873,11 @@ contains
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
         integer :: s, first, group, dest, m, w, q, m2
-        integer(i8) :: limit, update_size, panel_count, bytes
+        integer(i8) :: limit, update_size, panel_count, bytes, esize
         real(dp) :: flops
         type(memory_budget_t) :: saved
+
+        esize = self%element_bytes()
 
         flops = 0.0_dp
         self%maxwork = 1
@@ -793,11 +933,13 @@ contains
             ! and statistics fit beside the panels, pivots and solve scratch.
             ! If one thread does not fit either, the allocation phases
             ! report the failing phase.
-            bytes = 8_i8*panel_count+4_i8*self%n &
-                +8_i8*(int(self%n,i8)+int(self%maxrows,i8)) &
+            bytes = esize*panel_count+4_i8*self%n &
+                +esize*(int(self%n,i8)+int(self%maxrows,i8)) &
                 +32_i8*self%sched%active_threads
             saved = ledger
-            call self%sched%fit_thread_scratch(self%maxwork, bytes, ledger, status)
+            ! A complex update entry holds two reals.
+            call self%sched%fit_thread_scratch(self%maxwork*int(esize/8_i8), bytes, &
+                ledger, status)
             if (status%code == FORTSPARSE_RESOURCE_LIMIT) then
                 ledger = saved
                 call status_set(status, FORTSPARSE_OK, '')
@@ -808,15 +950,28 @@ contains
         self%task_groups = self%sched%task_groups
         self%budget_reduced_threads = self%sched%budget_reduced_threads
         ! Exact retained layout (design section 7), before allocation.
-        bytes = 8_i8*panel_count+4_i8*self%n
+        bytes = esize*panel_count+4_i8*self%n
         bytes = bytes+self%structure_bytes()
         bytes = bytes+self%sched%memory_bytes()
         bytes = bytes+4_i8*int(self%n,i8)*self%sched%active_threads
-        bytes = bytes+8_i8*int(self%maxwork,i8)*self%sched%active_threads
-        bytes = bytes+8_i8*(int(self%n,i8)+int(self%maxrows,i8))
+        bytes = bytes+esize*int(self%maxwork,i8)*self%sched%active_threads
+        bytes = bytes+esize*(int(self%n,i8)+int(self%maxrows,i8))
         bytes = bytes+32_i8*self%sched%active_threads
         self%plan_bytes = bytes
     end subroutine build_schedule
+
+    pure integer(i8) function element_bytes(self) result(bytes)
+        ! Bytes per numerical entry: 8 (real) or 16 (complex).
+        class(slu_factor_t), intent(in) :: self
+        bytes = 8_i8
+        if (self%complex_values) bytes = 16_i8
+    end function element_bytes
+
+    logical function is_complex(self)
+        ! The factor was analyzed for complex values.
+        class(slu_factor_t), intent(in) :: self
+        is_complex = self%complex_values
+    end function is_complex
 
     integer(i8) function structure_bytes(self) result(bytes)
         ! Descriptors, row lists, failure flags and the 28n retained vectors.
@@ -855,13 +1010,20 @@ contains
             offset = self%panels(s)%offset_u+int(m-w,i8)*w
         end do
         count = offset
-        call charge_count(self, ledger, count, 8_i8, SLU_PHASE_PANELS, status)
+        call charge_count(self, ledger, count, self%element_bytes(), SLU_PHASE_PANELS, &
+            status)
         if (.not. status_ok(status)) return
         call charge_count(self, ledger, int(self%n,i8), 4_i8, SLU_PHASE_PANELS, status)
         if (.not. status_ok(status)) return
-        allocate(self%values(count), self%pivots(self%n), stat=ierr)
-        if (ierr /= 0) goto 910
-        self%values = 0.0_dp
+        if (self%complex_values) then
+            allocate(self%zvalues(count), self%pivots(self%n), stat=ierr)
+            if (ierr /= 0) goto 910
+            self%zvalues = (0.0_dp, 0.0_dp)
+        else
+            allocate(self%values(count), self%pivots(self%n), stat=ierr)
+            if (ierr /= 0) goto 910
+            self%values = 0.0_dp
+        end if
         self%pivots = 0
         if (self%inject == SLU_PHASE_SCRATCH) then
             call charge(self, ledger, 1_i8, SLU_PHASE_SCRATCH, status)
@@ -871,16 +1033,30 @@ contains
         if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
             self%failed_phase = SLU_PHASE_SCRATCH
         if (.not. status_ok(status)) return
-        call self%sched%allocate_update_work(self%maxwork, ledger, status)
-        if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
-            self%failed_phase = SLU_PHASE_SCRATCH
+        if (self%complex_values) then
+            call charge_count(self, ledger, int(self%maxwork,i8)*self%sched%active_threads, &
+                16_i8, SLU_PHASE_SCRATCH, status)
+            if (.not. status_ok(status)) return
+            allocate(self%zupdate_work(self%maxwork,self%sched%active_threads), stat=ierr)
+            if (ierr /= 0) goto 910
+        else
+            call self%sched%allocate_update_work(self%maxwork, ledger, status)
+            if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
+                self%failed_phase = SLU_PHASE_SCRATCH
+            if (.not. status_ok(status)) return
+        end if
+        call charge_count(self, ledger, int(self%n,i8)+self%maxrows, &
+            self%element_bytes(), SLU_PHASE_SCRATCH, status)
         if (.not. status_ok(status)) return
-        call charge_count(self, ledger, int(self%n,i8)+self%maxrows, 8_i8, &
-            SLU_PHASE_SCRATCH, status)
-        if (.not. status_ok(status)) return
-        allocate(self%solve_work(self%n+self%maxrows), stat=ierr)
-        if (ierr /= 0) goto 910
-        self%solve_work = 0.0_dp
+        if (self%complex_values) then
+            allocate(self%zsolve_work(self%n+self%maxrows), stat=ierr)
+            if (ierr /= 0) goto 910
+            self%zsolve_work = (0.0_dp, 0.0_dp)
+        else
+            allocate(self%solve_work(self%n+self%maxrows), stat=ierr)
+            if (ierr /= 0) goto 910
+            self%solve_work = 0.0_dp
+        end if
         call charge_count(self, ledger, 4_i8*self%sched%active_threads, 8_i8, &
             SLU_PHASE_SCRATCH, status)
         if (.not. status_ok(status)) return
@@ -895,10 +1071,10 @@ contains
     subroutine finalize_labels(self)
         ! row_old held cmatch (matched column -> original row), row_new held
         ! rmatch and drp/dcp the original-label scales. Compose with col_old
-        ! using the (still zero) row map and the solve scratch as temporaries.
+        ! using the (still zero) row map as the temporary and visit marks.
         class(slu_factor_t), intent(inout) :: self
         integer :: k
-        associate (tmp => self%sched%rowmap(:,1), work => self%solve_work)
+        associate (tmp => self%sched%rowmap(:,1))
             do k = 1, self%n
                 tmp(k) = self%row_old(self%col_old(k))
             end do
@@ -906,18 +1082,35 @@ contains
             do k = 1, self%n
                 self%row_new(self%row_old(k)) = k
             end do
-            do k = 1, self%n
-                work(k) = self%drp(self%row_old(k))
-            end do
-            self%drp = work(1:self%n)
-            do k = 1, self%n
-                work(k) = self%dcp(self%col_old(k))
-            end do
-            self%dcp = work(1:self%n)
+            call gather_in_place(self%drp, self%row_old, tmp)
+            call gather_in_place(self%dcp, self%col_old, tmp)
             tmp = 0
-            work = 0.0_dp
         end associate
     end subroutine finalize_labels
+
+    pure subroutine gather_in_place(x, from, mark)
+        ! x(k) := x_old(from(k)) for a permutation from, by cycle following
+        ! (exact data movement, no scratch reals); mark(1:n) is overwritten.
+        real(dp), intent(inout) :: x(:)
+        integer, intent(in) :: from(:)
+        integer, intent(inout) :: mark(:)
+        integer :: start, j, next
+        real(dp) :: saved
+        mark(1:size(x)) = 0
+        do start = 1, size(x)
+            if (mark(start) /= 0) cycle
+            saved = x(start)
+            j = start
+            do
+                mark(j) = 1
+                next = from(j)
+                if (next == start) exit
+                x(j) = x(next)
+                j = next
+            end do
+            x(j) = saved
+        end do
+    end subroutine gather_in_place
 
     logical function is_analyzed(self)
         class(slu_factor_t), intent(in) :: self
@@ -962,6 +1155,11 @@ contains
         if (allocated(self%solve_work)) bytes = bytes+8_i8*size(self%solve_work,kind=i8)
         if (allocated(self%thread_stats)) &
             bytes = bytes+8_i8*size(self%thread_stats,kind=i8)
+        if (allocated(self%zvalues)) bytes = bytes+16_i8*size(self%zvalues,kind=i8)
+        if (allocated(self%zsolve_work)) &
+            bytes = bytes+16_i8*size(self%zsolve_work,kind=i8)
+        if (allocated(self%zupdate_work)) &
+            bytes = bytes+16_i8*size(self%zupdate_work,kind=i8)
     end function memory_bytes
 
     function plan(self) result(layout)
@@ -970,12 +1168,21 @@ contains
         type(sparse_memory_plan_t) :: layout
         layout = sparse_memory_plan_t()
         if (.not. self%analyzed) return
-        layout%factor_host_bytes = 8_i8*size(self%values,kind=i8) &
-            +4_i8*size(self%pivots,kind=i8)
+        layout%factor_host_bytes = 4_i8*size(self%pivots,kind=i8)
         layout%workspace_host_bytes = 4_i8*size(self%sched%rowmap,kind=i8) &
-            +8_i8*size(self%sched%update_work,kind=i8) &
-            +8_i8*size(self%solve_work,kind=i8) &
             +8_i8*size(self%thread_stats,kind=i8)
+        if (self%complex_values) then
+            layout%factor_host_bytes = layout%factor_host_bytes &
+                +16_i8*size(self%zvalues,kind=i8)
+            layout%workspace_host_bytes = layout%workspace_host_bytes &
+                +16_i8*size(self%zupdate_work,kind=i8)+16_i8*size(self%zsolve_work,kind=i8)
+        else
+            layout%factor_host_bytes = layout%factor_host_bytes &
+                +8_i8*size(self%values,kind=i8)
+            layout%workspace_host_bytes = layout%workspace_host_bytes &
+                +8_i8*size(self%sched%update_work,kind=i8) &
+                +8_i8*size(self%solve_work,kind=i8)
+        end if
         layout%persistent_host_bytes = self%plan_bytes-layout%factor_host_bytes &
             -layout%workspace_host_bytes
         layout%peak_host_bytes = self%peak_memory_bytes
@@ -1008,6 +1215,10 @@ contains
         if (allocated(self%dcp)) deallocate(self%dcp)
         if (allocated(self%solve_work)) deallocate(self%solve_work)
         if (allocated(self%thread_stats)) deallocate(self%thread_stats)
+        if (allocated(self%zvalues)) deallocate(self%zvalues)
+        if (allocated(self%zsolve_work)) deallocate(self%zsolve_work)
+        if (allocated(self%zupdate_work)) deallocate(self%zupdate_work)
+        self%complex_values = .false.
         call self%sched%free()
         self%n = 0
         self%node_count = 0
@@ -1049,7 +1260,7 @@ contains
         self%owned_budget_bytes = 0_i8
     end subroutine slu_free
 
-    subroutine factor(self, ptr, rows, values, status)
+    subroutine factor_real(self, ptr, rows, values, status)
         ! Assemble M from A and factor it (left-looking). The pattern may
         ! differ from the analyzed one as long as every entry lies in the
         ! static structure; otherwise INVALID_MATRIX and the caller analyzes
@@ -1065,7 +1276,7 @@ contains
         integer, intent(in) :: ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s, t
+        integer :: s
         real(dp) :: started
         integer, pointer :: token(:)
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
@@ -1078,15 +1289,15 @@ contains
         self%nonfinite = .false.
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: not analyzed')
         if (.not. self%analyzed) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: analyzed for complex values')
+        if (self%complex_values) return
         call validate_csc(self%n, ptr, rows, values, status)
         if (.not. status_ok(status)) return
         started = seconds()
         call assemble(self, ptr, rows, values, status)
         if (.not. status_ok(status)) return
-        self%failures = 0
-        self%thread_stats(1:2,:) = 0.0_dp
-        self%thread_stats(3,:) = huge(1.0_dp)
-        self%thread_stats(4,:) = 0.0_dp
+        call reset_thread_stats(self)
         if (self%sched%active_threads == 1) then
             do s = 1, self%node_count
                 call factor_destination(self, s, 1)
@@ -1140,7 +1351,24 @@ contains
 #endif
             self%active_threads = self%sched%active_threads
         end if
-        ! Deterministic reduction in thread order.
+        call finish_factor(self, started, status)
+    end subroutine factor_real
+
+    subroutine reset_thread_stats(self)
+        class(slu_factor_t), intent(inout) :: self
+        self%failures = 0
+        self%thread_stats(1:2,:) = 0.0_dp
+        self%thread_stats(3,:) = huge(1.0_dp)
+        self%thread_stats(4,:) = 0.0_dp
+    end subroutine reset_thread_stats
+
+    subroutine finish_factor(self, started, status)
+        ! Deterministic reduction of the pivot statistics in thread order,
+        ! growth, timing and the non-finite panel check.
+        class(slu_factor_t), intent(inout) :: self
+        real(dp), intent(in) :: started
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: s, t
         self%perturbed_pivots = 0
         self%block_swaps = 0
         self%min_pivot = huge(1.0_dp)
@@ -1163,7 +1391,40 @@ contains
         end do
         self%factored = .true.
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine factor
+    end subroutine finish_factor
+
+    subroutine factor_complex(self, ptr, rows, values, status)
+        ! Complex twin of factor_real: assemble M from complex A and factor
+        ! it with the same schedule, pivoting, statistics and task contract.
+        class(slu_factor_t), target, intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        complex(dp), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: s
+        real(dp) :: started
+        self%factored = .false.
+        self%nonfinite = .false.
+        call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: not analyzed')
+        if (.not. self%analyzed) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: analyzed for real values')
+        if (.not. self%complex_values) return
+        call validate_csc(self%n, ptr, rows, values, status)
+        if (.not. status_ok(status)) return
+        started = seconds()
+        call assemble_z(self, ptr, rows, values, status)
+        if (.not. status_ok(status)) return
+        call reset_thread_stats(self)
+        if (self%sched%active_threads == 1) then
+            do s = 1, self%node_count
+                call factor_destination_z(self, s, 1)
+            end do
+        else
+            call factor_tasks_z(self)
+            self%active_threads = self%sched%active_threads
+        end if
+        call finish_factor(self, started, status)
+    end subroutine factor_complex
 
     subroutine assemble(self, ptr, rows, values, status)
         ! M(k,l) = drp(k)*A(i,c)*dcp(l) into the L or Ut panel that owns it;
@@ -1194,12 +1455,12 @@ contains
                         +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m &
                         +(k-self%panels(dl)%first+1)
                 else if (k > l) then
-                    pos = find_row(self%panels(dl), k)
+                    pos = supernode_find_row(self%panels(dl)%supernode_t, k)
                     if (pos == 0) goto 900
                     p = self%panels(dl)%offset_l &
                         +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m+pos
                 else
-                    pos = find_row(self%panels(dk), l)
+                    pos = supernode_find_row(self%panels(dk)%supernode_t, l)
                     if (pos == 0) goto 900
                     p = self%panels(dk)%offset_u+int(k-self%panels(dk)%first,i8) &
                         *(self%panels(dk)%m-self%panels(dk)%width) &
@@ -1219,26 +1480,6 @@ contains
 900     self%solve_work(1:self%n) = 0.0_dp
     end subroutine assemble
 
-    pure integer function find_row(node, row) result(position)
-        ! Position of row among node%rows(width+1:m), or 0.
-        type(slu_panel_t), intent(in) :: node
-        integer, intent(in) :: row
-        integer :: lo, hi, mid
-        position = 0
-        lo = node%width+1
-        hi = node%m
-        do while (lo <= hi)
-            mid = lo+(hi-lo)/2
-            if (node%rows(mid) == row) then
-                position = mid
-                return
-            else if (node%rows(mid) < row) then
-                lo = mid+1
-            else
-                hi = mid-1
-            end if
-        end do
-    end function find_row
 
     subroutine factor_destination(self, dest, thread)
         class(slu_factor_t), intent(inout) :: self
@@ -1442,7 +1683,7 @@ contains
         end do
     end subroutine factor_panel
 
-    subroutine solve(self, x, status, operation)
+    subroutine solve_real(self, x, status, operation)
         ! x := A^-1 x (operation 0) or A^-T x (1 or 2; real ADJOINT = TRANSPOSE).
         class(slu_factor_t), intent(inout) :: self
         real(dp), intent(inout) :: x(:)
@@ -1456,6 +1697,9 @@ contains
         if (op < 0 .or. op > 2) return
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: no factors')
         if (.not. self%factored) return
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'supernodal LU: complex factors need a complex RHS')
+        if (self%complex_values) return
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'supernodal LU: RHS dimension mismatch')
         if (size(x) /= self%n) return
@@ -1480,9 +1724,9 @@ contains
         end if
         self%solve_work(1:self%n) = 0.0_dp
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine solve
+    end subroutine solve_real
 
-    subroutine solve_block(self, b, status, operation)
+    subroutine solve_block_real(self, b, status, operation)
         class(slu_factor_t), intent(inout) :: self
         real(dp), intent(inout) :: b(:,:)
         type(fortsparse_status_t), intent(out) :: status
@@ -1503,7 +1747,7 @@ contains
             call self%solve(b(:,j), status, op)
             if (.not. status_ok(status)) return
         end do
-    end subroutine solve_block
+    end subroutine solve_block_real
 
     subroutine forward_normal(self)
         ! Per supernode: apply P_d to the accumulated block, unit-lower block

@@ -21,6 +21,7 @@ target_sources(fortsparse PRIVATE
     generated/fortsparse_ldlt_z_leaves.f90
     generated/fortsparse_lu_leaves.f90
     generated/fortsparse_slu_leaves.f90
+    generated/fortsparse_slu_z_leaves.f90
     generated/fortsparse_spd_leaves.f90
     native/fortsparse_native_amd.f90
     native/fortsparse_native_residual.f90
@@ -40,6 +41,8 @@ target_sources(fortsparse PRIVATE
     native/fortsparse_native_supernode_schedule.F90
     native/fortsparse_native_supernodes.F90
     native/fortsparse_native_slu.F90
+    native/fortsparse_native_slu_z_factor.F90
+    native/fortsparse_native_slu_z_solve.F90
     ipc/fortsparse_ipc_proto.f90
     ipc/fortsparse_umfpack_ipc.f90
     # MIT C shims
@@ -51,7 +54,8 @@ target_sources(fortsparse PRIVATE
 # these internal calls have no supported symbol-interposition contract.
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     set_source_files_properties(generated/fortsparse_spd_leaves.f90
-        generated/fortsparse_slu_leaves.f90 PROPERTIES
+        generated/fortsparse_slu_leaves.f90
+        generated/fortsparse_slu_z_leaves.f90 PROPERTIES
         COMPILE_OPTIONS "-fno-semantic-interposition")
     # Compensated LU sums depend on staged IEEE rounding. Preserve those stages
     # while allowing calls inside this generated module to inline.
