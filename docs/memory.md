@@ -8,8 +8,10 @@ has different scope. It is not a hard allocation limit.
 
 ## First supported schedule
 
-The strict host cap supports natural-order CPU real-SPD simplicial and blocked
-Cholesky. AUTO attempts bounded generated blocked execution, reduces task scratch
+The strict host cap supports natural-order and explicit-AMD CPU real-SPD
+simplicial and blocked Cholesky. Bounded AMD requires the audited optional
+AMD 3.3.4 caller-workspace ABI; unsupported versions fail closed. AUTO attempts
+bounded generated blocked execution, reduces task scratch
 concurrency when needed and can use the compact reference if panels cannot fit.
 Statistics report `compact_memory_used`, `budget_reduced_threads`, the actual
 team and `native_factor_family`. LOW_MEMORY explicitly selects the compact
@@ -20,8 +22,10 @@ enforce host caps; see [native CPU families](native-cpu.md). General LU supports
 explicit AMD under caps and LOW_MEMORY through the audited AMD 3.3.4
 [caller-workspace path](native-amd-bounded.md), including ordering scratch,
 refinement reservations and retained-factor overlap. General LU raw input is
-borrowed and capped. SPD ordering, CUDA, external backends and structured raw
-CSC conversion remain unsupported under strict caps.
+borrowed and capped. Real SPD also uses that shared AMD workspace, accounting
+permutations, reordered CSC, symbolic scratch, panels and refinement together.
+Natural DEFAULT selection is unchanged. SPD nested dissection, CUDA, external
+backends and structured raw CSC conversion remain unsupported under strict caps.
 Normal uncapped paths retain their existing execution choices.
 
 The standalone [real CSR ILUTP preconditioner](ilutp.md#payload-cap-and-recovery)
@@ -80,7 +84,9 @@ caller-owned output as RHS. A backend-owned `sparse_vector` also consumes the
 cap and returns a disassociated pointer if its allocation cannot fit.
 
 Statistics report attributed current/peak payload and required/available bytes
-on budget failure. RESOURCE_LIMIT is distinct from operating-system allocation
+on budget failure. Following an allocation failure, the retained attempted peak
+is an admission bound; successfully allocated live payload is still accounted,
+and freed analysis reports zero live bytes. RESOURCE_LIMIT is distinct from operating-system allocation
 failure (OUT_OF_MEMORY). A failed factor attempt leaves the public solver
 unfactored; callers may change limits and retry or destroy it. Different handles
 have independent limits. The limit applies per handle, not to their combined sum.
@@ -90,6 +96,10 @@ rounding, runtime/library code, stacks and process RSS. Exact layout means exact
 array payload, not an exact RSS prediction. New pivoted paths must label unknown
 fill as an estimate and cap every growth allocation, including old/new overlap.
 Opaque vendor allocations cannot acquire a strict guarantee from an estimate.
+A large symbolic-L array may use one private mmap; its requested payload counts
+toward the cap. OS page rounding can add less than one system page for that
+mapping and requires separate process headroom, just like heap rounding.
+The symbolic count routine uses ordinary heap arrays with no private mapping.
 
 ## Cluster-node sizing
 

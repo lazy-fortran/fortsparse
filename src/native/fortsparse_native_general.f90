@@ -2,7 +2,7 @@ module fortsparse_native_general
     ! Native general sparse factors; orchestration only, arithmetic is generated.
     use fortsparse_kinds, only: dp, i8
     use fortsparse_memory, only: refinement_payload_bytes, memory_checked_add, memory_checked_mul
-    use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
+    use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
@@ -19,6 +19,7 @@ module fortsparse_native_general
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_RESOURCE_LIMIT, &
         FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR, FORTSPARSE_INDEX_OVERFLOW
+    use fortsparse_native_amd, only: bounded_amd_available, bounded_amd_size, bounded_amd_order
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
@@ -31,25 +32,6 @@ module fortsparse_native_general
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_amd_general
-        integer(c_int) function bounded_amd_available() bind(C,name='fsparse_native_amd_bounded_available')
-            import :: c_int
-        end function
-        integer(c_int) function bounded_amd_size(n,nnz,ptr,row,low,arena_bytes,output_bytes) &
-                bind(C,name='fsparse_native_amd_bounded_size')
-            import :: c_int,c_int64_t
-            integer(c_int), value :: n,nnz,low
-            integer(c_int), intent(in) :: ptr(*),row(*)
-            integer(c_int64_t), intent(out) :: arena_bytes,output_bytes
-        end function
-        integer(c_int) function bounded_amd_order(n,nnz,ptr,row,low,arena,arena_bytes,perm,inverse) &
-                bind(C,name='fsparse_native_amd_bounded')
-            import :: c_int,c_int64_t
-            integer(c_int), value :: n,nnz,low
-            integer(c_int), intent(in) :: ptr(*),row(*)
-            integer(c_int), intent(inout) :: arena(*)
-            integer(c_int64_t), value :: arena_bytes
-            integer(c_int), intent(out) :: perm(*),inverse(*)
-        end function
     end interface
     type, extends(sparse_backend_t) :: native_general_backend_t
         private
