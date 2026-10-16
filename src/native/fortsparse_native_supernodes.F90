@@ -16,7 +16,7 @@ module fortsparse_native_supernodes
         spd_cuda_upload, spd_cuda_download, spd_cuda_synchronize, &
         spd_cuda_panel_factor, spd_cuda_factor_info, spd_cuda_panel_solve, &
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
-        spd_cuda_scatter_update, spd_cuda_allocated_bytes
+        spd_cuda_scatter_update, spd_cuda_schur_scatter, spd_cuda_allocated_bytes
 #endif
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
@@ -1046,13 +1046,21 @@ contains
                 dest = self%updates(u)%dest
                 m2 = m-self%updates(u)%first+1
                 source_offset = offset+self%updates(u)%first-1
-                code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
-                    source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
-                if (code /= 0) exit
-                code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
-                    m2, self%updates(u)%q, self%panels(dest)%offset, &
-                    self%panels(dest)%m, self%panels(dest)%width, &
-                    self%updates(u)%row_map, self%updates(u)%column_map)
+                if (w <= 8) then
+                    code = spd_cuda_schur_scatter(self%cuda, source_offset, m, &
+                        source_offset, m, m2, self%updates(u)%q, w, &
+                        self%panels(dest)%offset, self%panels(dest)%m, &
+                        self%panels(dest)%width, self%updates(u)%row_map, &
+                        self%updates(u)%column_map)
+                else
+                    code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
+                        source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
+                    if (code /= 0) exit
+                    code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
+                        m2, self%updates(u)%q, self%panels(dest)%offset, &
+                        self%panels(dest)%m, self%panels(dest)%width, &
+                        self%updates(u)%row_map, self%updates(u)%column_map)
+                end if
             end do
         end do
         if (code == 0) code = spd_cuda_factor_info(self%cuda, info)

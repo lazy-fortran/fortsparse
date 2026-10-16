@@ -62,6 +62,13 @@ program gen_spd_leaves
     end do
     close(template)
     write(unit, '(a)') 'end module fortsparse_spd_leaves'
+    open(newunit=template, file='gen/spd_schedule.cuh.inc', action='read')
+    do
+        read(template, '(a)', iostat=ios) line
+        if (ios /= 0) exit
+        write(cuda, '(a)') trim(line)
+    end do
+    close(template)
     close(unit)
     close(cuda)
 contains
