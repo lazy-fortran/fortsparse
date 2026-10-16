@@ -1,0 +1,82 @@
+{
+  "baseline_revision": "c6fa39b692c4d547a6032e03aa5e9343ab4734e3",
+  "candidate_revision": "3033a3a1d2248bc2b4610f667ff9e0b81fd8d77e",
+  "decision": "reject candidate; not integrated",
+  "raw_directory": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/byte-mark-experiment",
+  "raw_sha256": "b7b0a0089446a8f19e45e6506c5f48b511cf14899c3e57330777fbc1d33b30eb",
+  "driver": "bench/native_families/run.py invoke with wait4-completed CPU and affinity [0]",
+  "binary_template": "<baseline-or-candidate> native-amd <family> <level> 1 <workload> N <variant> bench/fixtures/neo2-mini5/matrix.mtx",
+  "case_product": {
+    "family_level": [
+      [
+        "drift-real",
+        128
+      ],
+      [
+        "drift-complex",
+        64
+      ]
+    ],
+    "variant": [
+      "training",
+      "heldout"
+    ],
+    "workload": [
+      "rhs8",
+      "refactor"
+    ]
+  },
+  "trials": 5,
+  "order": "trial1/3/5: baseline then candidate per case; trial2/4: candidate then baseline per case; cases in listed Cartesian-product order",
+  "watchdog_s": 0.9,
+  "environment": {
+    "LD_LIBRARY_PATH": "/usr/lib",
+    "OMP_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "OMP_PLACES": "cores",
+    "OMP_PROC_BIND": "close",
+    "MKL_NUM_THREADS": "1",
+    "MKL_DYNAMIC": "FALSE",
+    "MKL_THREADING_LAYER": "GNU"
+  },
+  "affinity": [
+    0
+  ],
+  "Fortran_flags": "-O3 -march=znver3",
+  "accuracy": {
+    "backward_error_lt": 1e-12,
+    "forward_error_lt": 1e-10
+  },
+  "binaries": {
+    "baseline": {
+      "path": "/home/ert/code/sparse-dev/benchmarks/2026-10-16-native-families/indexed-openblas-baseline/bin/bench_native_families",
+      "sha256": "e3bc7e2e21e83341f18e5812255880ed7841406dcfc016972da2112e050ab1ec"
+    },
+    "candidate": {
+      "path": "/var/tmp/fortsparse-lu-byte-performance/bin/bench_native_families",
+      "sha256": "e6391d6e646682b0b54003ed19155193dff014046f88fe0603bf572396e36fbd"
+    }
+  },
+  "library_sha256": {
+    "/usr/lib/libsuperlu.so.7.0.1": "d041e76db9867254de1c32fdda16ebbc60948670cbcf5d6dc23f47b4bbd993d2",
+    "/usr/lib/libopenblas.so.0.3": "de853d97cff751afff66470bd01ff249902d057bbe4242d484a7e16a05e09dff",
+    "/usr/lib/libgomp.so.1.0.0": "843e95ac19bdc9c450e8b090204cf01aafaf680ab9ca64bf1ec5e3674c3a776f",
+    "/usr/lib/libamd.so.3.3.4": "8e715d424b60f158c49aa20699c98955313edad17035079f5bc8ea64da59feda",
+    "/usr/lib/libgfortran.so.5.0.0": "2ab102295ffad3934f37b6aab4a1b99b00a68fcc22ae3e5c7ac1edcf2c3fbd7e",
+    "/usr/lib/libm.so.6": "58b6b82e39d59d7810d402ba4ec34359fde058204fdb7cd5a269fda256a35421",
+    "/usr/lib/libgcc_s.so.1": "571745fb27883c763315fab54a536906064c1df6804d1a7884713dac259da68d",
+    "/usr/lib/libc.so.6": "071e34179e645b25f8a8c2e7108894dc665caa9f5f8c939cd579a75b6638bc3f",
+    "/usr/lib/ld-linux-x86-64.so.2": "2a950d46575efa0210d22440988f5a6b4507ebddc6c86d9a42e6e7ef6f01463e",
+    "/usr/lib/libblas.so.3.12.0": "f55be1fca60044a3611ad918a9049c5429be30310c34d11f31727ea62b010fe5",
+    "/usr/lib/libsuitesparseconfig.so.7.14.1": "3a19afc46d342403b1fd8a38825162c26002b6f535f3889070ef54e1e4e26fad"
+  },
+  "runtime_note": "Both use /usr/lib AMD/config via explicit LD_LIBRARY_PATH; baseline previously resolved these paths already; candidate provision-prefix RUNPATH overridden for exact provider match.",
+  "checks": {
+    "passed": 80,
+    "attempts": 80,
+    "matched_pairs": 40,
+    "identical_factor_fill": true,
+    "owned_byte_reduction_each_pair": "3*n",
+    "complex128_diagnostic_executed": false
+  }
+}
