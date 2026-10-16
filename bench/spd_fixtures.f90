@@ -7,6 +7,7 @@ module spd_fixtures
     private
     public :: fixture_t, make_fixture, fixture_product, backward_error, wall_time
     public :: read_symmetric_matrix_market
+    public :: fixture_spd_update, fixture_known_rhs
 
     type :: fixture_t
         integer :: n = 0
@@ -15,6 +16,37 @@ module spd_fixtures
     end type
 
 contains
+
+    subroutine fixture_spd_update(original, changed)
+        ! Positive, nonuniform diagonal addition preserves SPD and the pattern.
+        type(fixture_t), intent(in) :: original
+        type(fixture_t), intent(out) :: changed
+        integer :: j, p
+
+        changed = original
+        do j = 1, changed%n
+            do p = changed%ptr(j), changed%ptr(j + 1) - 1
+                if (changed%row(p) /= j) cycle
+                changed%val(p) = changed%val(p) + &
+                    0.01_dp*real(1 + mod(j, 7), dp)/7.0_dp
+                exit
+            end do
+        end do
+    end subroutine fixture_spd_update
+
+    subroutine fixture_known_rhs(a, nrhs, repetition, rhs, reference)
+        type(fixture_t), intent(in) :: a
+        integer, intent(in) :: nrhs, repetition
+        real(dp), intent(out) :: rhs(:, :), reference(:, :)
+        integer :: j
+
+        do j = 1, nrhs
+            reference(:, j) = 1.0_dp + real(j, dp)/8.0_dp + &
+                real(repetition - 1, dp)/16.0_dp
+            reference(1:a%n:2, j) = -0.5_dp - real(repetition - 1, dp)/32.0_dp
+            call fixture_product(a, reference(:, j), rhs(:, j))
+        end do
+    end subroutine fixture_known_rhs
 
     subroutine make_fixture(family, level, held_out, a, matrix_path)
         character(*), intent(in) :: family

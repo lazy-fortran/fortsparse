@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.24)
+project(fortsparse_cudss_benchmark LANGUAGES C Fortran)
+enable_testing()
+set(FORTSPARSE_BUILD_TESTING ON)
+set(CMAKE_Fortran_MODULE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/modules")
+add_library(fortsparse_spd_fixtures STATIC
+    ../../bench/spd_fixtures.f90 ../../bench/process_metrics.c)
+target_include_directories(fortsparse_spd_fixtures PUBLIC
+    "${CMAKE_Fortran_MODULE_DIRECTORY}")
+add_executable(test_gpu_spd_fixture ../../bench/test_spd_fixtures.f90)
+target_link_libraries(test_gpu_spd_fixture PRIVATE fortsparse_spd_fixtures)
+add_test(NAME gpu_spd_fixture COMMAND test_gpu_spd_fixture)
+set_tests_properties(gpu_spd_fixture PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+if(FORTSPARSE_BENCH_CUDSS_ROOT)
+    include(../../bench/gpu/cudss.cmake)
+endif()
