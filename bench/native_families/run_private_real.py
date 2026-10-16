@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""One bounded private real-fixture qualification; no automatic timing campaign."""
+"""Explicit qualification and matched measurements of a frozen private fixture."""
 import argparse
+import collections
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ import subprocess
 import time
 
 from real_fixture_audit import PrivateFixture, sha256
-from run import EXTERNAL, NATIVE, binary_name, invoke, physical_cores
+from run import EXTERNAL, NATIVE, ROOT, binary_name, invoke, physical_cores, matched_points
 
 HERE = Path(__file__).resolve().parent
 
@@ -116,13 +117,17 @@ def main():
     parser.add_argument("--policy-sha256", required=True)
     parser.add_argument("--build", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--mode", choices=("prepare", "qualify", "native"),
+    parser.add_argument("--mode", choices=("prepare", "qualify", "native", "measure"),
                         default="prepare")
     parser.add_argument("--backend", choices=NATIVE)
     parser.add_argument("--qualification", type=Path, nargs="+")
     parser.add_argument("--backends", default=",".join(EXTERNAL),
                         help="external qualification subset; native admission requires all five")
     parser.add_argument("--threads", type=int, default=1)
+    parser.add_argument("--thread-sweep", default=None,
+                        help="measure only; defaults to 1,2,4,8,16 physical cores")
+    parser.add_argument("--trials", type=int, default=5,
+                        help="fresh processes per measure configuration")
     parser.add_argument("--timeout", type=float, default=0.9)
     parser.add_argument("--window-note", default="")
     args = parser.parse_args()
@@ -130,28 +135,48 @@ def main():
         parser.error("positive threads and timeout strictly below one second required")
     if args.mode != "prepare" and not args.window_note:
         parser.error("execution requires the controller's coordinated window note")
-    if args.mode == "native" and (not args.backend or not args.qualification):
-        parser.error("native requires explicit backend and passing external qualification")
+    if args.mode in ("native", "measure") and (not args.backend or not args.qualification):
+        parser.error("native execution requires explicit backend and passing external qualification")
+    if args.trials < 1:
+        parser.error("positive fresh-process trial count required")
+    if args.mode != "measure" and args.thread_sweep is not None:
+        parser.error("thread-sweep requires explicit measure mode")
     peers = args.backends.split(",")
     if not peers or len(peers) != len(set(peers)) or any(p not in EXTERNAL for p in peers):
         parser.error("qualification peers must be distinct existing external backends")
+    if args.mode == "measure" and set(peers) != set(EXTERNAL):
+        parser.error("matched measurements require all five external peers")
     args.output = args.output.resolve()
     start = time.perf_counter()
     fixture = PrivateFixture(args.fixture, args.policy_sha256)
     build = args.build.resolve()
-    cores = physical_cores()[:args.threads]
-    if len(cores) != args.threads:
+    available_cores = physical_cores()
+    try:
+        budgets = ([int(s) for s in (args.thread_sweep or "1,2,4,8,16").split(",")]
+                   if args.mode == "measure" else [args.threads])
+    except ValueError:
+        parser.error("thread-sweep requires integer budgets")
+    if not budgets or len(set(budgets)) != len(budgets) or min(budgets) < 1:
+        parser.error("distinct positive physical-core budgets required")
+    if max(budgets) > len(available_cores):
         parser.error("requested physical-core budget unavailable")
     qualification_hash = None
-    if args.mode == "native":
+    if args.mode in ("native", "measure"):
         qualification_hash = verify_qualification(args.qualification, fixture, build)
     stage = prepare(fixture, args.output)
     document = dict(mode=args.mode, privacy="private-local-only; no numeric publication",
+        source_revision=subprocess.check_output(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True).strip(),
+        source_status=subprocess.check_output(
+            ["git", "-C", str(ROOT), "status", "--porcelain"], text=True),
         fixture_id=fixture.manifest["id"], manifest_sha256=fixture.manifest_sha256,
         policy_sha256=fixture.policy_sha256, window_note=args.window_note,
         qualification_sha256=qualification_hash,
         required_external_peers=list(EXTERNAL),
-        comparison_scope=peers if args.mode == "qualify" else [args.backend],
+        comparison_scope=(list(EXTERNAL)+[args.backend] if args.mode == "measure"
+                          else peers if args.mode == "qualify" else [args.backend]),
+        requested_thread_budgets=budgets,
+        fresh_process_trials=args.trials if args.mode == "measure" else 1,
         comparison_policy="Numerical gates unchanged; existing five-peer family "
         "comparison scope includes direct and IPC UMFPACK separately.",
         script_sha256={p.name: sha256(p) for p in [Path(__file__),
@@ -163,10 +188,26 @@ def main():
         claims_unavailable=["forward-error certificate", "continuous accuracy",
                             "performance/frontier admission"])
     backends = peers if args.mode == "qualify" else (args.backend,)
-    if args.mode != "prepare":
+    if args.mode == "measure":
+        raw_path = args.output / "attempts.jsonl"
+        with raw_path.open("x") as raw:
+            for backend, nt, _, _, _, trial in matched_points(
+                    list(EXTERNAL)+[args.backend], budgets, args.trials,
+                    ["rhs4"], ["training"], ["N"]):
+                folder = args.output / f"threads-{nt}-trial-{trial}-{backend}"
+                folder.mkdir(mode=0o700)
+                result = attempt(backend, build, stage, folder, fixture,
+                                 nt, available_cores[:nt], args.timeout)
+                result.update(threads=nt, trial=trial)
+                raw.write(json.dumps(result)+"\n")
+                raw.flush()
+                document["attempts"].append(result)
+        raw_path.chmod(0o600)
+        document["raw_attempts_sha256"] = sha256(raw_path)
+    elif args.mode != "prepare":
         for backend in backends:
             document["attempts"].append(attempt(backend, build, stage, args.output,
-                fixture, args.threads, cores, args.timeout))
+                fixture, args.threads, available_cores[:args.threads], args.timeout))
     document["status"] = ("prepared" if args.mode == "prepare" else "pass"
         if all(a["status"] == "pass" for a in document["attempts"]) else "failed")
     document["adapter_wall_s"] = time.perf_counter()-start
@@ -174,6 +215,9 @@ def main():
     target.write_text(json.dumps(document, indent=2)+"\n")
     target.chmod(0o600)
     print(json.dumps(dict(status=document["status"], receipt=str(target),
+                         attempts=len(document["attempts"]),
+                         outcomes=dict(collections.Counter(
+                             a["status"] for a in document["attempts"])),
                          backends={a["backend"]: a["status"]
                                    for a in document["attempts"]})))
     return 0 if document["status"] in ("prepared", "pass") else 2

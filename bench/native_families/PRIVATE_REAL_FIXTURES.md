@@ -86,6 +86,18 @@ asserted success is rejected. The independent prerequisite audits are setup
 and have their own recorded duration. Root integration creates new binaries,
 so it must produce fresh qualification receipts for those binaries.
 
+An explicit `--mode measure --backend native-amd --qualification RECEIPT`
+launches matched measurements after rechecking those same prerequisites. It
+rotates all five external peers and the selected native implementation across
+five fresh trials at thread budgets 1/2/4/8/16. `--trials` and `--thread-sweep`
+permit explicitly scoped follow-ups. Every trial uses the unchanged four RHS,
+has a unique private candidate export and receives its own independent exact
+audit. Failures and timeouts stay in flushed `attempts.jsonl`; later trials
+still run. The final receipt retains all attempts, raw hashes, source identity,
+requested budgets and separate child/audit durations. This mode measures cold
+factor-plus-RHS4 workflows only; it does not establish warm/reuse, transpose or
+whole-application admission.
+
 The five-peer comparison scope follows the existing family contract. It is
 explicitly broader than the first four-peer private extraction qualification;
 the frozen numeric accuracy policy itself has not changed. IPC parent and
