@@ -1,0 +1,15 @@
+execute_process(COMMAND "${LDD}" "${LIBRARY}" RESULT_VARIABLE result
+    OUTPUT_VARIABLE dependencies ERROR_VARIABLE error)
+if(NOT result EQUAL 0)
+    message(FATAL_ERROR "Cannot inspect plugin dependencies: ${error}")
+endif()
+string(TOLOWER "${dependencies}" dependencies_lower)
+if(dependencies_lower MATCHES "lib(umfpack|cholmod|superlu|[sdcz]?mumps|petsc)")
+    message(FATAL_ERROR "Native plugin links external sparse solver: ${dependencies}")
+endif()
+execute_process(COMMAND "${NM}" -D --undefined-only "${LIBRARY}" RESULT_VARIABLE result
+    OUTPUT_VARIABLE symbols ERROR_VARIABLE error)
+if(NOT result EQUAL 0 OR symbols MATCHES "(umfpack_|cholmod_|[sdcz]mumps|[sdcz]gssv)")
+    message(FATAL_ERROR "Native plugin contains vendor solver references: ${symbols}\n${error}")
+endif()
+message(STATUS "PASS native plugin linkage; interpreter runtime is a separate audit")

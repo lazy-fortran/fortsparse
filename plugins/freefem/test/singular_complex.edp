@@ -1,0 +1,6 @@
+load "fortsparse_native"
+complex[int,int] dense=[[1.+1.i,0.],[2.-1.i,0.]];
+matrix<complex> A=dense;
+set(A,solver=sparsesolver);
+complex[int] rhs=[1.+1.i,2.-1.i], solution=A^-1*rhs;
+cout << "UNEXPECTED SINGULAR SUCCESS" << endl;

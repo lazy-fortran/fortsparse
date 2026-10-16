@@ -10,6 +10,10 @@ Native general LU prefixes structural row singletons to the requested column
 order. The untouched core keeps that relative order (natural for DEFAULT) and
 uses threshold partial pivoting; unrefined solves retain explicit failure status.
 
+An optional [FreeFem SDK module](plugins/freefem/README.md) shares the native
+real/complex adapter between applications. It is separate from the core target
+and disabled by default.
+
 A small [native C/C++ API](docs/native-c-api.md) exposes owned general-LU
 contexts with real/complex N/T/H block solves and explicit failure status.
 
@@ -113,6 +117,7 @@ Options, all set with `-D`:
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and builds/installs no helper. The IPC protocol binding remains available for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | `ON` finds SuperLU and UMFPACK with `find_package` instead of fetching them. BLAS/LAPACK always come from the system. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs an OpenMP-enabled MUMPS, found by `find_package(MUMPS CONFIG)` or else `cmake/FindMUMPS.cmake` (distribution packages); see [MUMPS backend](#mumps-backend). |
+| `FORTSPARSE_BUILD_FREEFEM_PLUGIN` | `OFF` | Build the separate optional real/complex FreeFem SDK module; requires native-only core linkage and AMD. |
 | `FORTSPARSE_INSTALL_HELPER` | `ON` | Install the UMFPACK helper to `bin/`. See [Use in your project](#use-in-your-project). |
 | `FORTSPARSE_TEST_OOM` | `OFF` | Also register `test_fortsparse_superlu_status_oom` (label `oom`), which forces a real SuperLU allocation failure under `ulimit -v 250000`. Manual: the working limit is toolchain dependent. Run with `ctest -L oom`. |
 
@@ -480,3 +485,8 @@ are kept under `bench/native_families/umfpack_direct/`; shared fixture and recor
 sources remain MIT. It does not link FortSparse, replace the IPC backend or
 change the library's license. See that directory's README for ABI and memory
 measurement limits.
+
+The optional FreeFem module includes FreeFem SDK headers/templates under their
+own LGPL terms. It is a separate module, disabled by default; no FreeFem header
+or library is added to the MIT core target. See its
+[SDK and licensing contract](plugins/freefem/README.md).
