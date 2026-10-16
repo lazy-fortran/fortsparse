@@ -8,6 +8,11 @@
 int fsparse_native_amd_bounded_available(void);
 void fsparse_spd_probe_begin(int64_t);
 void fsparse_spd_probe_end(int64_t*,int64_t*,int64_t*);
+static int nd_calls;
+int __real_fsparse_native_order_general(int,int,const int*,const int*,int*,int*);
+int __wrap_fsparse_native_order_general(int n,int nz,const int *ptr,const int *row,int *p,int *ip) {
+    ++nd_calls;return __real_fsparse_native_order_general(n,nz,ptr,row,p,ip);
+}
 static const int32_t cp[]={0,2,4,6}, ri[]={0,1,1,2,0,2};
 static const double v[]={4,2,5,3,1,6};
 static const double dense[]={4,0,1,2,5,0,0,3,6};
@@ -190,10 +195,45 @@ static void one_kind(int z) {
             for(int op=0;op<3;++op)solve(h,z,op,2,0,0);
         }
     }
+    /* ND is actual optional graph-library execution; its opaque storage is uncapped only. */
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
+    CHECK(fs_native_set_memory(h,0,0,FS_NATIVE_MEMORY_AUTO)==0);
+    CHECK(factor(h,z,0)==0);
+    int nd=fs_native_ordering_available(FS_NATIVE_ORDER_ND), before_nd=nd_calls;
+    CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==nd);
+    if(nd==0) {
+        solve(h,z,0,2,4,0); /* Successful ordering change invalidates. */
+        CHECK(factor(h,z,0)==0&&nd_calls>before_nd);
+        stats(h,&s);CHECK(s.host_peak_bytes==-1&&s.strict_memory_supported==0&&s.peak_is_bound==1);
+        for(int op=0;op<3;++op)solve(h,z,op,2,0,op==1);
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==0);
+        solve(h,z,0,2,0,0); /* Same order retains actual ND factors. */
+        CHECK(factor(h,z,1)==0);solve(h,z,2,2,0,0);
+        before_nd=nd_calls;
+        CHECK(fs_native_set_memory(h,1000000,0,FS_NATIVE_MEMORY_AUTO)==0);
+        CHECK(factor(h,z,0)==3&&nd_calls==before_nd);
+        stats(h,&s);CHECK(s.strict_memory_supported==0);
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
+        CHECK(factor(h,z,0)==0);solve(h,z,0,2,0,0);
+        CHECK(fs_native_set_memory(h,0,0,FS_NATIVE_MEMORY_LOW)==0);
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==0);
+        CHECK(factor(h,z,0)==3&&nd_calls==before_nd);
+        stats(h,&s);CHECK(s.strict_memory_supported==0);
+        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
+        CHECK(factor(h,z,0)==0);solve(h,z,1,2,0,0);
+    } else {
+        CHECK(nd==3&&nd_calls==before_nd);
+        solve(h,z,0,2,0,0); /* Unavailable setter retains default factors. */
+    }
     CHECK(fs_native_free(&h)==0&&fs_native_free(&h)==0&&h==NULL);
     CHECK(fs_native_free(&other)==0&&other==NULL);
 }
 int main(void) {
+#ifdef FS_TEST_EXPECT_METIS
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==0);
+#else
+    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==3);
+#endif
     for(int i=0;i<6;++i)zv[i]=v[i]*(1+0.2*I);
     one_kind(0);one_kind(1);
     puts("C ABI complete payload caps, staging, allocation failure and independent handles pass");

@@ -12,6 +12,10 @@ module fortsparse_native_c_api
                 bind(C,name='fsparse_native_order_amd_available')
             import :: c_int
         end function
+        integer(c_int) function nd_available() &
+                bind(C,name='fsparse_native_order_available')
+            import :: c_int
+        end function
     end interface
 
     type, bind(C) :: memory_info_t
@@ -107,8 +111,8 @@ contains
             code = FORTSPARSE_BACKEND_UNAVAILABLE
             if (amd_available() == 1) code = FORTSPARSE_OK
         case(FORTSPARSE_ORDER_ND)
-            ! ND exists for other native matrix classes, not general LU.
             code = FORTSPARSE_BACKEND_UNAVAILABLE
+            if (nd_available() == 1) code = FORTSPARSE_OK
         case default
             code = FORTSPARSE_INVALID_MATRIX
         end select
@@ -185,6 +189,9 @@ contains
         call c_f_pointer(output_arg, output)
         call backend_memory(ctx, stats)
         ctx%memory%host_current_bytes = stats%host_current_bytes
+        ! ND remains opaque even if a strict request failed before graph setup.
+        if (ctx%solver%options%ordering == FORTSPARSE_ORDER_ND) &
+            ctx%memory%strict_memory_supported = 0
         output = ctx%memory
         code = FORTSPARSE_OK
     end function
