@@ -87,6 +87,10 @@ fortsparse_add_test(test_fortsparse_native
     solver/test_fortsparse_native.f90)
 fortsparse_add_test(test_fortsparse_native_supernodes
     solver/test_fortsparse_native_supernodes.f90)
+fortsparse_add_test(test_fortsparse_supernode_partition
+    solver/test_fortsparse_supernode_partition.f90)
+set_tests_properties(test_fortsparse_supernode_partition PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_supernode_memory
     solver/test_fortsparse_supernode_memory.f90)
 set_tests_properties(test_fortsparse_supernode_memory PROPERTIES

@@ -35,6 +35,7 @@ target_sources(fortsparse PRIVATE
     native/fsparse_native_lu_memory.c
     native/fsparse_native_symbolic.c
     native/fortsparse_native_cuda.F90
+    native/fortsparse_native_supernode_schedule.F90
     native/fortsparse_native_supernodes.F90
     ipc/fortsparse_ipc_proto.f90
     ipc/fortsparse_umfpack_ipc.f90
