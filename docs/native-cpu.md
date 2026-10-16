@@ -65,11 +65,25 @@ Default AUTO prefers eligible in-process external backends when built; a
 native-only build uses native AUTO. This is capability selection, not additional
 performance admission.
 
-Public solver contexts own mutable resources. Intrinsic assignment of a whole
-`sparse_solver_t` is unsafe: native user workspace pointers and opaque external
-handles can alias. Create independent contexts through the API; low-level LU
-factor-copy checks cover allocatable factor storage, not whole public contexts.
-A safe explicit ownership/copy contract remains open roadmap work.
+Public solver contexts own mutable resources. `sparse_copy(dst, src, status)`
+and the defined assignment `dst = src` create an independent deep copy: native
+CPU factors, ordering, symbolic, supernodal panel and refinement state are
+duplicated into storage owned by `dst` (the symbolic-row mapping and panel
+values are reallocated, never aliased), so either context can solve
+(normal/transpose/adjoint, block RHS, derivatives), refactor or be destroyed
+alone. `sparse_vector` slots are not copied. The destination keeps its
+`host_memory_limit_bytes` and is charged for the copy (see
+[memory accounting](memory.md)). SuperLU, UMFPACK IPC and MUMPS factors and
+native CUDA device factors are not copied: `dst` receives the backend selection
+and options with null handles, is unfactored, and the status is
+FORTSPARSE_NOT_FACTORED. Assignment cannot return a status, so a failed
+assignment leaves `dst` a valid unfactored context; use `sparse_copy` when the
+outcome matters. Elemental array assignment is supported. Self-assignment is
+a no-op without aliasing or double release, but gfortran's self-assignment
+temporary deep-copies backend arrays that it does not release; avoid `a = a`.
+Assigning a derived type that merely contains a `sparse_solver_t` component is
+not supported: gfortran implements that through intrinsic component copies,
+which can alias backend storage. Copy such components explicitly.
 
 The new references enforce `host_memory_limit_bytes` across their owned arrays,
 including factor growth replacement overlap, and support RAM-only LOW_MEMORY.

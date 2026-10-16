@@ -20,7 +20,7 @@ module fortsparse
         csc_normalize_symmetric_raw
     use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_refactor, &
         sparse_solve, sparse_solve_op, sparse_solve_block_op, sparse_analyze, sparse_memory_plan_t, &
-        sparse_free, sparse_destroy, sparse_solve_once, sparse_vector, &
+        sparse_free, sparse_destroy, sparse_copy, sparse_solve_once, sparse_vector, &
         sparse_solve_jvp, sparse_solve_vjp, sparse_solve_block, &
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
         FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC, &
@@ -57,7 +57,7 @@ module fortsparse
     public :: sparse_ilutp_t, sparse_ilutp_stats_t
     public :: sparse_solver_t, sparse_factor, sparse_refactor, sparse_solve, &
         sparse_free
-    public :: sparse_destroy, sparse_solve_once, sparse_vector
+    public :: sparse_destroy, sparse_copy, sparse_solve_once, sparse_vector
     public :: sparse_solve_jvp, sparse_solve_vjp
     public :: FORTSPARSE_BACKEND_SUPERLU
     public :: FORTSPARSE_BACKEND_UMFPACK_IPC, FORTSPARSE_BACKEND_MUMPS

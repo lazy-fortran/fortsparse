@@ -101,6 +101,7 @@ module fortsparse_native
         procedure :: factor_stats => native_stats
         procedure :: vector => native_vector
         procedure :: free => native_free
+        procedure :: copy_from => native_copy_from
         final :: native_finalize
     end type native_backend_t
 
@@ -1324,6 +1325,94 @@ contains
         self%memory_plan = sparse_memory_plan_t()
         self%stats = sparse_factor_stats_t()
     end subroutine native_free
+
+    subroutine native_copy_from(self, src, status)
+        ! Deep context copy: every allocatable is duplicated, the symbolic row
+        ! owner and panel values are recreated, user vectors are not copied.
+        class(native_backend_t), intent(inout) :: self
+        class(sparse_backend_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+
+        select type (src)
+        type is (native_backend_t)
+            select type (self)
+            type is (native_backend_t)
+                call copy_native(self, src, status)
+            class default
+                call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                    'native copy: destination type differs from source')
+            end select
+        class default
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'native copy: source type differs from destination')
+        end select
+    end subroutine native_copy_from
+
+    subroutine copy_native(self, src, status)
+        type(native_backend_t), intent(inout) :: self
+        type(native_backend_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+        type(sparse_options_t) :: options
+        type(memory_budget_t) :: budget
+        integer(i8) :: bytes, vector_bytes
+        integer(c_size_t) :: li_bytes
+
+        options = src%options
+        options%host_memory_limit_bytes = self%options%host_memory_limit_bytes
+        call self%free()
+        self%options = options
+        self%reference_only = src%reference_only
+        if (src%panels%has_device_context()) then
+            call status_set(status, FORTSPARSE_NOT_FACTORED, &
+                'native copy: CUDA device factors are not copied; ' // &
+                'destination is unfactored')
+            return
+        end if
+        vector_bytes = 0_i8
+        if (associated(src%user_vector)) &
+            vector_bytes = 8_i8*size(src%user_vector, kind=i8)
+        if (src%bounded_memory) then
+            bytes = max(0_i8, src%host_budget%current - vector_bytes)
+        else
+            bytes = max(0_i8, owned_payload(src) - vector_bytes)
+        end if
+        budget%limit = options%host_memory_limit_bytes
+        call budget%reserve(bytes, status, 'native context copy')
+        if (.not. status_ok(status)) then
+            self%stats%budget_required_bytes = budget%failed_required
+            self%stats%budget_available_bytes = budget%failed_available
+            return
+        end if
+        self = src
+        ! Drop every alias before the first fallible step.
+        nullify(self%user_vector)
+        nullify(self%li)
+        self%li_owner = c_null_ptr
+        self%li_bytes = 0_c_size_t
+        self%options = options
+        call self%panels%finish_copy(src%panels, status)
+        if (.not. status_ok(status)) goto 900
+        li_bytes = src%li_bytes
+        if (c_associated(src%li_owner)) then
+            self%li_owner = symbolic_alloc(li_bytes)
+            if (.not. c_associated(self%li_owner)) then
+                call memory_error(status)
+                goto 900
+            end if
+            self%li_bytes = li_bytes
+            call c_f_pointer(self%li_owner, self%li, [size(src%li)])
+            self%li = src%li
+        end if
+        if (self%bounded_memory) then
+            self%host_budget = budget
+            self%host_budget%limit = options%host_memory_limit_bytes
+        end if
+        call status_set(status, FORTSPARSE_OK, '')
+        return
+900     call self%free()
+        self%options = options
+        self%reference_only = src%reference_only
+    end subroutine copy_native
 
     subroutine native_finalize(self)
         type(native_backend_t), intent(inout) :: self

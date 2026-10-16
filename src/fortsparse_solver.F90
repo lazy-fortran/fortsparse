@@ -10,6 +10,7 @@ module fortsparse_solver
     ! FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an unbuilt or unknown backend
     ! yields a documented
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
+    use, intrinsic :: iso_c_binding, only: c_loc, c_associated
     use fortsparse_kinds, only: dp, i8
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, &
@@ -86,6 +87,8 @@ module fortsparse_solver
 
     ! Solver handle. Holds backend selection, refinement toggle, the factored
     ! flag, and the polymorphic backend that owns the retained factorization.
+    ! Assignment dst = src is a deep copy (sparse_copy); since it cannot
+    ! return a status, a failed copy leaves dst a valid unfactored context.
     type, public :: sparse_solver_t
         integer :: backend_id = FORTSPARSE_BACKEND_DEFAULT
         logical :: refine = .false.
@@ -93,6 +96,9 @@ module fortsparse_solver
         ! Structure hint, ordering and thread count, applied at the next factor.
         type(sparse_options_t) :: options
         class(sparse_backend_t), allocatable :: backend
+    contains
+        procedure, private :: assign_solver
+        generic :: assignment(=) => assign_solver
     end type sparse_solver_t
 
     public :: sparse_factor, sparse_analyze, sparse_memory_plan_t
@@ -100,6 +106,7 @@ module fortsparse_solver
     public :: sparse_solve
     public :: sparse_free
     public :: sparse_destroy
+    public :: sparse_copy
     public :: sparse_solve_once
     public :: sparse_solve_jvp
     public :: sparse_solve_vjp
@@ -803,6 +810,70 @@ contains
         if (allocated(solver%backend)) deallocate (solver%backend)
         solver%factored = .false.
     end subroutine sparse_destroy
+
+    ! Deep-copy the context src into dst. Native CPU factors, analysis and
+    ! refinement state are duplicated into storage owned by dst, so either
+    ! context may be solved, refactored or destroyed independently. Vectors
+    ! from sparse_vector are not copied. dst keeps its own
+    ! options%host_memory_limit_bytes, and the copied payload is charged
+    ! against it (RESOURCE_LIMIT when it does not fit). External backend
+    ! factors and native CUDA device factors are not copied: dst then has
+    ! src's selection and options but is unfactored, and status is
+    ! FORTSPARSE_NOT_FACTORED. On every failure dst is a valid unfactored
+    ! context. dst's previous factors are released after the copy is built;
+    ! call sparse_destroy(dst) first to lower the transient peak.
+    subroutine sparse_copy(dst, src, status)
+        type(sparse_solver_t), target, intent(inout) :: dst
+        type(sparse_solver_t), target, intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+
+        call copy_context(dst, src, status)
+    end subroutine sparse_copy
+
+    ! Defined assignment; status is dropped. Use sparse_copy when it matters.
+    impure elemental subroutine assign_solver(dst, src)
+        class(sparse_solver_t), target, intent(inout) :: dst
+        type(sparse_solver_t), target, intent(in) :: src
+        type(fortsparse_status_t) :: status
+
+        call copy_context(dst, src, status)
+    end subroutine assign_solver
+
+    subroutine copy_context(dst, src, status)
+        class(sparse_solver_t), target, intent(inout) :: dst
+        type(sparse_solver_t), target, intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+        class(sparse_backend_t), allocatable :: fresh
+        integer(i8) :: cap
+
+        call status_set(status, FORTSPARSE_OK, '')
+        if (c_associated(c_loc(dst%backend_id), c_loc(src%backend_id))) return
+        ! gfortran passes a shallow temporary for self-assignment;
+        ! its backend is dst's backend, so this is also self-assignment.
+        if (allocated(dst%backend) .and. allocated(src%backend)) then
+            if (c_associated(c_loc(dst%backend%options), &
+                             c_loc(src%backend%options))) return
+        end if
+        cap = dst%options%host_memory_limit_bytes
+        ! Build the copy before releasing dst, so a source that shares
+        ! storage with dst is read before that storage is released.
+        if (allocated(src%backend)) then
+            allocate (fresh, mold=src%backend)
+            fresh%options = src%backend%options
+            fresh%options%host_memory_limit_bytes = cap
+            call fresh%copy_from(src%backend, status)
+            ! An unfactored source loses nothing when no factors are copied.
+            if (status%code == FORTSPARSE_NOT_FACTORED .and. .not. src%factored) &
+                call status_set(status, FORTSPARSE_OK, '')
+        end if
+        if (allocated(dst%backend)) deallocate (dst%backend)
+        if (allocated(fresh)) call move_alloc(fresh, dst%backend)
+        dst%backend_id = src%backend_id
+        dst%refine = src%refine
+        dst%options = src%options
+        dst%options%host_memory_limit_bytes = cap
+        dst%factored = src%factored .and. status_ok(status)
+    end subroutine copy_context
 
     ! Convenience real driver: factor, solve, free.
     subroutine sparse_solve_once_real(A, b, x, status)

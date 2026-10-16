@@ -10,7 +10,7 @@ module fortsparse_backend
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_BACKEND_UNAVAILABLE, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, &
-        FORTSPARSE_INDEX_OVERFLOW, &
+        FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_RESOURCE_LIMIT
     implicit none
     private
@@ -131,6 +131,7 @@ module fortsparse_backend
         procedure :: solve_real_block_op => backend_solve_real_block_op
         procedure :: solve_complex_block_op => backend_solve_complex_block_op
         procedure :: factor_stats => backend_factor_stats
+        procedure :: copy_from => backend_copy_from
         procedure(vector_i), deferred :: vector
         procedure(free_i), deferred :: free
     end type sparse_backend_t
@@ -325,6 +326,25 @@ contains
             X(:, j) = xj
         end do
     end subroutine backend_solve_complex_block
+
+    ! Context-copy contract. self is a freshly default-initialized backend of
+    ! the dynamic type of src whose options the caller has already set; its
+    ! host_memory_limit_bytes is the destination cap. A backend that can
+    ! deep-copy its retained state overrides this. The default copies no
+    ! factors: self stays unfactored with null handles, so both finalize safely.
+    subroutine backend_copy_from(self, src, status)
+        class(sparse_backend_t), intent(inout) :: self
+        class(sparse_backend_t), intent(in) :: src
+        type(fortsparse_status_t), intent(out) :: status
+
+        if (.not. same_type_as(self, src)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'backend copy: source and destination types differ')
+            return
+        end if
+        call status_set(status, FORTSPARSE_NOT_FACTORED, &
+            'backend copy: external factors are not copied; destination is unfactored')
+    end subroutine backend_copy_from
 
     ! Default: the backend reports no statistics.
     subroutine backend_factor_stats(self, stats, status)
