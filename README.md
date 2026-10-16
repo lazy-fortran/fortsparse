@@ -59,6 +59,11 @@ See [matrix classes and transpose/adjoint solves](docs/native-cpu.md). Their
 production performance admission and parallel factorization remain open.
 The CPU references support retained original-matrix refinement; the published CPU frontier claim applies only to the frozen real-SPD corpus.
 
+The standalone native real CSR [`sparse_ilutp_t` preconditioner](docs/ilutp.md)
+provides explicit lower/upper fill caps, column pivoting, a host array-payload
+limit and allocation-free retained normal apply. Krylov remains in FortNum.
+SPEC application migration and preconditioner performance admission remain pending.
+
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
 built with a sequential MUMPS (see [Backend selection](#backend-selection)).

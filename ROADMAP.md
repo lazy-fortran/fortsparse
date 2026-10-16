@@ -259,6 +259,10 @@ mathematical implementations.
   without external sparse solvers, representative/held-out admission evidence,
   cluster-memory predictions and migration documentation. Expand index width
   when the consumer inventory demonstrates a requirement.
+  Native real CSR [ILUTP](docs/ilutp.md) with explicit fill caps, column pivots,
+  bounded payload and allocation-free retained normal apply is implemented.
+  SPEC application migration, its left-preconditioned GMRES contract and
+  representative preconditioner performance admission remain pending.
 - [ ] **M6.7: GPU admission and coverage.** Profile unresolved frozen SPD cases
   to the GPU-library Pareto frontier, then add consumer-required GPU classes
   with the same correctness, derivative, memory and performance gates.
