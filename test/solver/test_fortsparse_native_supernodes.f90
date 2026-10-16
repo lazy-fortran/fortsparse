@@ -10,7 +10,14 @@ program test_fortsparse_native_supernodes
     character(16) :: argument
     call get_command_argument(1, argument)
     device = -1
-    if (trim(argument) == '--cuda') then
+    if (trim(argument) == '--cuda-levels') then
+        if (.not. native_cuda_available) error stop 'CUDA fixture needs CUDA build'
+        device = 0
+        ! Held-out rectangular graph and disconnected chains exercise the
+        ! dependency schedule through the actual sparse analysis/solve path.
+        call run_grid(19, 11)
+        call run_case(71, .false.)
+    else if (trim(argument) == '--cuda') then
         if (.not. native_cuda_available) error stop 'CUDA fixture needs CUDA build'
         device = 0
         call run_case(17, .false.)
@@ -25,8 +32,10 @@ program test_fortsparse_native_supernodes
             end if
         end do
     end if
-    call run_grid(17, 17)
-    call run_scattered()
+    if (trim(argument) /= '--cuda-levels') then
+        call run_grid(17, 17)
+        call run_scattered()
+    end if
     print '(a)', 'Native supernode block boundaries, task execution, refactor and errors pass'
 contains
     subroutine run_case(n, dense)

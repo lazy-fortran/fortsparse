@@ -61,6 +61,23 @@ longer than the block's 256 threads. Upper entries and leading-dimension padding
 remain untouched. The original diagonal-only panel API preserves its behavior.
 Source panels up to eight columns also use a fused generated negative
 dot product and mapped scatter, avoiding product scratch and a second launch.
+Native GPU setup computes dependency levels from every actual source-to-
+destination update edge, rejecting non-forward edges. Stable panel IDs are
+grouped by level. Each level factors all thin panels with one cooperative
+block per panel, then accumulates their mapped updates in one tiled grid;
+wide panels keep serial cuBLAS operations on the same stream. Every update
+targets a strictly later level. The generated negative-dot increment feeds
+both the original serial scatter and the level scatter. Concurrent thin
+sources use FP64 atomic addition, so the reduction order is hardware dependent
+and bitwise reproducibility is not promised. Independent original-matrix
+residual checks remain the accuracy criterion; this is no mixed-precision
+path. Each factor block uses shared local pivot status and atomically reports
+failure after its uniform cooperative schedule. Other independent panels may
+have executed when a failure is reported; all failed factor output is discarded.
+Level descriptors and update tiles are retained at setup and counted in device
+bytes, with host launch metadata and wide-panel ID lists counted separately.
+Setup uses temporary counting-sort arrays; factor/refactor allocates none.
+The original single-panel and non-atomic batch C interfaces remain available.
 Wider Schur contractions and trailing triangular solves retain cuBLAS. The fused
 schedule skips absent map entries and preserves unused destination cells;
 its local reduction order can differ from the vendor GEMM reduction.

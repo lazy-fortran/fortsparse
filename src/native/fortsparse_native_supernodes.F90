@@ -13,12 +13,13 @@ module fortsparse_native_supernodes
         c_int, c_size_t, c_loc
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
     use fortsparse_native_cuda, only: spd_cuda_create_deferred, spd_cuda_destroy, &
-        spd_cuda_prepare_blas, spd_cuda_front_factor, &
+        spd_cuda_prepare_blas, &
         spd_cuda_upload, spd_cuda_download, spd_cuda_synchronize, &
         spd_cuda_panel_factor, spd_cuda_factor_info, spd_cuda_panel_solve, &
         spd_cuda_schur_product, spd_cuda_set_maps, spd_cuda_begin_factor, &
         spd_cuda_scatter_update, spd_cuda_allocated_bytes, spd_cuda_schur_task, &
-        spd_cuda_set_schur_batches, spd_cuda_schur_batch, spd_cuda_host_plan_bytes
+        spd_cuda_host_plan_bytes, spd_cuda_level_panel, spd_cuda_level_task, &
+        spd_cuda_set_levels, spd_cuda_factor_level, spd_cuda_update_level
 #endif
     !$ use omp_lib, only: omp_get_thread_num, omp_get_num_threads, omp_get_max_threads
     implicit none
@@ -44,6 +45,7 @@ module fortsparse_native_supernodes
         integer(i8) :: device_bytes = 0_i8
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         integer(i8), private :: cuda_host_bytes = 0_i8
+        integer, allocatable, private :: cuda_wide_ptr(:), cuda_wide_members(:)
 #endif
         integer(i8) :: symbolic_nnz = 0_i8
         integer(i8) :: factor_storage_bytes = 0_i8, workspace_bytes = 0_i8
@@ -658,6 +660,8 @@ contains
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         integer(c_int) :: code
         if (c_associated(self%cuda)) code = spd_cuda_destroy(self%cuda)
+        if (allocated(self%cuda_wide_ptr)) deallocate(self%cuda_wide_ptr)
+        if (allocated(self%cuda_wide_members)) deallocate(self%cuda_wide_members)
 #endif
         self%cuda = c_null_ptr
         if (allocated(self%panels)) deallocate(self%panels)
@@ -710,6 +714,8 @@ contains
         bytes = 0_i8
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         bytes = self%cuda_host_bytes
+        if (allocated(self%cuda_wide_ptr)) bytes = bytes+4_i8*size(self%cuda_wide_ptr,kind=i8)
+        if (allocated(self%cuda_wide_members)) bytes = bytes+4_i8*size(self%cuda_wide_members,kind=i8)
 #endif
         if (.not. allocated(self%panels)) return
         do s = 1, self%node_count
@@ -965,8 +971,10 @@ contains
         integer, intent(in) :: maxwork
         type(fortsparse_status_t), intent(out) :: status
         integer(c_int), allocatable, target :: maps(:)
-        type(spd_cuda_schur_task), allocatable, target :: tasks(:)
-        integer(c_size_t), allocatable, target :: batch_ptr(:)
+        type(spd_cuda_level_task), allocatable, target :: tasks(:)
+        type(spd_cuda_level_panel), allocatable, target :: panels(:)
+        integer, allocatable :: levels(:), next(:)
+        integer :: level_count, l, count_wide
         integer :: s, first, group, dest, q, m2, u, v, count_updates, count_thin, base, p, ierr
         integer(i8) :: count_maps
         integer(c_int) :: code
@@ -993,7 +1001,7 @@ contains
             return
         end if
         allocate(self%updates(count_updates), maps(int(count_maps)), &
-            tasks(count_thin), batch_ptr(self%node_count+1), stat=ierr)
+            tasks(count_thin), panels(self%node_count), levels(self%node_count), stat=ierr)
         if (ierr /= 0) then
             call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'CUDA scatter map allocation failed')
             return
@@ -1001,14 +1009,19 @@ contains
         base = 0
         u = 0
         v = 0
+        levels = 0
         do s = 1, self%node_count
-            batch_ptr(s) = int(v,c_size_t)
             self%panels(s)%update_first = u+1
             first = self%panels(s)%width+1
             do while (first <= self%panels(s)%m)
                 call update_group(self, s, first, group, dest)
                 q = group-first
                 m2 = self%panels(s)%m-first+1
+                if (dest <= s .or. dest > self%node_count) then
+                    call status_set(status, FORTSPARSE_INTERNAL_ERROR, 'CUDA invalid update DAG edge')
+                    return
+                end if
+                levels(dest) = max(levels(dest),levels(s)+1)
                 u = u+1
                 self%updates(u)%dest = dest
                 self%updates(u)%first = first
@@ -1027,7 +1040,9 @@ contains
                 base = base+q
                 if (self%panels(s)%width <= 8) then
                     v = v+1
-                    tasks(v) = spd_cuda_schur_task( &
+                    tasks(v)%source = int(s-1,c_size_t)
+                    tasks(v)%destination = int(dest-1,c_size_t)
+                    tasks(v)%task = spd_cuda_schur_task( &
                         self%panels(s)%offset+int(first-1,c_size_t), &
                         self%panels(s)%offset+int(first-1,c_size_t), &
                         self%panels(dest)%offset, self%updates(u)%row_map, &
@@ -1043,7 +1058,37 @@ contains
             end do
             self%panels(s)%update_last = u
         end do
-        batch_ptr(self%node_count+1) = int(v,c_size_t)
+        level_count = 0
+        if (self%node_count > 0) level_count = maxval(levels)+1
+        count_wide = 0
+        do s = 1, self%node_count
+            panels(s) = spd_cuda_level_panel(self%panels(s)%offset, &
+                int(self%panels(s)%width,c_int), int(self%panels(s)%m,c_int), &
+                int(self%panels(s)%m,c_int), int(levels(s),c_int))
+            if (self%panels(s)%width > 8) count_wide = count_wide+1
+        end do
+        allocate(self%cuda_wide_ptr(level_count+1), self%cuda_wide_members(count_wide), &
+            next(level_count), stat=ierr)
+        if (ierr /= 0) then
+            call status_set(status, FORTSPARSE_OUT_OF_MEMORY, 'CUDA level allocation failed')
+            return
+        end if
+        self%cuda_wide_ptr = 0
+        do s = 1, self%node_count
+            if (self%panels(s)%width > 8) &
+                self%cuda_wide_ptr(levels(s)+2) = self%cuda_wide_ptr(levels(s)+2)+1
+        end do
+        self%cuda_wide_ptr(1) = 1
+        do l = 1, level_count
+            self%cuda_wide_ptr(l+1) = self%cuda_wide_ptr(l+1)+self%cuda_wide_ptr(l)
+        end do
+        next = self%cuda_wide_ptr(:level_count)
+        do s = 1, self%node_count
+            if (self%panels(s)%width <= 8) cycle
+            l = levels(s)+1
+            self%cuda_wide_members(next(l)) = s
+            next(l) = next(l)+1
+        end do
         code = spd_cuda_create_deferred(self%cuda, int(self%device,c_int), &
             self%numeric_count+int(maxwork,c_size_t))
         if (code == 0 .and. needs_blas) code = spd_cuda_prepare_blas(self%cuda)
@@ -1052,13 +1097,8 @@ contains
                 code = spd_cuda_set_maps(self%cuda, c_loc(maps), int(count_maps,c_size_t))
         end if
         if (code == 0) then
-            if (v > 0) then
-                code = spd_cuda_set_schur_batches(self%cuda, c_loc(tasks), int(v,c_size_t), &
-                    c_loc(batch_ptr), int(self%node_count,c_size_t))
-            else
-                code = spd_cuda_set_schur_batches(self%cuda, c_null_ptr, 0_c_size_t, &
-                    c_loc(batch_ptr), int(self%node_count,c_size_t))
-            end if
+            code = spd_cuda_set_levels(self%cuda, c_loc(panels), int(self%node_count,c_size_t), &
+                c_loc(tasks), int(v,c_size_t), int(level_count,c_size_t))
         end if
         call cuda_status(code, status)
         if (code == 0) then
@@ -1070,7 +1110,7 @@ contains
     subroutine factor_cuda(self, status)
         class(supernodes_t), intent(inout) :: self
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s, u, m, w, m2, dest
+        integer :: s, u, m, w, m2, dest, l, member
         integer(c_int) :: code, info, ignored
         integer(c_size_t) :: offset, source_offset
         real(dp), pointer, contiguous :: host(:)
@@ -1080,31 +1120,42 @@ contains
         if (code == 0 .and. self%numeric_count > 0) &
             code = spd_cuda_upload(self%cuda, 0_c_size_t, c_loc(host), &
                 self%numeric_count)
-        do s = 1, self%node_count
+        ! All sources in one level are independent. Every update writes to a
+        ! strictly later level. Atomic thin contributions may accumulate in a
+        ! hardware-dependent FP64 order; independent residual checking applies.
+        do l = 1, size(self%cuda_wide_ptr)-1
             if (code /= 0) exit
-            m = self%panels(s)%m
-            w = self%panels(s)%width
-            offset = self%panels(s)%offset
-            if (w <= 8) then
-                code = spd_cuda_front_factor(self%cuda, offset, w, m, m)
-                if (code == 0) code = spd_cuda_schur_batch(self%cuda, int(s-1,c_size_t))
-                cycle
-            end if
-            code = spd_cuda_panel_factor(self%cuda, offset, w, m)
-            if (code == 0 .and. m > w) &
-                code = spd_cuda_panel_solve(self%cuda, offset, w, m, offset+w, m-w, m)
-            do u = self%panels(s)%update_first, self%panels(s)%update_last
+            code = spd_cuda_factor_level(self%cuda, int(l-1,c_size_t))
+            do member = self%cuda_wide_ptr(l), self%cuda_wide_ptr(l+1)-1
                 if (code /= 0) exit
-                dest = self%updates(u)%dest
-                m2 = m-self%updates(u)%first+1
-                source_offset = offset+self%updates(u)%first-1
-                code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
-                    source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
+                s = self%cuda_wide_members(member)
+                m = self%panels(s)%m
+                w = self%panels(s)%width
+                offset = self%panels(s)%offset
+                code = spd_cuda_panel_factor(self%cuda, offset, w, m)
+                if (code == 0 .and. m > w) &
+                    code = spd_cuda_panel_solve(self%cuda, offset, w, m, offset+w, m-w, m)
+            end do
+            if (code == 0) code = spd_cuda_update_level(self%cuda, int(l-1,c_size_t))
+            do member = self%cuda_wide_ptr(l), self%cuda_wide_ptr(l+1)-1
                 if (code /= 0) exit
-                code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
-                    m2, self%updates(u)%q, self%panels(dest)%offset, &
-                    self%panels(dest)%m, self%panels(dest)%width, &
-                    self%updates(u)%row_map, self%updates(u)%column_map)
+                s = self%cuda_wide_members(member)
+                m = self%panels(s)%m
+                w = self%panels(s)%width
+                offset = self%panels(s)%offset
+                do u = self%panels(s)%update_first, self%panels(s)%update_last
+                    if (code /= 0) exit
+                    dest = self%updates(u)%dest
+                    m2 = m-self%updates(u)%first+1
+                    source_offset = offset+self%updates(u)%first-1
+                    code = spd_cuda_schur_product(self%cuda, self%numeric_count, m2, &
+                        source_offset, m, source_offset, m, m2, self%updates(u)%q, w)
+                    if (code /= 0) exit
+                    code = spd_cuda_scatter_update(self%cuda, self%numeric_count, &
+                        m2, self%updates(u)%q, self%panels(dest)%offset, &
+                        self%panels(dest)%m, self%panels(dest)%width, &
+                        self%updates(u)%row_map, self%updates(u)%column_map)
+                end do
             end do
         end do
         if (code == 0) code = spd_cuda_factor_info(self%cuda, info)

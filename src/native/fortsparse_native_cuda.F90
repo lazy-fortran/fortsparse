@@ -16,15 +16,45 @@ module fortsparse_native_cuda
     public :: spd_cuda_schur_scatter
     public :: spd_cuda_schur_task, spd_cuda_set_schur_batches, spd_cuda_schur_batch
     public :: spd_cuda_host_plan_bytes
+    public :: spd_cuda_level_panel, spd_cuda_level_task, spd_cuda_set_levels
+    public :: spd_cuda_factor_level, spd_cuda_update_level
 
     type, bind(C) :: spd_cuda_schur_task
         integer(c_size_t) :: left_offset, right_offset, destination_offset
         integer(c_size_t) :: row_map_offset, column_map_offset
         integer(c_int) :: ldl, ldr, m, n, k, destination_rows, destination_columns
     end type spd_cuda_schur_task
+    type, bind(C) :: spd_cuda_level_panel
+        integer(c_size_t) :: offset
+        integer(c_int) :: width, rows, lda, level
+    end type spd_cuda_level_panel
+    type, bind(C) :: spd_cuda_level_task
+        type(spd_cuda_schur_task) :: task
+        integer(c_size_t) :: source, destination
+    end type spd_cuda_level_task
     public :: spd_cuda_create_deferred, spd_cuda_prepare_blas, spd_cuda_front_factor
 
     interface
+        integer(c_int) function spd_cuda_set_levels(context, panels, panel_count, &
+            tasks, task_count, level_count) bind(C, name='fsparse_spd_cuda_set_levels')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context, panels, tasks
+            integer(c_size_t), value :: panel_count, task_count, level_count
+        end function spd_cuda_set_levels
+
+        integer(c_int) function spd_cuda_factor_level(context, level) &
+            bind(C, name='fsparse_spd_cuda_factor_level')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: level
+        end function spd_cuda_factor_level
+
+        integer(c_int) function spd_cuda_update_level(context, level) &
+            bind(C, name='fsparse_spd_cuda_update_level')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: level
+        end function spd_cuda_update_level
         integer(c_int) function spd_cuda_set_schur_batches(context, tasks, task_count, &
             batch_ptr, batch_count) bind(C, name='fsparse_spd_cuda_set_schur_batches')
             import :: c_ptr, c_int, c_size_t
