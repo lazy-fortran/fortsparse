@@ -15,7 +15,7 @@ program bench_spd_cudss
             integer(c_int), intent(in) :: ptr(*), row(*), permutation(*)
             real(c_double), intent(in) :: values(*), updated(*), rhs(*)
             real(c_double), intent(out) :: solution(*), times(13)
-            integer(c_int64_t), intent(out) :: counts(17)
+            integer(c_int64_t), intent(out) :: counts(21)
         end function run
         subroutine metrics(rss, child_rss, child_cpu) &
                 bind(C, name="fsbench_process_metrics")
@@ -28,7 +28,7 @@ program bench_spd_cudss
     character(1024) :: matrix_path, permutation_path
     character(16) :: ordering_hash
     integer :: level, threads, device, mode, resident, order, nrhs, repeats
-    integer :: r, j, unit, ios, permutation_size
+    integer :: r, j, unit, ios, permutation_size, expected_minor
     integer(c_int) :: code
     integer(c_int), allocatable :: permutation(:)
     logical, allocatable :: seen(:)
@@ -36,7 +36,7 @@ program bench_spd_cudss
     real(dp) :: start, cpu_start, cpu_s, total_s, check_start, check_s
     real(dp) :: error, forward_error, rss, child_rss, child_cpu
     real(c_double) :: times(13)
-    integer(c_int64_t) :: counts(17)
+    integer(c_int64_t) :: counts(21)
 
     start = wall_time()
     call cpu_time(cpu_start)
@@ -58,6 +58,10 @@ program bench_spd_cudss
     if (trim(workload) == 'repeated-rhs') repeats = 8
     if (len_trim(argument) > 0) read (argument, *) repeats
     call get_command_argument(11, permutation_path)
+    ! Position 12 is only a registered rejection oracle, never a benchmark knob.
+    call get_command_argument(12, argument)
+    expected_minor = 0
+    if (len_trim(argument) > 0) read (argument, *) expected_minor
     if (threads < 1 .or. device < 0 .or. repeats < 1 .or. repeats > 32) &
         error stop 'invalid thread/device/repeat argument'
     if (trim(variant) /= 'training' .and. trim(variant) /= 'heldout') &
@@ -129,6 +133,11 @@ program bench_spd_cudss
     solution = 0.0_dp
     code = run(a%n, a%ptr, a%row, a%val, changed%val, rhs, solution, nrhs, &
         threads, device, mode, resident, order, permutation, repeats, times, counts)
+    if (code == 0 .and. mode == 2) then
+        if (counts(18) /= 1 .or. counts(19) /= 2 .or. &
+            counts(20) /= 2 .or. counts(21) /= 2) &
+            error stop 'warm workflow did not retain runtime and redo analysis/factors'
+    end if
     check_start = wall_time()
     error = -1.0_dp
     forward_error = -1.0_dp
@@ -173,7 +182,9 @@ program bench_spd_cudss
         'ordering_hash,solver_version,execution_mode,gpu_kernel_calls,'// &
         'gpu_offload_verified,device_memory_estimate_peak_bytes,'// &
         'host_memory_estimate_peak_bytes,check_s,forward_error,'// &
-        'pool_limit_bytes,memory_sampling_s,device_process_sample_count'
+        'pool_limit_bytes,memory_sampling_s,device_process_sample_count,'// &
+        'runtime_handle_creations,data_object_creations,'// &
+        'symbolic_analysis_calls,numeric_factor_calls'
     write (*, '(*(g0,:,","))') 'cudss', trim(family), level, a%n, size(a%val), &
         threads, nrhs, trim(workload), trim(variant), counts(9), trim(io_mode), &
         trim(ordering), repeats, code, error, times(11), times(12), times(3), &
@@ -181,6 +192,12 @@ program bench_spd_cudss
         times(1), times(2), times(7), times(8), times(9), times(10), &
         counts(1:8), threads, counts(10), ordering_hash, '0.8.0.10-cuda13', &
         'gpu-only-factor-solve', -1, 0, counts(14:15), check_s, forward_error, &
-        counts(16), times(13), counts(17)
+        counts(16), times(13), counts(17:21)
+    if (expected_minor > 0) then
+        if (code /= 1000 + expected_minor) &
+            error stop 'expected exact vendor nonpositive minor was not reported'
+        print '(a)', 'PASS cuDSS rejected expected nonpositive minor'
+        stop
+    end if
     if (code /= 0) stop 2
 end program bench_spd_cudss

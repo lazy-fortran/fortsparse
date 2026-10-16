@@ -9,6 +9,7 @@
   "primary_documentation": [
     "https://docs.nvidia.com/cuda/cudss/types.html",
     "https://docs.nvidia.com/cuda/cudss/advanced_features.html",
-    "https://docs.nvidia.com/cuda/cudss/license.html"
+    "https://docs.nvidia.com/cuda/cudss/license.html",
+    "https://docs.nvidia.com/cuda/cudss/functions.html"
   ]
 }
