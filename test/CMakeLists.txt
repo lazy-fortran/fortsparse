@@ -26,6 +26,24 @@ fortsparse_add_test(test_fortsparse_native_supernodes
     solver/test_fortsparse_native_supernodes.f90)
 set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
     test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 1)
+add_executable(test_native_symbolic solver/test_native_symbolic.c)
+target_link_libraries(test_native_symbolic PRIVATE fortsparse)
+add_test(NAME test_native_symbolic COMMAND test_native_symbolic)
+set_tests_properties(test_native_symbolic PROPERTIES LABELS "native;fast" TIMEOUT 1)
+add_executable(test_native_symbolic_portable solver/test_native_symbolic.c
+    ../src/native/fsparse_native_symbolic.c)
+target_compile_definitions(test_native_symbolic_portable PRIVATE FORTSPARSE_SYMBOLIC_MALLOC_ONLY)
+add_test(NAME test_native_symbolic_portable COMMAND test_native_symbolic_portable)
+set_tests_properties(test_native_symbolic_portable PROPERTIES LABELS "native;fast" TIMEOUT 1)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_native_symbolic_failure ../test-cmake/native/test_native_symbolic_failure.f90
+        ../test-cmake/native/native_symbolic_fail.c)
+    target_link_libraries(test_native_symbolic_failure PRIVATE fortsparse)
+    target_link_options(test_native_symbolic_failure PRIVATE
+        "LINKER:--wrap=fsparse_native_symbolic_alloc")
+    add_test(NAME test_native_symbolic_failure COMMAND test_native_symbolic_failure)
+    set_tests_properties(test_native_symbolic_failure PROPERTIES LABELS "native;fast" TIMEOUT 1)
+endif()
 add_executable(test_native_order solver/test_native_order.c)
 target_link_libraries(test_native_order PRIVATE fortsparse)
 if(FORTSPARSE_NATIVE_METIS_FOUND)

@@ -15,6 +15,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_version.f90
     generated/fortsparse_spd_leaves.f90
     native/fortsparse_native.f90
+    native/fsparse_native_symbolic.c
     native/fortsparse_native_cuda.F90
     native/fortsparse_native_supernodes.F90
     ipc/fortsparse_ipc_proto.f90
