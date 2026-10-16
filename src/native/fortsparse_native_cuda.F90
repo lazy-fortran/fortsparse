@@ -14,8 +14,36 @@ module fortsparse_native_cuda
     public :: spd_cuda_allocated_bytes
     public :: spd_cuda_set_maps, spd_cuda_begin_factor, spd_cuda_scatter_update
     public :: spd_cuda_schur_scatter
+    public :: spd_cuda_schur_task, spd_cuda_set_schur_batches, spd_cuda_schur_batch
+    public :: spd_cuda_host_plan_bytes
+
+    type, bind(C) :: spd_cuda_schur_task
+        integer(c_size_t) :: left_offset, right_offset, destination_offset
+        integer(c_size_t) :: row_map_offset, column_map_offset
+        integer(c_int) :: ldl, ldr, m, n, k, destination_rows, destination_columns
+    end type spd_cuda_schur_task
 
     interface
+        integer(c_int) function spd_cuda_set_schur_batches(context, tasks, task_count, &
+            batch_ptr, batch_count) bind(C, name='fsparse_spd_cuda_set_schur_batches')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context, tasks, batch_ptr
+            integer(c_size_t), value :: task_count, batch_count
+        end function spd_cuda_set_schur_batches
+
+        integer(c_int) function spd_cuda_schur_batch(context, batch) &
+            bind(C, name='fsparse_spd_cuda_schur_batch')
+            import :: c_ptr, c_int, c_size_t
+            type(c_ptr), value :: context
+            integer(c_size_t), value :: batch
+        end function spd_cuda_schur_batch
+
+        integer(c_size_t) function spd_cuda_host_plan_bytes(context) &
+            bind(C, name='fsparse_spd_cuda_host_plan_bytes')
+            import :: c_ptr, c_size_t
+            type(c_ptr), value :: context
+        end function spd_cuda_host_plan_bytes
+
         integer(c_int) function spd_cuda_create(context, device, capacity) &
             bind(C, name='fsparse_spd_cuda_create')
             import :: c_ptr, c_int, c_size_t
