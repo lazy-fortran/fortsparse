@@ -17,6 +17,7 @@ import numpy as np
 # Okabe–Ito palette, with redundant markers and line styles.
 STYLES = {
     "native": ("#0072B2", "*", "Native CPU"),
+    "native-nd": ("#0072B2", "P", "Native CPU (ND)"),
     "native-cuda": ("#D55E00", (8, 1, 0), "Native CUDA"),
     "native-reference": ("#777777", "x", "Native reference"),
     "superlu": ("#56B4E9", "s", "SuperLU"),
@@ -306,7 +307,7 @@ def cpu_gpu_plot(groups, sources, cases, title, output):
     labels = []
     for index, (case, workload) in enumerate(entries):
         labels.append(case_label(groups, case)+"\n"+phase_label(workload))
-        for backend, offset in (("native", -0.16), ("native-cuda", 0.16)):
+        for backend, offset in (("native", -0.22), ("native-nd", 0.0), ("native-cuda", 0.22)):
             group = best_group(groups, case, workload, backend)
             color, marker, _ = STYLES[backend]
             for column, metric in enumerate(("wall", "rss", "device")):
@@ -348,8 +349,8 @@ def cpu_gpu_plot(groups, sources, cases, title, output):
     fig.suptitle(title+" · native CPU versus CUDA", fontsize=16, y=0.985)
     fig.legend(handles=[Line2D([], [], color=STYLES[b][0], marker=STYLES[b][1], linestyle="none",
                markerfacecolor="white" if b == "native-cuda" else STYLES[b][0],
-               markersize=11, label=STYLES[b][2]) for b in ("native", "native-cuda")],
-               loc="upper center", bbox_to_anchor=(0.6, 0.94), ncol=2, fontsize=10)
+               markersize=11, label=STYLES[b][2]) for b in ("native", "native-nd", "native-cuda")],
+               loc="upper center", bbox_to_anchor=(0.6, 0.94), ncol=3, fontsize=10)
     footer(fig, sources, "Each path uses its fastest complete measured thread configuration for that case/workload; "
            "labels give requested host threads. Whiskers are observed min–max; trial counts and all failed/timeout configurations "
            "remain in the numeric input/manifest. Cold = fresh process/runtime, not a flushed filesystem cache. "

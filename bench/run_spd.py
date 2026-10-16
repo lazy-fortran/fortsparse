@@ -140,7 +140,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bin-dir", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
-    parser.add_argument("--backends", default="superlu,umfpack,mumps,native,mkl-pardiso")
+    parser.add_argument("--backends", default="superlu,umfpack,mumps,native,native-nd,mkl-pardiso")
     parser.add_argument("--threads", default="1,2,4,8,16")
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--workloads", default="rhs1,rhs8,refactor,derivatives,warm")
@@ -230,7 +230,9 @@ def main():
                   fixed_environment=dict(OPENBLAS_NUM_THREADS="1", MKL_DYNAMIC="FALSE",
                                          MKL_INTERFACE_LAYER="LP64", MKL_THREADING_LAYER="GNU",
                                          OMP_DYNAMIC="FALSE", OMP_PROC_BIND="close",
-                                         OMP_PLACES="cores"))
+                                         OMP_PLACES="cores",
+                                         OMP_WAIT_POLICY=os.environ.get(
+                                             "OMP_WAIT_POLICY", "runtime-default")))
     result["host_observation"] = dict(before=environment_before, after=dict(
         loadavg=Path("/proc/loadavg").read_text().strip(),
         utc=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())),
