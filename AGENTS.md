@@ -22,6 +22,17 @@ material optimizations. Preserve unrelated changes, stage explicit paths and
 keep worker integration under one controller. Remove task worktrees only after
 their work is integrated and their owned processes have stopped.
 
+Every consumer draft PR includes matched baseline/native CPU time and memory
+numbers for the exercised tests and application runs, with absolute and relative
+changes. Record source/dependency pins, compiler flags, input identity, affinity,
+thread counts, repetitions and correctness status. New tests without an equivalent
+baseline and blocked comparisons stay explicitly unavailable. Long application
+correctness runs are separate from the sub-second solver benchmark corpus; label
+unreplicated observations and shared-host limits, and do not infer Pareto admission.
+Use spawn/exec-aware observers: a Python fork can impose its inherited RSS
+high-water floor on a tiny executable. Retain per-process post-exec evidence and
+never present separate process peaks as aggregate workflow memory.
+
 ## Mathematics and implementation
 
 - Retain project-owned continuous mathematics in FortSym generators. Generate
