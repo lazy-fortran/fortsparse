@@ -52,11 +52,15 @@ establish that a general assembled operator is mathematically self-adjoint.
 Existing CSC factor/refactor, in-place/vector/block solve and lifetime APIs are
 preserved. LU raw CSC input is borrowed directly, including under a host cap;
 no intermediate input value copy or split-complex conversion is needed.
-Real symmetric-indefinite raw CSC factor/refactor uses an owned conversion and
-retains the pivoted LDLT family, including zero-diagonal 2x2 pivots. This
-conversion is uncapped: positive memory caps and LOW_MEMORY reject it before
-copying. Complete peak memory is unknown (`-1`) for this path; retained payload
-is still counted. Other structured raw paths remain unsupported by this adapter.
+Structured raw CSC factor/refactor uses a budgeted owned conversion for real SPD
+and indefinite, complex HPD, Hermitian indefinite and transpose-symmetric systems.
+It dispatches to the same Cholesky/LDL family as the CSC interface, including
+zero-diagonal 2x2 LDL pivots. Host caps and LOW_MEMORY include the temporary CSC
+copy beside factors, retained checker/user arrays and factor growth; caller RAW
+arrays are excluded. The copy is released after factor/refactor and its peak
+lifetime remains in statistics. See [memory accounting](memory.md). Exact full
+canonical symmetry requirements and ordering/device capability checks are shared
+with the CSC interface.
 Default AUTO prefers eligible in-process external backends when built; a
 native-only build uses native AUTO. This is capability selection, not additional
 performance admission.

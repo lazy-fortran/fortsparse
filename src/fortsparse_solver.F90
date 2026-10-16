@@ -349,15 +349,7 @@ contains
         real(dp),                  intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
-            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
-            solver%factored = .false.
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'strict memory: raw CSC conversion is not yet budgeted')
-            return
-        end if
+        solver%factored = .false.
         call ensure_backend(solver, nz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
@@ -374,15 +366,7 @@ contains
         complex(dp),               intent(in)    :: val(:)
         type(fortsparse_status_t), intent(out)   :: status
 
-        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
-            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
-            solver%factored = .false.
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'strict memory: raw CSC conversion is not yet budgeted')
-            return
-        end if
+        solver%factored = .false.
         call ensure_backend(solver, nz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex_raw(nrow, ncol, nz, col_ptr, &
@@ -436,16 +420,7 @@ contains
         logical :: r
 
         r = .false.
-        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
-            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
-            solver%factored = .false.
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'strict memory: raw CSC conversion is not yet budgeted')
-            if (present(reused)) reused = .false.
-            return
-        end if
+        solver%factored = .false.
         call ensure_backend(solver, nz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real_raw(nrow, ncol, nz, col_ptr, &
@@ -467,16 +442,7 @@ contains
         logical :: r
 
         r = .false.
-        if ((solver%options%host_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%device_memory_limit_bytes /= 0_i8 .or. &
-            solver%options%memory_policy == FORTSPARSE_MEMORY_LOW) .and. &
-            solver%options%symmetry /= FORTSPARSE_SYM_GENERAL) then
-            solver%factored = .false.
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'strict memory: raw CSC conversion is not yet budgeted')
-            if (present(reused)) reused = .false.
-            return
-        end if
+        solver%factored = .false.
         call ensure_backend(solver, nz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex_raw(nrow, ncol, nz, col_ptr, &

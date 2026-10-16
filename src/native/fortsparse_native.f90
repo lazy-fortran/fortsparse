@@ -7,6 +7,7 @@ module fortsparse_native
         c_ptr, c_null_ptr, c_associated, c_f_pointer, c_sizeof
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
+        backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
         FORTSPARSE_SYM_SPD, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND, &
         FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
@@ -83,6 +84,8 @@ module fortsparse_native
         real(dp), pointer :: user_vector(:) => null()
         type(sparse_factor_stats_t) :: stats
     contains
+        procedure :: factor_real_raw => native_factor_raw
+        procedure :: refactor_real_raw => native_refactor_raw
         procedure :: factor_real => native_factor
         procedure :: refactor_real => native_refactor
         procedure :: factor_complex => native_factor_complex
@@ -100,6 +103,30 @@ module fortsparse_native
     end type native_backend_t
 
 contains
+
+    subroutine native_factor_raw(self, nrow, ncol, nz, col_ptr, row_idx, val, &
+                                 refine, status)
+        class(native_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        call backend_factor_real_raw_budgeted(self, nrow, ncol, nz, &
+                                              col_ptr, row_idx, val, refine, status)
+    end subroutine native_factor_raw
+
+    subroutine native_refactor_raw(self, nrow, ncol, nz, col_ptr, row_idx, &
+                                   val, refine, status, reused)
+        class(native_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, col_ptr(:), row_idx(:)
+        real(dp), intent(in) :: val(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+        call backend_refactor_real_raw_budgeted(self, nrow, ncol, nz, &
+                                                col_ptr, row_idx, val, refine, &
+                                                status, reused)
+    end subroutine native_refactor_raw
 
     subroutine native_factor(self, A, refine, status)
         class(native_backend_t), intent(inout) :: self
@@ -820,6 +847,7 @@ contains
         reused = .false.
         self%stats%refinement_steps=0
         self%stats%backward_error=-1.0_dp
+        call self%reset_raw_tracking()
         call validate(self, A, status)
         self%ready = .false.
         if (.not. status_ok(status)) return
@@ -1049,6 +1077,8 @@ contains
 
         call update_budget_stats(self)
         stats = self%stats
+        if (.not.self%bounded_memory) stats%host_current_bytes = owned_payload(self)
+        call self%apply_raw_tracking(stats)
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine native_stats
 
@@ -1061,6 +1091,7 @@ contains
 
         nullify(p)
         if (n < 0) return
+        self%host_budget%limit = self%options%host_memory_limit_bytes
         if (associated(self%user_vector)) then
             if (self%bounded_memory) call self%host_budget%release( &
                 8_i8*size(self%user_vector,kind=i8), status)
@@ -1078,6 +1109,43 @@ contains
         end if
         p => self%user_vector
     end function native_vector
+
+    integer(i8) function owned_payload(self) result(bytes)
+        class(native_backend_t), intent(in) :: self
+        bytes = self%panels%memory_bytes() + int(self%li_bytes, i8)
+        if (allocated(self%perm)) bytes = bytes + 4_i8*size(self%perm, kind=i8)
+        if (allocated(self%inverse)) bytes = bytes + 4_i8*size(self%inverse, kind=i8)
+        if (allocated(self%source)) bytes = bytes + 4_i8*size(self%source, kind=i8)
+        if (allocated(self%op)) bytes = bytes + 4_i8*size(self%op, kind=i8)
+        if (allocated(self%oi)) bytes = bytes + 4_i8*size(self%oi, kind=i8)
+        if (allocated(self%ap)) bytes = bytes + 4_i8*size(self%ap, kind=i8)
+        if (allocated(self%ai)) bytes = bytes + 4_i8*size(self%ai, kind=i8)
+        if (allocated(self%parent)) bytes = bytes + 4_i8*size(self%parent, kind=i8)
+        if (allocated(self%lp)) bytes = bytes + 4_i8*size(self%lp, kind=i8)
+        if (allocated(self%count)) bytes = bytes + 4_i8*size(self%count, kind=i8)
+        if (allocated(self%mark)) bytes = bytes + 4_i8*size(self%mark, kind=i8)
+        if (allocated(self%reach)) bytes = bytes + 4_i8*size(self%reach, kind=i8)
+        if (allocated(self%path)) bytes = bytes + 4_i8*size(self%path, kind=i8)
+        if (allocated(self%original_ptr)) bytes = bytes + 4_i8*size(self%original_ptr, &
+            kind=i8)
+        if (allocated(self%original_rows)) &
+            bytes = bytes + 4_i8*size(self%original_rows, kind=i8)
+        if (allocated(self%lv)) bytes = bytes + 8_i8*size(self%lv, kind=i8)
+        if (allocated(self%work)) bytes = bytes + 8_i8*size(self%work, kind=i8)
+        if (allocated(self%original_values)) &
+            bytes = bytes + 8_i8*size(self%original_values, kind=i8)
+        if (allocated(self%saved_rhs)) bytes = bytes + 8_i8*size(self%saved_rhs, &
+            kind=i8)
+        if (allocated(self%residual)) bytes = bytes + 8_i8*size(self%residual, kind=i8)
+        if (allocated(self%ordered%col_ptr)) &
+            bytes = bytes + 4_i8*size(self%ordered%col_ptr, kind=i8)
+        if (allocated(self%ordered%row_idx)) &
+            bytes = bytes + 4_i8*size(self%ordered%row_idx, kind=i8)
+        if (allocated(self%ordered%val)) bytes = bytes + 8_i8*size(self%ordered%val, &
+            kind=i8)
+        if (associated(self%user_vector)) bytes = bytes + 8_i8*size(self%user_vector, &
+            kind=i8)
+    end function owned_payload
 
     subroutine update_budget_stats(self)
         class(native_backend_t), intent(inout) :: self
@@ -1121,6 +1189,8 @@ contains
 
     subroutine native_free(self)
         class(native_backend_t), intent(inout) :: self
+
+        call self%reset_raw_tracking()
 
         call self%panels%free()
         self%blocked = .false.

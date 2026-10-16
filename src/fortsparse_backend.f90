@@ -6,13 +6,18 @@ module fortsparse_backend
     ! backend never touches client code or the solver dispatch logic.
     use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_t, csc_z_t
+    use fortsparse_memory, only: memory_budget_t, memory_checked_add, memory_checked_mul
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_BACKEND_UNAVAILABLE, &
-        FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_INDEX_OVERFLOW
+        FORTSPARSE_INVALID_MATRIX, FORTSPARSE_OUT_OF_MEMORY, &
+        FORTSPARSE_INDEX_OVERFLOW, &
+        FORTSPARSE_RESOURCE_LIMIT
     implicit none
     private
 
     public :: backend_factor_real_raw, backend_refactor_real_raw
+    public :: backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted
+    public :: backend_factor_complex_raw_budgeted, backend_refactor_complex_raw_budgeted
     public :: sparse_backend_t
     public :: sparse_options_t
     public :: sparse_factor_stats_t
@@ -94,7 +99,15 @@ module fortsparse_backend
 
     type, abstract :: sparse_backend_t
         type(sparse_options_t) :: options
+        ! Only temporary solver-owned RAW conversion arrays, never caller CSC.
+        logical, private :: raw_active = .false., raw_tracked = .false.
+        logical, private :: raw_strict = .false.
+        integer(i8), private :: raw_payload = 0_i8, raw_peak = 0_i8
+        integer(i8), private :: raw_old_live = 0_i8
+        integer(i8), private :: raw_required = 0_i8, raw_available = 0_i8
     contains
+        procedure :: reset_raw_tracking
+        procedure :: apply_raw_tracking
         procedure(factor_real_i), deferred :: factor_real
         procedure(factor_complex_i), deferred :: factor_complex
         procedure :: factor_real_raw => backend_factor_real_raw
@@ -319,6 +332,299 @@ contains
             "factor statistics are not available for this backend")
         stats%factor_nnz = -1
     end subroutine backend_factor_stats
+
+    subroutine reset_raw_tracking(self)
+        class(sparse_backend_t), intent(inout) :: self
+        ! CSC factor/free may run inside the RAW transaction; preserve its owner.
+        if (self%raw_active) return
+        self%raw_tracked = .false.
+        self%raw_payload = 0_i8
+        self%raw_peak = 0_i8
+        self%raw_required = 0_i8
+        self%raw_available = 0_i8
+        self%raw_old_live = 0_i8
+        self%raw_strict = .false.
+    end subroutine reset_raw_tracking
+
+    subroutine apply_raw_tracking(self, stats)
+        class(sparse_backend_t), intent(in) :: self
+        type(sparse_factor_stats_t), intent(inout) :: stats
+        if (.not. self%raw_tracked) return
+        if (self%raw_active) then
+            if (stats%host_current_bytes >= 0_i8) &
+                stats%host_current_bytes = stats%host_current_bytes + self%raw_payload
+            if (stats%host_peak_bytes >= 0_i8) &
+                stats%host_peak_bytes = max(self%raw_peak, &
+                                            stats%host_peak_bytes + self%raw_payload)
+        else
+            if (self%raw_peak >= 0_i8) then
+                stats%host_peak_bytes = max(stats%host_peak_bytes, self%raw_peak)
+            else
+                stats%host_peak_bytes = -1_i8
+            end if
+            stats%strict_memory_supported = self%raw_strict
+        end if
+        if (self%raw_required > 0_i8) then
+            stats%budget_required_bytes = self%raw_required
+            stats%budget_available_bytes = self%raw_available
+        end if
+        stats%factor_mem_mb = -1.0_dp
+        if (stats%host_peak_bytes >= 0_i8) &
+            stats%factor_mem_mb = real(stats%host_peak_bytes, dp)/1.0e6_dp
+    end subroutine apply_raw_tracking
+
+    subroutine begin_raw_conversion(self, nrow, ncol, nz, np, nr, nv, vbytes, &
+                                    bytes, status)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, np, nr, nv
+        integer(i8), intent(in) :: vbytes
+        integer(i8), intent(out) :: bytes
+        type(fortsparse_status_t), intent(out) :: status
+        type(sparse_factor_stats_t) :: old
+        type(fortsparse_status_t) :: ignored
+        type(memory_budget_t) :: budget
+        integer(i8) :: indices, values
+        call self%reset_raw_tracking()
+        bytes = 0_i8
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, 'raw CSC extent mismatch')
+        if (nrow < 0 .or. ncol < 0 .or. nz < 0) return
+        if (ncol == huge(ncol) .or. nz == huge(nz)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                            'raw CSC endpoint overflow')
+            return
+        end if
+        if (np < ncol + 1 .or. nr < nz .or. nv < nz) return
+        if (self%options%host_memory_limit_bytes < 0_i8 .or. &
+            self%options%device_memory_limit_bytes < 0_i8 .or. &
+            self%options%memory_policy < FORTSPARSE_MEMORY_AUTO .or. &
+            self%options%memory_policy > FORTSPARSE_MEMORY_LOW) return
+        if (self%options%device /= -1) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                            'budgeted raw CSC conversion requires native CPU execution')
+            return
+        end if
+        indices = 0_i8
+        values = 0_i8
+        call memory_checked_mul(int(ncol, i8) + 1_i8 + int(nz, i8), &
+                                int(storage_size(0)/8, i8), indices, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_mul(int(nz, i8), vbytes, values, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call memory_checked_add(indices, values, bytes, status)
+        if (status%code /= FORTSPARSE_OK) return
+        call self%factor_stats(old, ignored)
+        self%raw_old_live = max(0_i8, old%host_current_bytes)
+        self%raw_peak = self%raw_old_live
+        self%raw_active = .true.
+        self%raw_tracked = .true.
+        self%raw_strict = .true.
+        budget%limit = self%options%host_memory_limit_bytes
+        budget%current = self%raw_old_live
+        budget%peak = budget%current
+        if (budget%limit > 0_i8 .and. budget%current > budget%limit) then
+            self%raw_required = budget%current
+            self%raw_available = budget%limit
+            call status_set(status, FORTSPARSE_RESOURCE_LIMIT, &
+                            'native RAW conversion: retained payload exceeds new cap')
+            return
+        end if
+        call budget%reserve(bytes, status, 'native structured RAW conversion')
+        if (status%code /= FORTSPARSE_OK) then
+            self%raw_required = budget%failed_required
+            self%raw_available = budget%failed_available
+            return
+        end if
+        if (budget%limit > 0_i8) then
+            ! Never let an exhausted positive cap turn into zero/unlimited.
+            if (budget%limit <= bytes) then
+                self%raw_required = 1_i8
+                self%raw_available = 0_i8
+                call status_set(status, FORTSPARSE_RESOURCE_LIMIT, &
+                                'native RAW conversion leaves no factor budget')
+            end if
+        end if
+    end subroutine begin_raw_conversion
+
+    subroutine finish_raw_conversion(self, called, status)
+        class(sparse_backend_t), intent(inout) :: self
+        logical, intent(in) :: called
+        type(fortsparse_status_t), intent(in) :: status
+        type(sparse_factor_stats_t) :: stats
+        type(fortsparse_status_t) :: ignored
+        if (.not. self%raw_active) then
+            if (status%code /= FORTSPARSE_OK) call self%free()
+            return
+        end if
+        if (called) then
+            call self%factor_stats(stats, ignored)
+            self%raw_peak = stats%host_peak_bytes
+            self%raw_strict = stats%strict_memory_supported
+            self%raw_required = stats%budget_required_bytes
+            self%raw_available = stats%budget_available_bytes
+        else
+            self%raw_peak = max(self%raw_peak, self%raw_old_live + self%raw_payload)
+        end if
+        if (status%code /= FORTSPARSE_OK) call self%free()
+        self%raw_active = .false.
+        self%raw_payload = 0_i8
+    end subroutine finish_raw_conversion
+
+    subroutine backend_factor_real_raw_budgeted(self, nrow, ncol, nz, ptr, &
+                                                rows, values, refine, status)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical :: reused
+        call converted_real(self, nrow, ncol, nz, ptr, rows, values, refine, status, &
+                            .false., reused)
+    end subroutine backend_factor_real_raw_budgeted
+
+    subroutine backend_refactor_real_raw_budgeted(self, nrow, ncol, nz, ptr, &
+                                                  rows, values, refine, status, reused)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+        call converted_real(self, nrow, ncol, nz, ptr, rows, values, refine, status, &
+                            .true., reused)
+    end subroutine backend_refactor_real_raw_budgeted
+
+    subroutine converted_real(self, nrow, ncol, nz, ptr, rows, values, refine, &
+                              status, refactor, reused)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        real(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine, refactor
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+        type(csc_t) :: a
+        integer(i8) :: bytes, saved_cap
+        integer :: ierr
+        logical :: called
+        reused = .false.
+        called = .false.
+        saved_cap = self%options%host_memory_limit_bytes
+        call begin_raw_conversion(self, nrow, ncol, nz, size(ptr), size(rows), &
+                                  size(values), 8_i8, bytes, status)
+        if (status%code /= FORTSPARSE_OK) goto 900
+        allocate (a%col_ptr(ncol + 1), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = int(storage_size(0)/8, i8)*size(a%col_ptr, kind=i8)
+        allocate (a%row_idx(nz), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = self%raw_payload + int(storage_size(0)/8, i8)*int(nz, i8)
+        allocate (a%val(nz), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = bytes
+        self%raw_peak = max(self%raw_peak, self%raw_old_live + bytes)
+        a%nrow = nrow
+        a%ncol = ncol
+        a%nnz = nz
+        a%col_ptr = ptr(:ncol + 1)
+        a%row_idx = rows(:nz)
+        a%val = values(:nz)
+        if (saved_cap > 0_i8) self%options%host_memory_limit_bytes = saved_cap - bytes
+        called = .true.
+        if (refactor) then
+            call self%refactor_real(a, refine, status, reused)
+        else
+            call self%factor_real(a, refine, status)
+        end if
+        goto 900
+800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                        'native RAW conversion allocation failed')
+900     self%options%host_memory_limit_bytes = saved_cap
+        ! Snapshot the simultaneous conversion/factor peak before local arrays
+        ! leave scope. Failed attempts also invalidate direct backend factors.
+        call finish_raw_conversion(self, called, status)
+        if (allocated(a%val)) deallocate (a%val)
+        if (allocated(a%row_idx)) deallocate (a%row_idx)
+        if (allocated(a%col_ptr)) deallocate (a%col_ptr)
+    end subroutine converted_real
+
+    subroutine backend_factor_complex_raw_budgeted(self, nrow, ncol, nz, ptr, &
+                                                   rows, values, refine, status)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        complex(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical :: reused
+        call converted_complex(self, nrow, ncol, nz, ptr, rows, values, &
+                               refine, status, &
+                               .false., reused)
+    end subroutine backend_factor_complex_raw_budgeted
+
+    subroutine backend_refactor_complex_raw_budgeted(self, nrow, ncol, nz, &
+                                                     ptr, rows, values, refine, &
+                                                         status, reused)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        complex(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+        call converted_complex(self, nrow, ncol, nz, ptr, rows, values, &
+                               refine, status, &
+                               .true., reused)
+    end subroutine backend_refactor_complex_raw_budgeted
+
+    subroutine converted_complex(self, nrow, ncol, nz, ptr, rows, values, &
+                                 refine, status, refactor, reused)
+        class(sparse_backend_t), intent(inout) :: self
+        integer, intent(in) :: nrow, ncol, nz, ptr(:), rows(:)
+        complex(dp), intent(in) :: values(:)
+        logical, intent(in) :: refine, refactor
+        type(fortsparse_status_t), intent(out) :: status
+        logical, intent(out) :: reused
+        type(csc_z_t) :: a
+        integer(i8) :: bytes, saved_cap
+        integer :: ierr
+        logical :: called
+        reused = .false.
+        called = .false.
+        saved_cap = self%options%host_memory_limit_bytes
+        call begin_raw_conversion(self, nrow, ncol, nz, size(ptr), size(rows), &
+                                  size(values), 16_i8, bytes, status)
+        if (status%code /= FORTSPARSE_OK) goto 900
+        allocate (a%col_ptr(ncol + 1), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = int(storage_size(0)/8, i8)*size(a%col_ptr, kind=i8)
+        allocate (a%row_idx(nz), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = self%raw_payload + int(storage_size(0)/8, i8)*int(nz, i8)
+        allocate (a%val(nz), stat=ierr)
+        if (ierr /= 0) goto 800
+        self%raw_payload = bytes
+        self%raw_peak = max(self%raw_peak, self%raw_old_live + bytes)
+        a%nrow = nrow
+        a%ncol = ncol
+        a%nnz = nz
+        a%col_ptr = ptr(:ncol + 1)
+        a%row_idx = rows(:nz)
+        a%val = values(:nz)
+        if (saved_cap > 0_i8) self%options%host_memory_limit_bytes = saved_cap - bytes
+        called = .true.
+        if (refactor) then
+            call self%refactor_complex(a, refine, status, reused)
+        else
+            call self%factor_complex(a, refine, status)
+        end if
+        goto 900
+800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                        'native RAW conversion allocation failed')
+900     self%options%host_memory_limit_bytes = saved_cap
+        ! Snapshot the simultaneous conversion/factor peak before local arrays
+        ! leave scope. Failed attempts also invalidate direct backend factors.
+        call finish_raw_conversion(self, called, status)
+        if (allocated(a%val)) deallocate (a%val)
+        if (allocated(a%row_idx)) deallocate (a%row_idx)
+        if (allocated(a%col_ptr)) deallocate (a%col_ptr)
+    end subroutine converted_complex
 
     ! Factor directly from caller-owned 1-based CSC arrays. The default wraps
     ! the arrays into a csc_t (one copy) and dispatches to factor_real; a
