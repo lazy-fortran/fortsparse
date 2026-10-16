@@ -15,6 +15,27 @@ from report_private_real import normalize, requested_scaling
 
 
 class PrivateReport(unittest.TestCase):
+    def test_private_configuration_stays_exact_and_distinct(self):
+        cap = 2**53+1
+        wrapper = dict(backend='native-amd-capped', threads=1, trial=0, status='pass',
+            process_receipt=dict(status='ok', returncode=0,
+                record=dict(memory_policy=0, host_memory_limit_bytes=cap)),
+            independent_audit=dict(status='pass', rhs=[]))
+        first, safe = normalize(wrapper, 'fixture')
+        self.assertEqual(first['record']['host_memory_limit_bytes'], cap)
+        self.assertEqual(safe['host_memory_limit_bytes'], cap)
+        wrapper['process_receipt']['record']['host_memory_limit_bytes'] = cap+1
+        second, _ = normalize(wrapper, 'fixture')
+        with self.assertRaisesRegex(ValueError, 'mixed memory'):
+            summarize([first, second])
+        point = {k: first[k] for k in ('family', 'backend', 'level', 'workload',
+                                       'variant', 'operation')}
+        rows = [dict(point, threads=p, memory_policy=0, host_memory_limit_bytes=limit,
+                     process_wall_s_count=5, process_wall_s_median=wall)
+                for p, limit, wall in [(1, cap, .1), (2, cap+1, .05)]]
+        requested_scaling(rows)
+        self.assertEqual(rows[1]['requested_budget_wall_speedup_vs_1'], -1)
+
     def test_requested_budget_speedup_uses_each_backends_own_baseline(self):
         point = dict(family='fixture', level=1, workload='rhs4', variant='training', operation='N')
         rows = [dict(point, backend=b, threads=p, process_wall_s_count=count,

@@ -15,6 +15,7 @@ from report_front import PEERS, frontier
 AUDIT_METRICS = ('audit_reader_wall_s', 'child_plus_audit_wall_s',
                  'audit_normwise_backward_max', 'audit_row_scaled_backward_max',
                  'empirical_forward_relative_inf_max')
+CONFIGURATION = ('memory_policy', 'host_memory_limit_bytes')
 
 
 def digest(path):
@@ -31,7 +32,7 @@ def normalize(wrapper, family):
     point = dict(backend=wrapper['backend'], family=family, level=source.get('level', 1),
                  threads=wrapper['threads'], workload=source.get('workload', 'rhs4'),
                  variant=source.get('variant', 'training'), operation=source.get('operation', 'N'))
-    record = {k: source[k] for k in METRICS if k in source}
+    record = {k: source[k] for k in METRICS+CONFIGURATION if k in source}
     record.update(point)
     normalized = dict(point, status='ok' if passed else
                       'timeout' if child.get('status') == 'timeout' else 'failed',
@@ -42,6 +43,7 @@ def normalize(wrapper, family):
                 audit_status=audit.get('status', 'unavailable'),
                 audit_rhs_count=len(audit.get('rhs', [])))
     safe.update({k: record.get(k, -1) for k in METRICS})
+    safe.update({k: record.get(k, -1) for k in CONFIGURATION})
     safe['audit_reader_wall_s'] = wrapper.get('independent_audit_including_reader_wall_s', -1)
     safe['child_plus_audit_wall_s'] = wrapper.get('solver_child_plus_audit_wall_s', -1)
     rhs = audit.get('rhs', [])
@@ -75,10 +77,10 @@ def audit_summary(safe):
 
 
 def requested_scaling(rows):
-    keys = tuple(k for k in KEYS if k != 'threads')
-    baseline = {tuple(r[k] for k in keys): r for r in rows if r['threads'] == 1}
+    keys = tuple(k for k in KEYS if k != 'threads')+CONFIGURATION
+    baseline = {tuple(r.get(k, -1) for k in keys): r for r in rows if r['threads'] == 1}
     for row in rows:
-        first = baseline.get(tuple(row[k] for k in keys))
+        first = baseline.get(tuple(row.get(k, -1) for k in keys))
         known = (first and first['process_wall_s_count'] and row['process_wall_s_count']
                  and row['process_wall_s_median'] > 0)
         speedup = first['process_wall_s_median']/row['process_wall_s_median'] if known else -1
