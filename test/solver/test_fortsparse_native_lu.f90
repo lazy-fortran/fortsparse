@@ -364,8 +364,18 @@ contains
         call solver%factor(a,status,memory_limit_bytes=budget)
         if(status%code/=FORTSPARSE_RESOURCE_LIMIT) error stop 'LU growth cap not enforced'
         if(solver%memory_bytes()>budget.or.solver%peak_memory_bytes>budget) error stop 'LU cap exceeded'
+        if(solver%failed_required_bytes/=int(storage_size(0)/8,i8)+8_i8) error stop 'LU growth request bytes'
+        if(solver%failed_available_bytes/=budget-fixed) error stop 'LU growth available bytes'
+        call solver%factor(a,status,memory_limit_bytes=1_i8)
+        if(status%code/=FORTSPARSE_RESOURCE_LIMIT) error stop 'LU fixed cap not enforced'
+        if(solver%failed_required_bytes/=fixed.or.solver%failed_available_bytes/=1_i8) &
+            error stop 'LU fixed budget diagnostic'
+
         call solver%factor(a,status,memory_limit_bytes=-1_i8)
         if(status%code/=FORTSPARSE_INVALID_MATRIX) error stop 'LU negative cap'
+        if(solver%failed_required_bytes/=0.or.solver%failed_available_bytes/=0) &
+            error stop 'LU stale budget diagnostic'
+
         call solver%factor(a,status,pivot_threshold=ieee_value(1._dp,ieee_quiet_nan))
         if(status%code/=FORTSPARSE_INVALID_MATRIX) error stop 'LU NaN threshold'
         call solver%factor(a,status,pivot_threshold=0._dp)
