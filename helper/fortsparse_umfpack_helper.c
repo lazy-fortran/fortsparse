@@ -363,6 +363,30 @@ static int dispatch(fsparse_shm_header *h, void *region, factors_t *f)
     }
 }
 
+/* Explicit benchmark diagnostic only: this is not an IPC reply or an
+ * aggregate process-tree measurement. VmHWM resets on exec, unlike inherited
+ * launch-time highwater that can contaminate wait4/RUSAGE_CHILDREN. */
+static void emit_benchmark_memory(void)
+{
+    const char *enabled = getenv("FORTSPARSE_BENCH_HELPER_METRICS");
+    unsigned long long kib = 0;
+    if (enabled == NULL || strcmp(enabled, "1") != 0) return;
+#ifdef __linux__
+    FILE *status = fopen("/proc/self/status", "r");
+    if (status != NULL) {
+        char line[256], trailing;
+        while (fgets(line, sizeof line, status) != NULL) {
+            if (sscanf(line, "VmHWM: %llu kB %c", &kib, &trailing) == 1) break;
+        }
+        fclose(status);
+    }
+#endif
+    if (kib > 0)
+        fprintf(stderr, "FORTSPARSE_BENCH_HELPER_VMHWM_KIB=%llu\n", kib);
+    else
+        fprintf(stderr, "FORTSPARSE_BENCH_HELPER_VMHWM_KIB=unavailable\n");
+}
+
 int main(int argc, char **argv)
 {
     helper_ctx c;
@@ -403,5 +427,6 @@ int main(int argc, char **argv)
 
     free_factors(&f);
     detach(&c);
+    emit_benchmark_memory();
     return 0;
 }

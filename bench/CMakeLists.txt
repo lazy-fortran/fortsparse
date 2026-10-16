@@ -35,6 +35,14 @@ if(FORTSPARSE_BUILD_TESTING)
     set_tests_properties(spd_matrix_market PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
     find_package(Python3 COMPONENTS Interpreter QUIET)
     if(Python3_Interpreter_FOUND)
+        if(TARGET fortsparse_umfpack_helper)
+            add_test(NAME spd_helper_postexec_memory COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/native_families/test_helper_memory.py
+                $<TARGET_FILE:fortsparse_umfpack_helper>)
+            set_tests_properties(spd_helper_postexec_memory PROPERTIES
+                LABELS "ipc;benchmark;fast" TIMEOUT 1
+                ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
+        endif()
         add_test(NAME spd_benchmark_memory COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/test_memory_benchmark.py
             $<TARGET_FILE:bench_spd>)
