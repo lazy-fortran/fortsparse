@@ -62,7 +62,9 @@ phase times exclude it, while whole-workflow `total_s` includes it.
 `factor_s` includes cold runtime setup, CSC conversion, analysis and synchronized
 numeric factorization. `cold_factor_s` preserves that first cost. For `warm`,
 `factor_s` measures the subsequent analysis/factorization with the CUDA runtime
-and CHOLMOD pools already loaded; whole-process totals include both runs.
+and CHOLMOD pools already loaded. The first factor is freed before that analysis
+timer starts; `warmup_cleanup_s` and whole-process totals retain that release.
+Whole-process totals include both runs.
 `solve_s` includes CHOLMOD solve and copying the host result. For repeated RHS,
 it is the total over all declared repeats; fixture RHS construction is included
 in total workflow time. Refactor uses the shared positive nonuniform diagonal
@@ -93,3 +95,10 @@ Internal transfer and synchronization phase times are unknown (`-1`) because
 the public API does not separate them from numeric factorization. Use profiling
 for that breakdown. `gpu_operation_calls` counts CHOLMOD GPU BLAS operations
 when available, not the profiler's number of CUDA kernels.
+
+The success CSV explicitly reports `vendor_status=0`, numeric `reused` (0/1),
+measured helper RSS/CPU and `device_total_peak_bytes=-1`. Optional registered
+shared-runner tests execute this driver and pass its actual output through
+`run_gpu_spd.sample`, including its parser, accuracy gate and workload objective.
+They cover refactorization and the warmed factor boundary; they require a GPU
+correctness lease just like the direct tests.

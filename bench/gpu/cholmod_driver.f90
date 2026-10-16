@@ -59,6 +59,11 @@ program bench_spd_cholmod
             import c_int
             integer(c_int), intent(out) :: numbers(3)
         end subroutine
+        subroutine release_factor(context) &
+                bind(C, name="fsbench_cholmod_release_factor")
+            import c_ptr
+            type(c_ptr), value :: context
+        end subroutine
         subroutine destroy(context) bind(C, name="fsbench_cholmod_free")
             import c_ptr
             type(c_ptr), value :: context
@@ -89,7 +94,7 @@ program bench_spd_cholmod
     real(dp), allocatable :: b(:, :), x(:, :), reference(:, :)
     real(dp) :: total_start, cpu_start, total_s, cpu_s, start
     real(dp) :: analysis_s, numeric_s, factor_s, cold_factor_s, refactor_s, solve_s
-    real(dp) :: cleanup_s, gpu_calls, memory_sampling_s
+    real(dp) :: cleanup_s, gpu_calls, memory_sampling_s, warmup_cleanup_s
     real(dp) :: setup_times(2), info(10), rss, child_rss, child_cpu
     real(dp) :: error, forward_error, fixture_bytes, host_work_bytes
     logical :: reused
@@ -174,7 +179,14 @@ program bench_spd_cholmod
     call run_factor()
     factor_s = factor_s + sum(setup_times)
     cold_factor_s = factor_s
-    if (workload == "warm") call run_factor()
+    warmup_cleanup_s = 0.0_dp
+    if (workload == "warm") then
+        start = wall_time()
+        call release_factor(context)
+        warmup_cleanup_s = wall_time() - start
+        call sample_device_memory()
+        call run_factor()
+    end if
     refactor_s = -1.0_dp
     reused = .false.
     if (workload == "refactor") then
@@ -255,31 +267,35 @@ program bench_spd_cholmod
     call metrics(rss, child_rss, child_cpu)
     write (*, '(a)') "backend,family,level,n,nnz,threads,nrhs,workload,io_mode,"// &
         "ordering,factor_s,solve_s,refactor_s,reused,parent_cpu_s,total_s,"// &
-        "parent_rss_kib,analysis_s,numeric_s,backward_error,forward_error,"// &
+        "parent_rss_kib,helper_rss_kib,helper_cpu_s,"// &
+        "analysis_s,numeric_s,backward_error,forward_error,"// &
         "cold_factor_s,runtime_setup_s,conversion_s,h2d_s,d2h_s,synchronization_s,"// &
         "requested_threads,active_threads,requested_device,actual_device,"// &
         "repeats,wrapper_device_bytes,device_requested_peak_bytes,"// &
         "device_used_peak_bytes,device_reserved_peak_bytes,"// &
-        "device_process_sampled_max_bytes,cholmod_device_pool_peak_bytes,"// &
+        "device_process_sampled_max_bytes,device_total_peak_bytes,"// &
+        "cholmod_device_pool_peak_bytes,"// &
         "cholmod_host_peak_bytes,wrapper_host_bytes,"// &
         "pinned_host_bytes,fixture_bytes,host_work_bytes,factor_nnz,"// &
         "gpu_gemm_calls,gpu_syrk_calls,gpu_trsm_calls,gpu_potrf_calls,"// &
         "gpu_pool_budget_bytes,"// &
-        "variant,cleanup_s,ordering_hash,solver_version,execution_mode,"// &
+        "variant,vendor_status,cleanup_s,ordering_hash,solver_version,execution_mode,"// &
         "gpu_operation_calls,"// &
         "gpu_offload_verified,fixture_update_peak_extra_bytes,"// &
-        "device_process_sample_count,memory_sampling_s"
+        "device_process_sample_count,memory_sampling_s,warmup_cleanup_s"
     write (*, '(*(g0,:,","))') "cholmod-cuda", trim(family), level, a%n, &
         size(a%val), threads, nrhs, trim(workload), trim(io_mode), trim(ordering), &
-        factor_s, solve_s, refactor_s, reused, cpu_s, total_s, rss, &
+        factor_s, solve_s, refactor_s, merge(1, 0, reused), cpu_s, total_s, rss, &
+        child_rss, child_cpu, &
         analysis_s, numeric_s, error, forward_error, cold_factor_s, &
         setup_times, -1.0_dp, -1.0_dp, -1.0_dp, threads, -1, device, int(info(10)), &
-        repeats, 0, -1, -1, -1, device_memory_sampled_max, info(3), info(1), info(2), info(4), &
+        repeats, 0, -1, -1, -1, device_memory_sampled_max, -1, info(3), &
+        info(1), info(2), info(4), &
         fixture_bytes, host_work_bytes, info(9), info(5:8), pool, &
-        trim(variant), cleanup_s, trim(order_hash), trim(version_string), &
+        trim(variant), 0, cleanup_s, trim(order_hash), trim(version_string), &
         trim(execution_mode), gpu_calls, offload_verified, &
         merge(fixture_bytes, 0.0_dp, workload == "refactor"), &
-        device_memory_sample_count, memory_sampling_s
+        device_memory_sample_count, memory_sampling_s, warmup_cleanup_s
 
 contains
     subroutine sample_device_memory()

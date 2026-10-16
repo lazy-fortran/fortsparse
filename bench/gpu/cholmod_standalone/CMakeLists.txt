@@ -29,3 +29,21 @@ add_test(NAME gpu_cholmod_common_order
 set_tests_properties(gpu_cholmod_common_order PROPERTIES
     LABELS "benchmark;cuda;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;CHOLMOD_GPU_POOL_BYTES=268435456")
+
+find_package(Python3 COMPONENTS Interpreter QUIET)
+set(FORTSPARSE_BENCH_GPU_RUNNER
+    "${CMAKE_CURRENT_LIST_DIR}/../run_gpu_spd.py" CACHE FILEPATH
+    "Shared runner used to validate actual CHOLMOD CSV integration")
+if(Python3_Interpreter_FOUND AND EXISTS "${FORTSPARSE_BENCH_GPU_RUNNER}")
+    foreach(workload refactor warm)
+        add_test(NAME gpu_cholmod_csv_${workload}
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_CURRENT_LIST_DIR}/../cholmod_csv_test.py"
+                --driver $<TARGET_FILE:bench_spd_cholmod>
+                --runner "${FORTSPARSE_BENCH_GPU_RUNNER}"
+                --workload ${workload})
+        set_tests_properties(gpu_cholmod_csv_${workload} PROPERTIES
+            LABELS "benchmark;cuda;fast" TIMEOUT 1
+            ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;CHOLMOD_GPU_POOL_BYTES=268435456")
+    endforeach()
+endif()
