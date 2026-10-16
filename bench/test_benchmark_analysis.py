@@ -139,6 +139,43 @@ class AdmissionTests(unittest.TestCase):
                          "not_competitive_over_observed_ranges")
         self.assertIsNone(result["best_native_by_case"][0]["selected_native"])
 
+    def test_pareto_tradeoff_is_separate_from_strict_match_beat(self):
+        result = self.analyze(observations("native", [2], 5),
+                              observations("superlu", [1], 10))
+        self.assertEqual(result["best_native_overall"],
+                         "not_competitive_over_observed_ranges")
+        self.assertEqual(result["front_membership"]["best_native_overall"],
+                         "robust_front_member_over_observed_ranges")
+
+    def test_pareto_unknown_umfpack_only_obstructs_when_it_could_dominate_native(self):
+        for umf_time, status in ((0.8, "robust_front_member_over_observed_ranges"),
+                                 (0.4, "indeterminate")):
+            with self.subTest(umf_time=umf_time):
+                result = self.analyze(observations("native", [0.5], 5),
+                    observations("superlu", [1], 10), observations("umfpack", [umf_time], 3))
+                self.assertEqual(result["best_native_overall"], "indeterminate")
+                self.assertEqual(result["front_membership"]["best_native_overall"], status)
+
+    def test_pareto_overlapping_ranges_and_missing_or_failed_comparisons_block_pass(self):
+        native = observations("native", [0.9, 1.1], 5)
+        external = observations("superlu", [1.0, 1.2], 5)
+        result = self.analyze(native, external)
+        self.assertEqual(result["front_membership"]["best_native_overall"], "indeterminate")
+        result = self.analyze(observations("native", [0.5], 5), external,
+                              backends=["native", "superlu", "mkl-pardiso"])
+        self.assertEqual(result["front_membership"]["best_native_overall"], "indeterminate")
+        failed = dict(external[0], threads=4, status="timeout")
+        result = self.analyze(observations("native", [0.5], 5), external, [failed])
+        self.assertEqual(result["front_membership"]["best_native_overall"], "indeterminate")
+
+    def test_pareto_known_dominator_is_reported_and_reference_win_excluded(self):
+        result = self.analyze(observations("native", [2], 15),
+                              observations("native-reference", [0.5], 5),
+                              observations("superlu", [1], 10))
+        self.assertEqual(result["front_membership"]["best_native_overall"],
+                         "robustly_dominated_over_observed_ranges")
+        self.assertIsNone(result["front_membership"]["best_native_by_case"][0]["selected"])
+
     def test_refactor_and_derivative_objectives_include_their_work(self):
         refactor = observations("native", [5], 5, workload="refactor")[0]
         derivative = observations("native", [5], 5, workload="derivatives")[0]

@@ -176,6 +176,7 @@ def analyze_admission(summaries, expected_backends):
     return dict(overall=overall, cases=results,
                 best_native_by_case=best_by_case,
                 best_native_overall=aggregate_status(best_by_case),
+                front_membership=analyze_front_membership(summaries, expected_backends),
                 native_selection_policy=("Explicit measured production CPU ordering/thread "
                     "configuration per case and workload. This union is not an AUTO/default "
                     "performance claim; reference, CUDA and external fallbacks are excluded."),
@@ -240,6 +241,108 @@ def best_native_by_case(summaries, results):
             entry.update(status=status, selected_native=None, matched_comparator=None)
         selected.append(entry)
     return selected
+
+
+def analyze_front_membership(summaries, expected_backends):
+    """Separate nondominance diagnostic; does not change the match/beat gate."""
+    external = [b for b in expected_backends if not b.startswith("native")]
+    variants = [b for b in expected_backends if b.startswith("native")]
+    cases = sorted({tuple(s[k] for k in CASE_KEYS) for s in summaries
+                    if not s["workload"].startswith("profile-")})
+    results, best = [], []
+
+    def available(row):
+        return (row["successes"] == row["samples"] and row["admission_s"]
+                and row["parent_rss_kib"])
+
+    def descriptor(row):
+        return dict(reference(row), time_s=row["admission_s"],
+                    parent_rss_kib=row["parent_rss_kib"],
+                    ordering_used=row.get("ordering_used"))
+
+    for case in cases:
+        rows = [s for s in summaries if tuple(s[k] for k in CASE_KEYS) == case]
+        comparators = [s for s in rows if s["backend"] in external]
+        missing = [b for b in external if not any(s["backend"] == b for s in comparators)]
+        per_case = []
+        for backend in variants:
+            configurations = []
+            for native in [s for s in rows if s["backend"] == backend]:
+                comparisons = []
+                if not available(native):
+                    configurations.append(dict(native=descriptor(native),
+                        status="failed_or_unavailable", comparisons=[]))
+                    continue
+                for comparator in comparators:
+                    pair = dict(comparator=reference(comparator),
+                                aggregate_memory_known=comparator["backend"] != "umfpack")
+                    if not available(comparator):
+                        pair["relation"] = "indeterminate_failed_comparator"
+                    else:
+                        nt, ct = native["admission_s"], comparator["admission_s"]
+                        nm, cm = native["parent_rss_kib"], comparator["parent_rss_kib"]
+                        if nt["maximum"] < ct["minimum"]:
+                            pair["relation"] = "dominance_excluded_by_time"
+                        elif nm["maximum"] < cm["minimum"]:
+                            pair["relation"] = "dominance_excluded_by_memory_lower_bound"
+                        elif (pair["aggregate_memory_known"] and
+                              ct["maximum"] <= nt["minimum"] and
+                              cm["maximum"] <= nm["minimum"] and
+                              (ct["maximum"] < nt["minimum"] or
+                               cm["maximum"] < nm["minimum"])):
+                            pair["relation"] = "external_robustly_dominates"
+                        else:
+                            pair["relation"] = "indeterminate_overlap_or_unknown_memory"
+                    comparisons.append(pair)
+                relations = [p["relation"] for p in comparisons]
+                if "external_robustly_dominates" in relations:
+                    status = "robustly_dominated_over_observed_ranges"
+                elif (external and not missing and comparisons and
+                      all(r.startswith("dominance_excluded_") for r in relations)):
+                    status = "robust_front_member_over_observed_ranges"
+                else:
+                    status = "indeterminate"
+                if backend == "native-cuda":
+                    device = native.get("actual_device")
+                    if not device or device["available_samples"] != native["samples"]:
+                        status = "indeterminate_device_execution"
+                configurations.append(dict(native=descriptor(native), status=status,
+                                           comparisons=comparisons))
+            states = {c["status"] for c in configurations}
+            status = ("robust_front_member_over_observed_ranges" if
+                "robust_front_member_over_observed_ranges" in states else
+                "indeterminate" if any(s.startswith("indeterminate") for s in states) else
+                "robustly_dominated_over_observed_ranges" if
+                "robustly_dominated_over_observed_ranges" in states else "failed_or_unavailable")
+            result = dict(zip(CASE_KEYS, case), backend=backend, status=status,
+                          missing_comparators=missing, configurations=configurations)
+            results.append(result)
+            per_case.append(result)
+        candidates = [config for result in per_case if result["backend"] in PRODUCTION_CPU_CONFIGS
+                      for config in result["configurations"] if
+                      config["status"] == "robust_front_member_over_observed_ranges"]
+        if candidates:
+            chosen = min(candidates, key=lambda c: (c["native"]["time_s"]["median"],
+                c["native"]["parent_rss_kib"]["median"], c["native"]["backend"],
+                c["native"]["threads"]))
+            status = "robust_front_member_over_observed_ranges"
+        else:
+            chosen = None
+            states = {r["status"] for r in per_case if r["backend"] in PRODUCTION_CPU_CONFIGS}
+            status = ("indeterminate" if any(s.startswith("indeterminate") for s in states)
+                      else "robustly_dominated_over_observed_ranges" if
+                      "robustly_dominated_over_observed_ranges" in states else "failed_or_unavailable")
+        best.append(dict(zip(CASE_KEYS, case), status=status, selected=chosen))
+    states = {r["status"] for r in best}
+    overall = ("robust_front_member_over_observed_ranges" if best and
+               states == {"robust_front_member_over_observed_ranges"} else
+               "robustly_dominated_over_observed_ranges" if
+               "robustly_dominated_over_observed_ranges" in states else "indeterminate")
+    return dict(cases=results, best_native_by_case=best, best_native_overall=overall,
+                interpretation=("Separate empirical nondominance diagnostic, not domination "
+                    "or the strict match/beat gate. Every measured external configuration must "
+                    "be excluded as a possible dominator by a strict observed time or memory "
+                    "range separation; UMFPACK parent RSS is only a memory lower bound."))
 
 
 def export_csv(result, output):

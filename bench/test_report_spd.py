@@ -118,6 +118,19 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(report["scope_admission_status"], "not_competitive_over_observed_ranges")
         self.assertEqual(report["out_of_scope_configurations"], 2)
 
+    def test_report_keeps_match_beat_and_nondominance_distinct(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.write_run(directory, "evidence", [observations("native", [2], 5),
+                observations("superlu", [1], 10)])
+            summaries, sources = load_runs([source])
+        scope = expected_scope([("grid2", 1)], ["rhs1"], ["training"])
+        report = build_report(summaries, sources, scope, ["native", "superlu"], [1], 1)
+        self.assertEqual(report["scope_admission_status"], "not_competitive_over_observed_ranges")
+        self.assertEqual(report["scope_front_membership_status"],
+                         "robust_front_member_over_observed_ranges")
+        self.assertIsNone(report["cases"][0]["native"])
+        self.assertEqual(report["cases"][0]["front_member_native"]["backend"], "native")
+
 
 if __name__ == "__main__":
     unittest.main()

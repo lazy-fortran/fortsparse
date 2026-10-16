@@ -187,6 +187,19 @@ evidence makes `scope_admission_status` indeterminate, even if the measured
 subset passes. Failures are recorded independently of coverage. The report
 does not turn empirical performance admission into a complete MVP claim.
 
+`admission.front_membership` is a separate nondominance diagnostic. The strict
+match/beat gate above is unchanged: a native time/memory tradeoff can be
+nondominated without matching or beating any single external frontier point
+on both axes. For each native configuration, this diagnostic tests **every**
+measured external configuration. It reports a robust observed-range front
+member only if native maximum time is below external minimum time, or native
+maximum parent RSS is below external minimum parent RSS, for every comparison.
+UMFPACK parent RSS is used only as a lower bound on its unknown aggregate peak.
+Missing/failed external evidence blocks a positive membership result. Overlap
+remains indeterminate; a known comparator that dominates on both separated
+axes is reported explicitly. Report CSVs retain separate front-membership
+status and native configuration; these are not relabeled strict-gate passes.
+
 For CPU stack profiling, replay complete solver operations for about 0.2 s:
 
 ```sh
