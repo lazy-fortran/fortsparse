@@ -82,6 +82,17 @@ int fsparse_spd_cuda_set_levels(void *context,
     const fsparse_spd_cuda_level_task *tasks, size_t task_count, size_t level_count);
 int fsparse_spd_cuda_factor_level(void *context, size_t level);
 int fsparse_spd_cuda_update_level(void *context, size_t level);
+/* Setup-only all-panel triangular solve plan. Stable input panel IDs partition
+ * n columns; tail_rows concatenates each panel's rows after its width, one-based,
+ * strictly sorted and owned by later levels. Width<=128. Replacing a plan
+ * invalidates factor readiness. Preserve factor_info success before solving. */
+int fsparse_spd_cuda_set_solve_plan(void *context, int n,
+    const fsparse_spd_cuda_level_panel *panels, size_t panel_count,
+    const int *tail_rows, size_t row_count, size_t level_count);
+/* In-place arena RHS, ld>=n, nrhs=0..8. Must not overlap factor storage.
+ * Forward atomic scatter and reverse gather execute on the retained stream.
+ * No hot allocation; caller synchronizes before consuming host downloads. */
+int fsparse_spd_cuda_solve(void *context, size_t rhs_offset, int ld, int nrhs);
 /* Retained host context and launch metadata, separate from device bytes. */
 size_t fsparse_spd_cuda_host_plan_bytes(void *context);
 int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset, int n, int ldl,

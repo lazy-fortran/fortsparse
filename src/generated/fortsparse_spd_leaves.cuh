@@ -198,3 +198,79 @@ __device__ __forceinline__ void spd_schur_scatter_entry(
     if (atomic) atomicAdd(entry, product);
     else spd_update_value(*entry, -1.0, product, entry);
 }
+
+// Bounded host-workflow solve tile: one cooperative block owns one panel.
+// Tail rows belong to strictly later levels; only forward scatters need atomics.
+// Arithmetic uses the same generated update/divide leaves as the CPU reference.
+__device__ __forceinline__ void spd_forward_solve_schedule(
+    const double *factor, int width, int rows, int lda, const int *tail_rows,
+    int first, double *rhs, int ldrhs, int nrhs, const int *info)
+{
+    __shared__ double values[128*8];
+    if (*info != 0) return;
+    for (int index = threadIdx.x; index < width*nrhs; index += blockDim.x) {
+        const int i = index%width, r = index/width;
+        values[i+128*r] = rhs[first+i+static_cast<std::size_t>(r)*ldrhs];
+    }
+    __syncthreads();
+    for (int j = 0; j < width; ++j) {
+        for (int r = threadIdx.x; r < nrhs; r += blockDim.x)
+            spd_divide_value(values[j+128*r], factor[j+static_cast<std::size_t>(j)*lda],
+                             values+j+128*r);
+        __syncthreads();
+        const int remaining = width-j-1;
+        for (int index = threadIdx.x; index < remaining*nrhs; index += blockDim.x) {
+            const int i = j+1+index%remaining, r = index/remaining;
+            spd_update_value(values[i+128*r], factor[i+static_cast<std::size_t>(j)*lda],
+                             values[j+128*r], values+i+128*r);
+        }
+        __syncthreads();
+    }
+    for (int index = threadIdx.x; index < width*nrhs; index += blockDim.x) {
+        const int i = index%width, r = index/width;
+        rhs[first+i+static_cast<std::size_t>(r)*ldrhs] = values[i+128*r];
+    }
+    const int tail = rows-width;
+    for (std::size_t index = threadIdx.x; index < static_cast<std::size_t>(tail)*nrhs;
+         index += blockDim.x) {
+        const int i = index%tail, r = index/tail;
+        double contribution = 0.0;
+        for (int j = 0; j < width; ++j)
+            spd_update_value(contribution, factor[width+i+static_cast<std::size_t>(j)*lda],
+                             values[j+128*r], &contribution);
+        atomicAdd(rhs+tail_rows[i]-1+static_cast<std::size_t>(r)*ldrhs, contribution);
+    }
+}
+
+__device__ __forceinline__ void spd_backward_solve_schedule(
+    const double *factor, int width, int rows, int lda, const int *tail_rows,
+    int first, double *rhs, int ldrhs, int nrhs, const int *info)
+{
+    __shared__ double values[128*8];
+    if (*info != 0) return;
+    for (int index = threadIdx.x; index < width*nrhs; index += blockDim.x) {
+        const int j = index%width, r = index/width;
+        double value = rhs[first+j+static_cast<std::size_t>(r)*ldrhs];
+        for (int i = 0; i < rows-width; ++i)
+            spd_update_value(value, factor[width+i+static_cast<std::size_t>(j)*lda],
+                             rhs[tail_rows[i]-1+static_cast<std::size_t>(r)*ldrhs], &value);
+        values[j+128*r] = value;
+    }
+    __syncthreads();
+    for (int j = width-1; j >= 0; --j) {
+        for (int r = threadIdx.x; r < nrhs; r += blockDim.x)
+            spd_divide_value(values[j+128*r], factor[j+static_cast<std::size_t>(j)*lda],
+                             values+j+128*r);
+        __syncthreads();
+        for (int index = threadIdx.x; index < j*nrhs; index += blockDim.x) {
+            const int i = index%j, r = index/j;
+            spd_update_value(values[i+128*r], factor[j+static_cast<std::size_t>(i)*lda],
+                             values[j+128*r], values+i+128*r);
+        }
+        __syncthreads();
+    }
+    for (int index = threadIdx.x; index < width*nrhs; index += blockDim.x) {
+        const int i = index%width, r = index/width;
+        rhs[first+i+static_cast<std::size_t>(r)*ldrhs] = values[i+128*r];
+    }
+}

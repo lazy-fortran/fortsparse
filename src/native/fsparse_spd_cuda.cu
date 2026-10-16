@@ -21,6 +21,12 @@ struct Level {
     size_t panel_first = 0, panel_count = 0;
     Batch updates = {};
 };
+struct SolvePanel {
+    fsparse_spd_cuda_level_panel panel;
+    size_t row_first;
+    int first;
+};
+struct SolveLevel { size_t first, count; };
 struct Context {
     int device;
     size_t capacity;
@@ -32,6 +38,12 @@ struct Context {
     int *maps = nullptr;
     size_t map_count = 0;
     bool factor_batch = false;
+    bool factor_ready = false;
+    SolvePanel *solve_panels = nullptr;
+    int *solve_rows = nullptr;
+    int solve_n = 0;
+    size_t solve_panel_count = 0, solve_row_count = 0, solve_factor_end = 0;
+    std::vector<SolveLevel> solve_levels;
     DeviceTask *tasks = nullptr;
     size_t task_count = 0;
     std::vector<Batch> batches;
@@ -159,6 +171,33 @@ __global__ void update_level(double *arena, const int *maps,
         (block-begin)*blockDim.x+threadIdx.x, true);
 }
 
+template<bool Forward>
+__global__ void solve_level(double *arena, const SolvePanel *panels, size_t first,
+    const int *rows, double *rhs, int ld, int nrhs, const int *info)
+{
+    const auto &s = panels[first+blockIdx.x];
+    const auto &p = s.panel;
+    const int *tail = rows ? rows+s.row_first : nullptr;
+    if (Forward)
+        spd_forward_solve_schedule(arena+p.offset,p.width,p.rows,p.lda,
+                                  tail,s.first,rhs,ld,nrhs,info);
+    else
+        spd_backward_solve_schedule(arena+p.offset,p.width,p.rows,p.lda,
+                                   tail,s.first,rhs,ld,nrhs,info);
+}
+
+void clear_solve(Context *ctx)
+{
+    if (ctx->solve_panels) cudaFree(ctx->solve_panels);
+    if (ctx->solve_rows) cudaFree(ctx->solve_rows);
+    ctx->solve_panels = nullptr;
+    ctx->solve_rows = nullptr;
+    ctx->solve_n = 0;
+    ctx->solve_panel_count = ctx->solve_row_count = ctx->solve_factor_end = 0;
+    ctx->factor_ready = false;
+    std::vector<SolveLevel>().swap(ctx->solve_levels);
+}
+
 void clear_levels(Context *ctx)
 {
     if (ctx->level_panels) cudaFree(ctx->level_panels);
@@ -180,6 +219,7 @@ void clear_plan(Context *ctx)
 {
     clear_schur(ctx);
     clear_levels(ctx);
+    clear_solve(ctx);
 }
 } // namespace
 
@@ -266,6 +306,7 @@ extern "C" int fsparse_spd_cuda_upload(void *context, size_t offset,
 {
     auto *ctx = static_cast<Context*>(context);
     if (!fits(ctx, offset, count) || (count && !source)) return -1;
+    if (count && offset < ctx->solve_factor_end) ctx->factor_ready = false;
     int result = activate(ctx);
     if (result || count == 0) return result;
     return cudaMemcpyAsync(ctx->arena+offset, source, count*sizeof(double),
@@ -297,6 +338,7 @@ extern "C" int fsparse_spd_cuda_panel_factor(void *context, size_t offset,
     if (!matrix_fits(ctx, offset, lda, n, n)) return -1;
     int result = activate(ctx);
     if (result) return result;
+    ctx->factor_ready = false;
     factor_panel<<<1,256,0,ctx->stream>>>(ctx->arena+offset, n, lda, ctx->info,
                                         ctx->factor_batch);
     return cudaGetLastError();
@@ -310,6 +352,7 @@ extern "C" int fsparse_spd_cuda_front_factor(void *context, size_t offset,
         !matrix_fits(ctx, offset, lda, rows, width)) return -1;
     int result = activate(ctx);
     if (result || width == 0) return result;
+    ctx->factor_ready = false;
     factor_front<<<1,256,0,ctx->stream>>>(ctx->arena+offset, width, rows, lda,
                                         ctx->info, ctx->factor_batch);
     return cudaGetLastError();
@@ -325,6 +368,7 @@ extern "C" int fsparse_spd_cuda_factor_info(void *context, int *info)
                              cudaMemcpyDeviceToHost, ctx->stream);
     if (!result) result = cudaStreamSynchronize(ctx->stream);
     ctx->factor_batch = false;
+    ctx->factor_ready = result == 0 && *info == 0;
     return result;
 }
 
@@ -356,6 +400,7 @@ extern "C" int fsparse_spd_cuda_begin_factor(void *context)
     int result = activate(ctx);
     if (result) return result;
     ctx->factor_batch = true;
+    ctx->factor_ready = false;
     return cudaMemsetAsync(ctx->info, 0, sizeof(int), ctx->stream);
 }
 
@@ -637,7 +682,106 @@ extern "C" size_t fsparse_spd_cuda_host_plan_bytes(void *context)
 {
     auto *ctx = static_cast<Context*>(context);
     return ctx ? sizeof(Context)+ctx->batches.capacity()*sizeof(Batch)
-                 +ctx->levels.capacity()*sizeof(Level) : 0;
+                 +ctx->levels.capacity()*sizeof(Level)
+                 +ctx->solve_levels.capacity()*sizeof(SolveLevel) : 0;
+}
+
+extern "C" int fsparse_spd_cuda_set_solve_plan(void *context, int n,
+    const fsparse_spd_cuda_level_panel *panels, size_t panel_count,
+    const int *tail_rows, size_t row_count, size_t level_count)
+{
+    auto *ctx = static_cast<Context*>(context);
+    const size_t limit = std::numeric_limits<size_t>::max();
+    if (!ctx || n <= 0 || !panels || !panel_count || !level_count ||
+        panel_count > size_t(n) || level_count > panel_count ||
+        (row_count && !tail_rows) || row_count > limit/sizeof(int)) return -1;
+    try {
+        std::vector<SolvePanel> ordered(panel_count);
+        std::vector<int> owner(n);
+        std::vector<size_t> ptr(level_count+1,0);
+        std::vector<SolveLevel> levels(level_count);
+        size_t row = 0, factor_end = 0;
+        int first = 0;
+        for (size_t i = 0; i < panel_count; ++i) {
+            const auto &p = panels[i];
+            if (p.width <= 0 || p.width > 128 || p.width > n-first ||
+                p.rows < p.width || p.level < 0 || size_t(p.level) >= level_count ||
+                !matrix_fits(ctx,p.offset,p.lda,p.rows,p.width) ||
+                !fits(ctx,p.offset,size_t(p.width)*p.lda) || p.offset < factor_end ||
+                size_t(p.rows-p.width) > row_count-row) return -1;
+            factor_end = p.offset+size_t(p.width)*p.lda;
+            ordered[i] = {p,row,first};
+            for (int j = 0; j < p.width; ++j) owner[first+j] = i;
+            first += p.width;
+            row += p.rows-p.width;
+            ++ptr[p.level+1];
+        }
+        if (first != n || row != row_count) return -1;
+        for (const auto &item : ordered) {
+            const auto &p = item.panel;
+            int previous = item.first+p.width;
+            for (int j = 0; j < p.rows-p.width; ++j) {
+                const int target = tail_rows[item.row_first+j];
+                if (target <= previous || target > n ||
+                    panels[owner[target-1]].level <= p.level) return -1;
+                previous = target;
+            }
+        }
+        for (size_t l = 0; l < level_count; ++l) {
+            ptr[l+1] += ptr[l];
+            levels[l] = {ptr[l],ptr[l+1]-ptr[l]};
+        }
+        auto next = ptr;
+        std::vector<SolvePanel> upload(panel_count);
+        for (const auto &item : ordered) upload[next[item.panel.level]++] = item;
+        int result = activate(ctx);
+        if (result) return result;
+        SolvePanel *device_panels = nullptr;
+        int *device_rows = nullptr;
+        result = cudaMalloc(&device_panels,panel_count*sizeof(SolvePanel));
+        if (!result && row_count) result = cudaMalloc(&device_rows,row_count*sizeof(int));
+        if (!result) result = cudaMemcpyAsync(device_panels,upload.data(),
+            panel_count*sizeof(SolvePanel),cudaMemcpyHostToDevice,ctx->stream);
+        if (!result && row_count) result = cudaMemcpyAsync(device_rows,tail_rows,
+            row_count*sizeof(int),cudaMemcpyHostToDevice,ctx->stream);
+        if (!result) result = cudaStreamSynchronize(ctx->stream);
+        if (result) {
+            if (device_panels) cudaFree(device_panels);
+            if (device_rows) cudaFree(device_rows);
+            return result;
+        }
+        clear_solve(ctx);
+        ctx->solve_panels = device_panels; ctx->solve_rows = device_rows;
+        ctx->solve_panel_count = panel_count; ctx->solve_row_count = row_count;
+        ctx->solve_factor_end = factor_end; ctx->solve_n = n;
+        ctx->solve_levels = std::move(levels);
+        return 0;
+    } catch (const std::bad_alloc &) { return int(cudaErrorMemoryAllocation); }
+}
+
+extern "C" int fsparse_spd_cuda_solve(void *context, size_t rhs_offset, int ld, int nrhs)
+{
+    auto *ctx = static_cast<Context*>(context);
+    if (!ctx || !ctx->factor_ready || !ctx->solve_panels || nrhs < 0 || nrhs > 8 ||
+        rhs_offset < ctx->solve_factor_end ||
+        !matrix_fits(ctx,rhs_offset,ld,ctx->solve_n,nrhs)) return -1;
+    if (!nrhs) return 0;
+    int result = activate(ctx);
+    if (result) return result;
+    for (const auto &level : ctx->solve_levels) {
+        if (!level.count) continue;
+        solve_level<true><<<unsigned(level.count),256,0,ctx->stream>>>(ctx->arena,
+            ctx->solve_panels,level.first,ctx->solve_rows,ctx->arena+rhs_offset,ld,nrhs,ctx->info);
+        result = cudaGetLastError(); if (result) return result;
+    }
+    for (size_t l = ctx->solve_levels.size(); l-- > 0;) {
+        const auto &level = ctx->solve_levels[l];
+        if (!level.count) continue;
+        solve_level<false><<<unsigned(level.count),256,0,ctx->stream>>>(ctx->arena,
+            ctx->solve_panels,level.first,ctx->solve_rows,ctx->arena+rhs_offset,ld,nrhs,ctx->info);
+        result = cudaGetLastError(); if (result) return result;
+    }
+    return 0;
 }
 
 extern "C" int fsparse_spd_cuda_panel_solve(void *context, size_t l_offset,
@@ -700,5 +844,6 @@ extern "C" size_t fsparse_spd_cuda_allocated_bytes(void *context)
                  +(ctx->workspace ? workspace_bytes : 0)
                  +ctx->map_count*sizeof(int)+ctx->task_count*sizeof(DeviceTask)
                  +ctx->level_task_count*sizeof(DeviceTask)
-                 +ctx->level_panel_count*sizeof(fsparse_spd_cuda_level_panel) : 0;
+                 +ctx->level_panel_count*sizeof(fsparse_spd_cuda_level_panel)
+                 +ctx->solve_panel_count*sizeof(SolvePanel)+ctx->solve_row_count*sizeof(int) : 0;
 }
