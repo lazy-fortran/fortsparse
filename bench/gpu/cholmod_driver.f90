@@ -63,6 +63,12 @@ program bench_spd_cholmod
             import c_ptr
             type(c_ptr), value :: context
         end subroutine
+        function device_memory_sample(device) &
+                bind(C, name="fsbench_gpu_process_memory") result(bytes)
+            import c_int, c_int64_t
+            integer(c_int), value :: device
+            integer(c_int64_t) :: bytes
+        end function
         subroutine metrics(rss, child_rss, child_cpu) &
                 bind(C, name="fsbench_process_metrics")
             import c_double
@@ -75,19 +81,22 @@ program bench_spd_cholmod
     character(32) :: order_hash, version_string, execution_mode
     character(1024) :: matrix_path, permutation_path, permutation_out
     integer :: level, threads, device, nrhs, repeats, j, k, unit, ios, m
-    integer :: offload_verified
+    integer :: offload_verified, device_memory_sample_count
     integer(c_int) :: code, order_id, version_numbers(3)
-    integer(c_int64_t) :: pool
+    integer(c_int64_t) :: pool, device_memory_sampled_max
     integer(c_int64_t), allocatable :: permutation(:), actual_permutation(:)
     logical, allocatable :: seen(:)
     real(dp), allocatable :: b(:, :), x(:, :), reference(:, :)
     real(dp) :: total_start, cpu_start, total_s, cpu_s, start
     real(dp) :: analysis_s, numeric_s, factor_s, cold_factor_s, refactor_s, solve_s
-    real(dp) :: cleanup_s, gpu_calls
+    real(dp) :: cleanup_s, gpu_calls, memory_sampling_s
     real(dp) :: setup_times(2), info(10), rss, child_rss, child_cpu
     real(dp) :: error, forward_error, fixture_bytes, host_work_bytes
     logical :: reused
 
+    device_memory_sampled_max = -1_c_int64_t
+    device_memory_sample_count = 0
+    memory_sampling_s = 0.0_dp
     total_start = wall_time()
     call cpu_time(cpu_start)
     call get_command_argument(1, family)
@@ -161,6 +170,7 @@ program bench_spd_cholmod
         write (*, '(a,i0)') "CHOLMOD create error ", code
         stop 2
     end if
+    call sample_device_memory()
     call run_factor()
     factor_s = factor_s + sum(setup_times)
     cold_factor_s = factor_s
@@ -178,6 +188,7 @@ program bench_spd_cholmod
         code = factor(context, a%val)
         call require_success("refactor")
         refactor_s = wall_time() - start
+        call sample_device_memory()
         reused = .true.
     end if
     solve_s = 0.0_dp
@@ -188,6 +199,7 @@ program bench_spd_cholmod
         code = solve(context, nrhs, b, x)
         call require_success("solve")
         solve_s = solve_s + wall_time() - start
+        call sample_device_memory()
     end do
     if (any(.not. ieee_is_finite(x))) error stop "nonfinite solution"
     error = 0.0_dp
@@ -236,6 +248,7 @@ program bench_spd_cholmod
     start = wall_time()
     call destroy(context)
     cleanup_s = wall_time() - start
+    call sample_device_memory()
     call cpu_time(cpu_s)
     cpu_s = cpu_s - cpu_start
     total_s = wall_time() - total_start
@@ -254,19 +267,35 @@ program bench_spd_cholmod
         "gpu_pool_budget_bytes,"// &
         "variant,cleanup_s,ordering_hash,solver_version,execution_mode,"// &
         "gpu_operation_calls,"// &
-        "gpu_offload_verified,fixture_update_peak_extra_bytes"
+        "gpu_offload_verified,fixture_update_peak_extra_bytes,"// &
+        "device_process_sample_count,memory_sampling_s"
     write (*, '(*(g0,:,","))') "cholmod-cuda", trim(family), level, a%n, &
         size(a%val), threads, nrhs, trim(workload), trim(io_mode), trim(ordering), &
         factor_s, solve_s, refactor_s, reused, cpu_s, total_s, rss, &
         analysis_s, numeric_s, error, forward_error, cold_factor_s, &
         setup_times, -1.0_dp, -1.0_dp, -1.0_dp, threads, -1, device, int(info(10)), &
-        repeats, 0, -1, -1, -1, -1, info(3), info(1), info(2), info(4), &
+        repeats, 0, -1, -1, -1, device_memory_sampled_max, info(3), info(1), info(2), info(4), &
         fixture_bytes, host_work_bytes, info(9), info(5:8), pool, &
         trim(variant), cleanup_s, trim(order_hash), trim(version_string), &
         trim(execution_mode), gpu_calls, offload_verified, &
-        merge(fixture_bytes, 0.0_dp, workload == "refactor")
+        merge(fixture_bytes, 0.0_dp, workload == "refactor"), &
+        device_memory_sample_count, memory_sampling_s
 
 contains
+    subroutine sample_device_memory()
+        integer(c_int64_t) :: bytes
+        real(dp) :: sample_start
+
+        ! Phase-boundary samples exclude their overhead from phase timings.
+        ! total_s includes memory_sampling_s; samples never establish a peak.
+        sample_start = wall_time()
+        bytes = device_memory_sample(device)
+        memory_sampling_s = memory_sampling_s + wall_time() - sample_start
+        if (bytes < 0) return
+        device_memory_sample_count = device_memory_sample_count + 1
+        device_memory_sampled_max = max(device_memory_sampled_max, bytes)
+    end subroutine
+
     subroutine require_success(phase)
         character(*), intent(in) :: phase
         if (code == 0) return
@@ -280,10 +309,12 @@ contains
         code = analyze(context)
         call require_success("analyze")
         analysis_s = wall_time() - start
+        call sample_device_memory()
         start = wall_time()
         code = factor(context, a%val)
         call require_success("factor")
         numeric_s = wall_time() - start
+        call sample_device_memory()
         factor_s = analysis_s + numeric_s
     end subroutine
 
