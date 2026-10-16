@@ -563,3 +563,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_csc_normalize_symmetric PROPERTIES LABELS "native;csc;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+fortsparse_add_test(test_lu_row_preference ../test-cmake/native/test_lu_row_preference.f90)
+set_tests_properties(test_lu_row_preference PROPERTIES LABELS "native;lu;fast"
+    TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")

@@ -183,6 +183,17 @@ pivoting is unchanged. Singleton pivots bypass that core threshold because they
 cannot update the remaining block. Forced rows are recorded in p until each
 pivot position overwrites its own entry with the actual pivot.
 
+The low-level real/complex `factor` and `factor_raw` procedures also accept a
+final optional `row_preference(:)` argument mapping each original column to a
+preferred original row. The borrowed vector is validated as a permutation with
+existing bounded marks and is used only during numerical factorization; it adds
+no owned payload. Structural singleton rows retain priority. Otherwise the hint
+replaces the default original diagonal row under the same numerical threshold:
+zero, absent, already-pivoted or insufficient-magnitude candidates fall back to
+the existing largest-magnitude eligible row. This is a generic hint, not a claim
+that the producer supplied a nonzero perfect matching. Refactor callers must
+supply the desired hint again; final factors retain only their actual pivots.
+
 This standard preprocessing matters for accuracy as well as fill: the retained
 public synthetic NEO-2 spline system is completely singleton-reducible, but
 mixing its constraint rows into the ill-conditioned coefficient basis loses
