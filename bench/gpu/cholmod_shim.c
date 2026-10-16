@@ -139,7 +139,7 @@ int fsbench_cholmod_solve(void *opaque, int nrhs, const double *rhs, double *x)
 
 /* stats: CHOLMOD tracked host peak; wrapper host; device pool peak; pinned
  * pool peak; four GPU BLAS call counts; numerical factor stored entries;
- * effective device (-1 when no GPU numerical work); factor permutation. */
+ * device (-1 without positive counter evidence); factor permutation. */
 void fsbench_cholmod_stats(void *opaque, double *stats, int64_t *permutation)
 {
     struct cholmod_bench *c = opaque;
