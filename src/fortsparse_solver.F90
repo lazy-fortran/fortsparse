@@ -51,6 +51,8 @@ module fortsparse_solver
     integer, parameter, public :: FORTSPARSE_BACKEND_MUMPS = 3
     integer, parameter, public :: FORTSPARSE_BACKEND_NATIVE = 4
     integer, parameter, public :: FORTSPARSE_BACKEND_NATIVE_REFERENCE = 5
+    ! Explicit approximate inverse; excluded from AUTO and exact derivatives.
+    integer, parameter, public :: FORTSPARSE_BACKEND_SUPERLU_ILU = 6
     ! Per-matrix choice between the in-process backends at factor time
     ! (sparse_auto_backend); the default of sparse_solver_t%backend_id and
     ! hence of sparse_solve_once.
@@ -521,6 +523,11 @@ contains
             call not_factored(status)
             return
         end if
+        if (has_approximate_factors(solver)) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "implicit derivatives require exact factors; SuperLU ILU is approximate")
+            return
+        end if
         if (.not. csc_is_valid(A_dot)) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "sparse_solve_jvp: invalid matrix tangent")
@@ -570,6 +577,11 @@ contains
             call not_factored(status)
             return
         end if
+        if (has_approximate_factors(transpose_solver)) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "implicit derivatives require exact factors; SuperLU ILU is approximate")
+            return
+        end if
         if (.not. csc_is_valid(A)) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "sparse_solve_vjp: invalid primal matrix")
@@ -616,6 +628,11 @@ contains
             call not_factored(status)
             return
         end if
+        if (has_approximate_factors(solver)) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "implicit derivatives require exact factors; SuperLU ILU is approximate")
+            return
+        end if
         if (.not. csc_is_valid(A_dot)) then
             call status_set(status, FORTSPARSE_INVALID_MATRIX, &
                 "sparse_solve_jvp: invalid complex matrix tangent")
@@ -658,6 +675,11 @@ contains
 
         if (.not. adjoint_solver%factored) then
             call not_factored(status)
+            return
+        end if
+        if (has_approximate_factors(adjoint_solver)) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "implicit derivatives require exact factors; SuperLU ILU is approximate")
             return
         end if
         if (.not. csc_is_valid(A)) then
@@ -1055,8 +1077,12 @@ contains
                 backend%reference_only = id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
             end select
 #ifdef FORTSPARSE_HAVE_SUPERLU
-        case (FORTSPARSE_BACKEND_SUPERLU)
+        case (FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_SUPERLU_ILU)
             allocate (superlu_backend_t :: solver%backend)
+            select type (backend => solver%backend)
+            type is (superlu_backend_t)
+                backend%incomplete = id == FORTSPARSE_BACKEND_SUPERLU_ILU
+            end select
 #endif
         case (FORTSPARSE_BACKEND_UMFPACK_IPC)
             allocate (umfpack_ipc_backend_t :: solver%backend)
@@ -1071,6 +1097,20 @@ contains
         solver%backend%options = solver%options
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine ensure_backend
+
+    ! Factor identity is retained in the backend: backend_id may already name
+    ! a different backend for the next factorization.
+    logical function has_approximate_factors(solver) result(approximate)
+        type(sparse_solver_t), intent(in) :: solver
+        approximate = .false.
+#ifdef FORTSPARSE_HAVE_SUPERLU
+        if (.not. allocated(solver%backend)) return
+        select type (backend => solver%backend)
+        type is (superlu_backend_t)
+            approximate = backend%incomplete
+        end select
+#endif
+    end function has_approximate_factors
 
     ! True when an allocated backend is the concrete kind for backend_id.
     logical function backend_is(backend, backend_id, is_complex, symmetry)
@@ -1095,7 +1135,11 @@ contains
             end if
 #ifdef FORTSPARSE_HAVE_SUPERLU
             type is (superlu_backend_t)
-            backend_is = (backend_id == FORTSPARSE_BACKEND_SUPERLU)
+            if (backend%incomplete) then
+                backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU_ILU
+            else
+                backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU
+            end if
 #endif
             type is (umfpack_ipc_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_UMFPACK_IPC)

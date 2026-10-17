@@ -101,6 +101,10 @@ program native_only_smoke
     call sparse_factor(solver,A,status)
     call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
         'explicit unavailable SuperLU status')
+    solver%backend_id = FORTSPARSE_BACKEND_SUPERLU_ILU
+    call sparse_factor(solver,A,status)
+    call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+        'explicit unavailable SuperLU ILU status')
     solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
     call sparse_factor(solver,A,status)
     call require(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &

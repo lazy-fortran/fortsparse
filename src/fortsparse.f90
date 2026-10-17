@@ -30,7 +30,8 @@ module fortsparse
         sparse_solve_jvp, sparse_solve_vjp, sparse_solve_block, &
         sparse_factor_stats, sparse_options_t, sparse_factor_stats_t, &
         sparse_inertia, &
-        FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_UMFPACK_IPC, &
+        FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_SUPERLU_ILU, &
+        FORTSPARSE_BACKEND_UMFPACK_IPC, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_DEFAULT, &
         FORTSPARSE_BACKEND_AUTO, FORTSPARSE_BACKEND_NATIVE, &
         FORTSPARSE_BACKEND_NATIVE_REFERENCE, sparse_auto_backend, &
@@ -66,7 +67,7 @@ module fortsparse
         sparse_free
     public :: sparse_destroy, sparse_copy, sparse_solve_once, sparse_vector
     public :: sparse_solve_jvp, sparse_solve_vjp
-    public :: FORTSPARSE_BACKEND_SUPERLU
+    public :: FORTSPARSE_BACKEND_SUPERLU, FORTSPARSE_BACKEND_SUPERLU_ILU
     public :: FORTSPARSE_BACKEND_UMFPACK_IPC, FORTSPARSE_BACKEND_MUMPS
     public :: FORTSPARSE_BACKEND_DEFAULT, FORTSPARSE_BACKEND_AUTO
     public :: FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE
