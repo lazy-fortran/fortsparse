@@ -245,6 +245,17 @@ call sparse_solve_vjp(transpose_solver, A, x, x_bar, &
                       b_bar, A_values_bar, status)
 ```
 
+`FORTSPARSE_BACKEND_SUPERLU_ILU` explicitly selects an equilibrated, real
+SuperLU ILU approximate inverse (drop tolerance `1e-4`, fill factor `10`). It is
+excluded from AUTO and does not promise a direct-solve residual. Normal,
+transpose, adjoint, block and in-place applications include the equilibration
+scales. Refactorization rebuilds and re-equilibrates the incomplete factors,
+reporting `reused=.false.`. Complex factors, refinement and exact implicit
+JVP/VJP requests return `FORTSPARSE_BACKEND_UNAVAILABLE`. Symmetry hints do not
+change its general-matrix ILU policy. A usable perturbed-zero-pivot factor
+returns success with a status message; callers must assess the original-matrix
+residual for their application.
+
 ## SuperLU symmetry hints
 
 SuperLU factors the full supplied CSC matrix for every symmetry hint. The

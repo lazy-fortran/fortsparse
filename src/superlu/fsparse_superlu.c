@@ -24,7 +24,7 @@
 #endif
 
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int symmetric,
+                           const int *rowidx1, const double *val, int symmetric, int ilu,
                            int *info);
 int fsparse_slu_refactor_d(void *handle, int n, int nnz, const int *colptr1,
                            const int *rowidx1, const double *val, int symmetric);
@@ -49,6 +49,9 @@ typedef struct {
     int_t *colptr0; /* 0-based CSC, owned by A */
     int_t *rowidx0;
     double *aval;
+    double *rscale, *cscale;
+    char equed;
+    int incomplete;
     superlu_options_t options;
     GlobalLU_t glu;
 } slu_real_t;
@@ -124,7 +127,7 @@ static void set_options(superlu_options_t *options, int symmetric)
 }
 
 void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
-                           const int *rowidx1, const double *val, int symmetric,
+                           const int *rowidx1, const double *val, int symmetric, int ilu,
                            int *info)
 {
     slu_real_t *h;
@@ -132,12 +135,16 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     SuperLUStat_t stat;
     int panel_size, relax;
     int_t lu_info = 0;
+    double rowcnd, colcnd, amax;
+    int equ_info;
 
     *info = 0;
     h = (slu_real_t *) calloc(1, sizeof(slu_real_t));
     if (h == NULL) { *info = 2; return NULL; }
 
     h->n = (int) n;
+    h->incomplete = ilu;
+    h->equed = 'N';
     h->colptr0 = copy_int_to_int_t0(colptr1, n + 1);
     h->rowidx0 = copy_int_to_int_t0(rowidx1, nnz);
     h->aval = (double *) malloc((size_t) nnz * sizeof(double));
@@ -156,6 +163,29 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
                            h->rowidx0, h->colptr0, SLU_NC, SLU_D, SLU_GE);
 
     set_options(&h->options, symmetric);
+    if (ilu) {
+        ilu_set_default_options(&h->options);
+        /* Equilibration without the optional MC64 dependency. ILU uses the
+         * general-matrix policy even if a symmetry hint was supplied. */
+        h->options.RowPerm = NOROWPERM;
+        h->options.ColPerm = COLAMD;
+        h->options.ILU_DropTol = 1e-4;
+        h->options.ILU_FillFactor = 10.0;
+        h->rscale = (double *) malloc((size_t) n * sizeof(double));
+        h->cscale = (double *) malloc((size_t) n * sizeof(double));
+        if (h->rscale == NULL || h->cscale == NULL) {
+            *info = 2;
+            fsparse_slu_free_d(h);
+            return NULL;
+        }
+        dgsequ(&h->A, h->rscale, h->cscale, &rowcnd, &colcnd, &amax, &equ_info);
+        if (equ_info != 0) {
+            *info = 1;
+            fsparse_slu_free_d(h);
+            return NULL;
+        }
+        dlaqgs(&h->A, h->rscale, h->cscale, rowcnd, colcnd, amax, &h->equed);
+    }
     get_perm_c(h->options.ColPerm, &h->A, h->perm_c);
     sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
 
@@ -163,10 +193,21 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
     relax = sp_ienv(2);
     StatInit(&stat);
     memset(&B, 0, sizeof(B));
-    dgstrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
-           h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
+    if (ilu)
+        dgsitrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
+                h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
+    else
+        dgstrf(&h->options, &h->AC, relax, panel_size, h->etree, NULL, 0,
+                h->perm_c, h->perm_r, &h->L, &h->U, &h->glu, &stat, &lu_info);
     StatFree(&stat);
 
+    /* dgsitrf may perturb zero pivots and still produce a usable
+     * approximate inverse. A non-NULL ILU handle disambiguates this count
+     * from the exact factor/error status codes. */
+    if (ilu && lu_info >= 0 && lu_info <= n) {
+        *info = (int) lu_info;
+        return h;
+    }
     if (lu_info != 0) {
         *info = classify_lu_info((long) lu_info, (long) n);
         fsparse_slu_free_d(h);
@@ -193,7 +234,7 @@ int fsparse_slu_refactor_d(void *handle, int n, int nnz, const int *colptr1,
     int_t lu_info = 0;
     int k;
 
-    if (h == NULL || h->n != n) return 4;
+    if (h == NULL || h->n != n || h->incomplete) return 4;
     if ((h->options.SymmetricMode == YES) != (symmetric != 0)) return 4;
     if (((NCformat *) h->A.Store)->nnz != (int_t) nnz) return 4;
     for (k = 0; k <= n; ++k)
@@ -227,15 +268,31 @@ int fsparse_slu_solve_op_d(void *handle, const double *b, double *x, long n,
     SuperMatrix B;
     SuperLUStat_t stat;
     int info = 0;
+    long k;
 
     if (h == NULL || n != h->n || operation < 0 || operation > 2) return -1;
     memcpy(x, b, (size_t) n * sizeof(double));
+    /* E = R A C. Normal: C E^-1 R; transpose/adjoint: R E^-T C. */
+    if (operation == 0) {
+        if (h->equed == 'R' || h->equed == 'B')
+            for (k = 0; k < n; ++k) x[k] *= h->rscale[k];
+    } else {
+        if (h->equed == 'C' || h->equed == 'B')
+            for (k = 0; k < n; ++k) x[k] *= h->cscale[k];
+    }
     dCreate_Dense_Matrix(&B, (int) n, 1, x, (int) n, SLU_DN, SLU_D, SLU_GE);
     StatInit(&stat);
     dgstrs(operation == 0 ? NOTRANS : TRANS, &h->L, &h->U,
            h->perm_c, h->perm_r, &B, &stat, &info);
     StatFree(&stat);
     Destroy_SuperMatrix_Store(&B);
+    if (operation == 0) {
+        if (h->equed == 'C' || h->equed == 'B')
+            for (k = 0; k < n; ++k) x[k] *= h->cscale[k];
+    } else {
+        if (h->equed == 'R' || h->equed == 'B')
+            for (k = 0; k < n; ++k) x[k] *= h->rscale[k];
+    }
     return info;
 }
 
@@ -258,6 +315,8 @@ void fsparse_slu_free_d(void *handle)
     free(h->colptr0);
     free(h->rowidx0);
     free(h->aval);
+    free(h->rscale);
+    free(h->cscale);
     free(h);
 }
 
