@@ -4,7 +4,7 @@ module fortsparse_solver
     ! A client factors a matrix once, solves any number of right-hand sides
     ! reusing that factorization, then frees it. The backend is selected by an
     ! integer tag on the solver. The default, FORTSPARSE_BACKEND_AUTO, picks
-    ! SuperLU (BSD) or, for large matrices in a sequential MUMPS build, MUMPS
+    ! SuperLU (BSD) or, for large matrices with a ready MUMPS runtime, MUMPS
     ! per factorization (sparse_auto_backend); UMFPACK runs out-of-process
     ! through a separate GPL helper and is reached by selecting
     ! FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an unbuilt or unknown backend
@@ -26,7 +26,7 @@ module fortsparse_solver
         FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL
     use fortsparse_inertia, only: FORTSPARSE_INERTIA_UNAVAILABLE
 #ifdef FORTSPARSE_HAVE_MUMPS
-    use fortsparse_mumps, only: mumps_backend_t
+    use fortsparse_mumps, only: mumps_backend_t, mumps_available
 #endif
 #ifdef FORTSPARSE_HAVE_SUPERLU
     use fortsparse_superlu, only: superlu_backend_t
@@ -63,8 +63,8 @@ module fortsparse_solver
     ! Fewest stored entries for which AUTO factors with MUMPS (measured
     ! crossover of factor + solve wall time; README, "Backend selection").
     integer, parameter :: AUTO_MUMPS_MIN_NNZ = 40000
-    ! Backends AUTO may choose in this build (MUMPS only sequential).
-#if defined(FORTSPARSE_HAVE_MUMPS) && !defined(FORTSPARSE_MUMPS_MPI)
+    ! Backends AUTO may choose; MPI readiness is checked at factor time.
+#ifdef FORTSPARSE_HAVE_MUMPS
     logical, parameter :: AUTO_HAS_MUMPS = .true.
 #else
     logical, parameter :: AUTO_HAS_MUMPS = .false.
@@ -970,19 +970,24 @@ contains
     ! Backend chosen by FORTSPARSE_BACKEND_AUTO for a matrix with nnz stored
     ! entries: MUMPS from AUTO_MUMPS_MIN_NNZ on, SuperLU below (README,
     ! "Backend selection", has the measured crossover). MUMPS needs a
-    ! sequential build (an MPI MUMPS needs the application to own MPI_Init)
-    ! and, for a complex matrix, ZMUMPS; otherwise SuperLU. A build without
-    ! SuperLU uses MUMPS throughout.
+    ! live runtime (an MPI MUMPS needs the application to own MPI_Init)
+    ! and, for a complex matrix, ZMUMPS; otherwise SuperLU. Without SuperLU,
+    ! AUTO uses a ready MUMPS throughout, or the native backend if not ready.
     integer function sparse_auto_backend(nnz, is_complex) result(id)
         integer, intent(in) :: nnz
         logical, intent(in) :: is_complex
+        logical :: ready
 
+        ready = AUTO_HAS_MUMPS
+#ifdef FORTSPARSE_HAVE_MUMPS
+        ready = mumps_available()
+#endif
         id = FORTSPARSE_BACKEND_SUPERLU
-        if (.not. AUTO_HAS_SUPERLU .and. .not. AUTO_HAS_MUMPS) &
+        if (.not. AUTO_HAS_SUPERLU .and. .not. ready) &
             id = FORTSPARSE_BACKEND_NATIVE
-        if (AUTO_HAS_MUMPS .and. nnz >= AUTO_MUMPS_MIN_NNZ .and. &
+        if (ready .and. nnz >= AUTO_MUMPS_MIN_NNZ .and. &
             (AUTO_HAS_ZMUMPS .or. .not. is_complex)) id = FORTSPARSE_BACKEND_MUMPS
-        if (AUTO_HAS_MUMPS .and. .not. AUTO_HAS_SUPERLU) &
+        if (ready .and. .not. AUTO_HAS_SUPERLU) &
             id = FORTSPARSE_BACKEND_MUMPS
     end function sparse_auto_backend
 

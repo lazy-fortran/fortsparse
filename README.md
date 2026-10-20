@@ -80,9 +80,9 @@ SPEC application migration and preconditioner performance admission remain pendi
 
 The default backend, `FORTSPARSE_BACKEND_AUTO`, chooses per matrix between
 SuperLU (BSD) for small systems and MUMPS for large ones when the library is
-built with a sequential MUMPS (see [Backend selection](#backend-selection)).
+built with an available MUMPS runtime (see [Backend selection](#backend-selection)).
 With SuperLU enabled and MUMPS disabled, AUTO uses SuperLU through a small MIT
-C shim. When neither eligible in-process external backend is built, AUTO selects the
+C shim. When neither in-process external backend is available, AUTO selects the
 native backend. This capability fallback does not extend the performance
 admission beyond the declared corpus. UMFPACK (GPL) is reached through a second backend that never links into
 the library: it runs in a standalone GPL helper process driven over shared
@@ -120,7 +120,7 @@ Options, all set with `-D`:
 | `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU entirely; native execution remains available. |
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and builds/installs no helper. The IPC protocol binding remains available for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | `ON` finds SuperLU and UMFPACK with `find_package` instead of fetching them. BLAS/LAPACK always come from the system. |
-| `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). Needs an OpenMP-enabled MUMPS, found by `find_package(MUMPS CONFIG)` or else `cmake/FindMUMPS.cmake` (distribution packages); see [MUMPS backend](#mumps-backend). |
+| `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend (threaded supernodal Cholesky, LDL^T and LU). MUMPS is found by `find_package(MUMPS CONFIG)` or else `cmake/FindMUMPS.cmake` (distribution packages); see [MUMPS backend](#mumps-backend). |
 | `FORTSPARSE_BUILD_FREEFEM_PLUGIN` | `OFF` | Build the separate optional real/complex FreeFem SDK module; requires native-only core linkage and AMD. |
 | `FORTSPARSE_INSTALL_HELPER` | `ON` | Install the UMFPACK helper to `bin/`. See [Use in your project](#use-in-your-project). |
 | `FORTSPARSE_TEST_OOM` | `OFF` | Also register `test_fortsparse_superlu_status_oom` (label `oom`), which forces a real SuperLU allocation failure under `ulimit -v 250000`. Manual: the working limit is toolchain dependent. Run with `ctest -L oom`. |
@@ -272,10 +272,13 @@ must declare the matrix structure correctly.
 `FORTSPARSE_BACKEND_AUTO` resolves at each factorization from the number of
 stored entries: MUMPS for `nnz >= 40000`, SuperLU below
 (`sparse_auto_backend(nnz, is_complex)` returns the choice). MUMPS is chosen
-only in a sequential build (an MPI MUMPS needs the application to own
-`MPI_Init`) and, for complex matrices, only with ZMUMPS; a build without MUMPS
-always uses SuperLU. A same-pattern `sparse_refactor` resolves to the same
-backend, so the MUMPS analysis is reused.
+in a sequential build or while an MPI MUMPS has an application-initialized,
+unfinalized MPI runtime, and, for complex matrices, only with ZMUMPS. AUTO
+never initializes MPI. A build without MUMPS uses SuperLU when enabled and
+otherwise the native backend. With unchanged runtime availability, a same-pattern
+`sparse_refactor` resolves to the same backend, so the MUMPS analysis is reused.
+The wrapper disables tree OpenMP for small systems; larger systems retain
+MUMPS's build-dependent default, including non-OpenMP installations.
 
 The crossover comes from `bench_fortsparse_backends` (built with
 `FORTSPARSE_ENABLE_MUMPS=ON`) on finite-element-shaped matrices: 2D P1/P2/P3
@@ -334,7 +337,8 @@ SuperLU_DIST) is built.
 MUMPS is tuned for these sizes. Its OpenMP tree parallelism (ICNTL(48), L0-OMP)
 parks finished threads in `usleep(1000)` (MUMPS 5.9 `DMUMPS_PERFORM_COPIES`),
 which cost about 1.1 ms per factorization with 4 threads (1.2 ms instead of
-0.07 ms for n = 9); fortsparse enables it only from n = 5000. The default
+0.07 ms for n = 9); fortsparse disables it below n = 5000 and otherwise retains
+MUMPS's build-dependent default. The default
 ordering analyses with AMD and switches to METIS nested dissection when the
 AMD estimate exceeds 3000 elimination flops per entry (three-dimensional or
 strongly coupled patterns): METIS costs up to ten times the AMD analysis and

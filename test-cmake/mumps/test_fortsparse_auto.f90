@@ -11,6 +11,7 @@ program test_fortsparse_auto
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_SUPERLU
     use fortsparse_mumps, only: mumps_backend_t
     use fortsparse_superlu, only: superlu_backend_t
+    use fs_test_mpi, only: test_mpi_init, test_mpi_finalize, test_mpi_parallel
     use fs_test_matrices, only: laplace2d
     implicit none
 
@@ -30,13 +31,13 @@ program test_fortsparse_auto
     call complexify(A, Az)
     call check_complex(Az, FORTSPARSE_BACKEND_SUPERLU, "small_complex")
 
-    ! Large side: the smallest grid the rule sends to MUMPS.
-    kind = FORTSPARSE_BACKEND_SUPERLU
-    m = 8
-    do while (kind /= FORTSPARSE_BACKEND_MUMPS .and. m < 2000)
-        m = m + 8
-        kind = sparse_auto_backend(5*m*m - 4*m, .false.)
-    end do
+    ! A bounded grid above the measured crossover. MPI AUTO must recognize
+    ! the application's runtime instead of silently keeping SuperLU.
+    m = 96
+    if (test_mpi_parallel) call check("before_init_rule", &
+        sparse_auto_backend(5*m*m - 4*m, .false.) == FORTSPARSE_BACKEND_SUPERLU)
+    call test_mpi_init()
+    kind = sparse_auto_backend(5*m*m - 4*m, .false.)
     call check("large_rule_mumps", kind == FORTSPARSE_BACKEND_MUMPS)
     call laplace2d(m, A)
     call check_real(A, FORTSPARSE_BACKEND_MUMPS, "large_real")
@@ -44,6 +45,9 @@ program test_fortsparse_auto
     call check("large_complex_rule_mumps", sparse_auto_backend( &
         Az%nnz, .true.) == FORTSPARSE_BACKEND_MUMPS)
     call check_complex(Az, FORTSPARSE_BACKEND_MUMPS, "large_complex")
+    call test_mpi_finalize()
+    if (test_mpi_parallel) call check("after_finalize_rule", &
+        sparse_auto_backend(A%nnz, .false.) == FORTSPARSE_BACKEND_SUPERLU)
 
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
@@ -70,6 +74,7 @@ contains
         call check(tag//"_solver_default", solver%backend_id == &
             FORTSPARSE_BACKEND_AUTO)
         call sparse_factor(solver, M, status)
+        if (.not. status_ok(status)) write (error_unit, '(a)') status%msg
         call check(tag//"_factor", status_ok(status))
         call check(tag//"_backend", backend_of(solver) == expect)
         call sparse_solve(solver, b, x, status)
