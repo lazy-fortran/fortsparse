@@ -73,7 +73,7 @@ module fortsparse_native_general
         type(native_ldlt_z_t) :: complex_ldlt_factor
         integer :: n = 0
         ! 0 real LU, 1 complex LU, 2 HPD, 3 real LDLT, 4 LDLH, 5 complex LDLT,
-        ! 6 real supernodal LU
+        ! 6 real supernodal LU, 7 complex supernodal LU
         integer :: mode = 0
         type(slu_factor_t) :: slu_factor
         integer(i8) :: slu_peak = 0_i8
@@ -800,10 +800,17 @@ contains
         integer(i8) :: cap
         integer, allocatable :: order(:)
         real(dp) :: threshold, started
+        logical :: reused
         if (supernodal_requested(self)) then
             self%ready=.false.
-            call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'native supernodal LU: complex values are not supported yet')
+            if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
+                .not.allocated(A%val) .or. A%nrow/=A%ncol) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                    'native supernodal LU: require square allocated CSC')
+                return
+            end if
+            call supernodal_factor(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine, &
+                .false.,status,reused)
             return
         end if
         call prepare(self,refine,cap,status)
@@ -893,6 +900,19 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
+        if (supernodal_requested(self)) then
+            reused=.false.
+            self%ready=.false.
+            if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
+                .not.allocated(A%val) .or. A%nrow/=A%ncol) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX, &
+                    'native supernodal LU: require square allocated CSC')
+                return
+            end if
+            call supernodal_factor(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine, &
+                self%mode==7,status,reused)
+            return
+        end if
         call self%factor_complex(A,refine,status)
         reused = .false.
         if (.not.status_ok(status)) return
@@ -909,6 +929,7 @@ contains
         integer(i8) :: cap
         integer, allocatable :: order(:)
         real(dp) :: threshold, started
+        logical :: reused
         self%ready = .false.
         if (self%options%symmetry >= FORTSPARSE_SYM_SPD .and. &
             self%options%symmetry <= FORTSPARSE_SYM_HERMITIAN) then
@@ -922,8 +943,11 @@ contains
             return
         end if
         if (supernodal_requested(self)) then
-            call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'native supernodal LU: complex values are not supported yet')
+            if (nrow/=ncol .or. nz/=size(val) .or. nz/=size(row_idx)) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: raw shape mismatch')
+                return
+            end if
+            call supernodal_factor(self,ncol,col_ptr,row_idx,val,refine,.false.,status,reused)
             return
         end if
         call prepare(self,refine,cap,status)
@@ -979,6 +1003,16 @@ contains
                 col_ptr,row_idx,val,refine,status,reused)
             return
         end if
+        if (supernodal_requested(self)) then
+            self%ready = .false.
+            if (nrow/=ncol .or. nz/=size(val) .or. nz/=size(row_idx)) then
+                call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: raw shape mismatch')
+                return
+            end if
+            call supernodal_factor(self,ncol,col_ptr,row_idx,val,refine,self%mode==7, &
+                status,reused)
+            return
+        end if
         call self%factor_complex_raw(nrow,ncol,nz,col_ptr,row_idx,val,refine,status)
         reused = .false.
         if (status_ok(status)) reused = self%complex_factor%last_reused_pattern &
@@ -1006,24 +1040,41 @@ contains
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
         x = b
-        call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
-            self%mode,x,operation,status)
+        call solve_complex_values(self,x,operation,status)
         if (status_ok(status) .and. self%refining) call refine_complex(self,x,operation,status)
+        if (status%code==FORTSPARSE_SINGULAR .and. self%mode==7 .and. self%refining) then
+            call solve_time_fallback(self,status)
+            if (.not.status_ok(status)) return
+            self%saved_zrhs = b
+            x = b
+            call solve_complex_values(self,x,operation,status)
+            if (status_ok(status)) call refine_complex(self,x,operation,status)
+        end if
     end subroutine general_solve_complex_op
 
     subroutine general_solve_complex_inplace(self,b,status)
         class(native_general_backend_t), intent(inout) :: self
         complex(dp), intent(inout) :: b(:)
         type(fortsparse_status_t), intent(out) :: status
+        complex(dp), allocatable :: rhs(:)
         self%stats%refinement_steps = 0
         self%stats%backward_error = -1.0_dp
         self%stats%componentwise_backward_error = -1.0_dp
         call solve_shape(self,size(b),size(b),.true.,status)
         if (.not.status_ok(status)) return
         if (self%refining) self%saved_zrhs = b
-        call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
-            self%mode,b,0,status)
+        call solve_complex_values(self,b,0,status)
         if (status_ok(status) .and. self%refining) call refine_complex(self,b,0,status)
+        if (status%code==FORTSPARSE_SINGULAR .and. self%mode==7 .and. self%refining .and. &
+            self%options%host_memory_limit_bytes==0_i8) then
+            rhs = self%saved_zrhs
+            call solve_time_fallback(self,status)
+            if (.not.status_ok(status)) return
+            b = rhs
+            self%saved_zrhs = b
+            call solve_complex_values(self,b,0,status)
+            if (status_ok(status)) call refine_complex(self,b,0,status)
+        end if
     end subroutine general_solve_complex_inplace
 
     subroutine general_solve_complex_block(self,b,x,status)
@@ -1113,7 +1164,7 @@ contains
             active_peak=self%hpd_factor%memory_peak_bytes()
         case(3)
             active_peak=self%ldlt_factor%peak_bytes()
-        case(6)
+        case(6,7)
             active_peak=max(self%slu_peak,self%slu_factor%peak_memory_bytes)
         case default
             active_peak=self%complex_ldlt_factor%peak_bytes()
@@ -1163,16 +1214,17 @@ contains
             self%stats%native_factor_family = 'LDLH_COMPLEX'
         case(5)
             self%stats%native_factor_family = 'LDLT_COMPLEX'
-        case(6)
+        case(6,7)
             self%stats%native_factor_family = 'LU_SUPERNODAL'
         end select
         if (self%mode <= 1) self%stats%effective_pivot_tolerance = self%lu_threshold
-        if (self%mode==0 .and. .not.self%is_complex) then
+        if (self%mode<=1) then
+            ! Scalar real or complex LU (also after a supernodal fallback).
             self%stats%lu_method_used = FORTSPARSE_LU_SCALAR
             self%stats%matching_used = FORTSPARSE_MATCHING_NONE
             if (self%previous_matching) self%stats%matching_used = FORTSPARSE_MATCHING_STRUCTURAL
         end if
-        if (self%mode==6) then
+        if (self%mode==6 .or. self%mode==7) then
             self%stats%lu_method_used = FORTSPARSE_LU_SUPERNODAL
             self%stats%matching_used = FORTSPARSE_MATCHING_WEIGHTED
             self%stats%perturbed_pivots = self%slu_factor%perturbed_pivots
@@ -1184,15 +1236,15 @@ contains
             self%stats%symbolic_nnz = self%slu_factor%symbolic_nnz
         end if
         self%stats%active_threads = 1
-        if (self%mode==6) then
+        if (self%mode==6 .or. self%mode==7) then
             self%stats%active_threads = self%slu_factor%active_threads
             self%stats%budget_reduced_threads = self%slu_factor%budget_reduced_threads
         end if
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
-        if ((self%mode/=6 .and. (self%selected_order == FORTSPARSE_ORDER_ND .or. &
+        if ((self%mode<6 .and. (self%selected_order == FORTSPARSE_ORDER_ND .or. &
             (self%selected_order == FORTSPARSE_ORDER_AMD .and. .not.self%bounded_amd))) .or. &
-            (self%mode==6 .and. self%slu_factor%opaque_ordering)) then
+            (self%mode>=6 .and. self%slu_factor%opaque_ordering)) then
             ! Opaque graph ordering prevents a complete peak or
             ! strict-cap claim. Retained owned payload remains exactly counted.
             self%stats%host_peak_bytes = -1_i8
@@ -1404,19 +1456,19 @@ contains
         end if
     end subroutine solve_real_values
 
-    subroutine solve_complex_values(lu,hpd,ldlt,mode,x,operation,status)
-        type(lu_factor_z_t), intent(inout) :: lu
-        type(native_hpd_t), intent(inout) :: hpd
-        type(native_ldlt_z_t), intent(inout) :: ldlt
-        integer, intent(in) :: mode,operation
+    subroutine solve_complex_values(self,x,operation,status)
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: operation
         complex(dp), intent(inout) :: x(:)
         type(fortsparse_status_t), intent(out) :: status
-        if (mode==2) then
-            call hpd%solve_inplace(x,status,operation)
-        else if (mode==4 .or. mode==5) then
-            call ldlt%solve_inplace(x,status,operation)
+        if (self%mode==2) then
+            call self%hpd_factor%solve_inplace(x,status,operation)
+        else if (self%mode==4 .or. self%mode==5) then
+            call self%complex_ldlt_factor%solve_inplace(x,status,operation)
+        else if (self%mode==7) then
+            call self%slu_factor%solve(x,status,operation)
         else
-            call lu%solve(x,status,operation)
+            call self%complex_factor%solve(x,status,operation)
         end if
     end subroutine solve_complex_values
 
@@ -1490,8 +1542,7 @@ contains
             if (.not.refine_more(error,componentwise,previous)) exit
             if (step==3) exit
             previous=componentwise
-            call solve_complex_values(self%complex_factor,self%hpd_factor,self%complex_ldlt_factor, &
-                self%mode,self%zresidual,operation,status)
+            call solve_complex_values(self,self%zresidual,operation,status)
             if (.not.status_ok(status)) return
             do i=1,size(x)
                 x(i)=lu_z_update(x(i),cmplx(-1.0_dp,0.0_dp,dp),self%zresidual(i))
@@ -1515,22 +1566,22 @@ contains
     end function refine_more
 
     subroutine supernodal_factor(self,n,ptr,rows,values,refine,reuse,status,reused)
-        ! Supernodal LU (mode 6) with the factor-time gates, the mandatory
-        ! validation and the scalar fallback of docs/lu-supernodal.md section 6.
-        ! reuse keeps a retained analysis for the same pattern (section 8); a
-        ! pattern outside the structure or a failed gate analyzes again, and a
-        ! fresh analysis that still fails falls back to the scalar LU.
+        ! Supernodal LU (mode 6 real, mode 7 complex) with the factor-time
+        ! gates, the mandatory validation and the scalar fallback of
+        ! docs/lu-supernodal.md section 6. reuse keeps a retained analysis of
+        ! the same value type for the same pattern (section 8); a pattern
+        ! outside the structure or a failed gate analyzes again, and a fresh
+        ! analysis that still fails falls back to the scalar LU.
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: n,ptr(:),rows(:)
-        real(dp), intent(in) :: values(:)
+        class(*), intent(in) :: values(:)
         logical, intent(in) :: refine,reuse
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out) :: reused
         type(memory_budget_t) :: ledger
-        integer(i8) :: cap,planned
+        integer(i8) :: cap
         character(16) :: reason
-        integer :: order
-        logical :: passed,refine_now
+        logical :: is_complex
         real(dp) :: started
         reused=.false.
         self%slu_peak=0_i8
@@ -1540,94 +1591,39 @@ contains
             call status_set(status,FORTSPARSE_INVALID_MATRIX,'native supernodal LU: CSC extent mismatch')
             return
         end if
+        is_complex=complex_values(values)
         call self%real_factor%free()
         call self%complex_factor%free()
         call self%hpd_factor%free()
         call self%ldlt_factor%free()
         call self%complex_ldlt_factor%free()
         self%reused_special=.false.
-        self%is_complex=.false.
+        self%is_complex=is_complex
         self%mode=6
+        if (is_complex) self%mode=7
         self%n=n
-        call reserve_original(self,n,size(rows),refine,.false.,cap,status)
+        call reserve_original(self,n,size(rows),refine,is_complex,cap,status)
         if (.not.status_ok(status)) return
         self%factor_invoked=.true.
         self%retained_order=-1
         started=seconds()
-        if (reuse .and. self%slu_factor%is_analyzed() .and. self%slu_factor%n==n) then
-            ! The retained panels were admitted by an earlier analysis.
-            ledger%limit=0_i8
-            ledger%current=self%slu_factor%memory_bytes()
-            ledger%peak=ledger%current
-            if (cap>0_i8 .and. ledger%current<cap) ledger%limit=cap
-            if (cap==0_i8 .or. ledger%current<cap) then
-                call self%slu_factor%factor(ptr,rows,values,status)
-                if (status_ok(status)) then
-                    reason=self%slu_factor%gate_reason()
-                    if (len_trim(reason)==0) then
-                        call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
-                        if (.not.status_ok(status)) goto 800
-                        reused=passed
-                    end if
-                end if
-            end if
+        if (reuse .and. self%slu_factor%is_analyzed() .and. self%slu_factor%n==n .and. &
+            (self%slu_factor%is_complex().eqv.is_complex)) then
+            call supernodal_reuse(self,n,ptr,rows,values,cap,ledger,reused,status)
+            if (.not.status_ok(status)) goto 800
         end if
         if (.not.reused) then
-            ledger=memory_budget_t()
-            ledger%limit=cap
-            call self%slu_factor%free()
-            order=supernodal_order(self%options)
-            call self%slu_factor%analyze(n,ptr,rows,values,status,ordering=order, &
-                low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW, &
-                pivot_perturbation=self%options%pivot_perturbation,budget=ledger, &
-                nthreads=self%options%nthreads)
-            self%stats%analysis_s=self%slu_factor%analysis_s
-            if (status%code==FORTSPARSE_SINGULAR) then
-                ! A structurally singular matching: the scalar LU reports it.
-                call supernodal_fallback(self,n,ptr,rows,values,refine,'SINGULAR',status)
-                return
-            end if
+            call supernodal_fresh(self,n,ptr,rows,values,refine,cap,ledger,reason, &
+                status,started)
+            ! A fallback (reason set) owns the outcome and its status.
+            if (len_trim(reason)/=0) return
             if (.not.status_ok(status)) goto 800
-            started=seconds()
-            call self%slu_factor%factor(ptr,rows,values,status)
-            if (.not.status_ok(status) .and. .not.self%slu_factor%nonfinite) goto 800
-            reason=self%slu_factor%gate_reason()
-            if (len_trim(reason)==0) then
-                call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
-                if (.not.status_ok(status)) goto 800
-                if (.not.passed) reason='REFINEMENT'
-            end if
-            if (len_trim(reason)/=0) then
-                self%slu_peak=max(self%slu_peak,ledger%peak)
-                call supernodal_fallback(self,n,ptr,rows,values,refine,reason,status)
-                return
-            end if
         end if
         self%slu_peak=ledger%peak
         self%stats%factor_s=seconds()-started
         self%selected_order=FORTSPARSE_ORDER_AMD
         if (self%slu_factor%order_used==SLU_ORDER_ND) self%selected_order=FORTSPARSE_ORDER_ND
-        refine_now=refine
-        if (.not.refine .and. self%slu_factor%perturbed_pivots>0) then
-            ! Perturbed static pivots are accurate only with refinement:
-            ! retain the original when it fits the cap, else fall back.
-            planned=0_i8
-            call refinement_payload_bytes(int(n,i8),int(size(rows),i8),8_i8,planned, &
-                status,componentwise=.true.)
-            if (.not.status_ok(status)) goto 800
-            if (self%options%host_memory_limit_bytes>0_i8) then
-                if (current_bytes(self)+planned>self%options%host_memory_limit_bytes) then
-                    call supernodal_fallback(self,n,ptr,rows,values,refine,'PERTURBATION',status)
-                    return
-                end if
-            end if
-            self%refinement_quota=planned
-            refine_now=.true.
-        end if
-        self%ready=.true.
-        call retain_real(self,n,ptr,rows,values,refine_now,status)
-        self%ready=status_ok(status)
-        call update_stats(self)
+        call supernodal_retain(self,n,ptr,rows,values,refine,status)
         return
 800     continue
         if (status%code==FORTSPARSE_RESOURCE_LIMIT .and. self%failed_required==0_i8) then
@@ -1639,6 +1635,164 @@ contains
         call self%slu_factor%free()
         call update_stats(self)
     end subroutine supernodal_factor
+
+    logical function complex_values(values)
+        class(*), intent(in) :: values(:)
+        complex_values=.false.
+        select type (values)
+        type is (complex(dp))
+            complex_values=.true.
+        end select
+    end function complex_values
+
+    subroutine supernodal_reuse(self,n,ptr,rows,values,cap,ledger,reused,status)
+        ! Refactor the retained panels (admitted by an earlier analysis);
+        ! reused reports that the gates and the validation passed.
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        integer(i8), intent(in) :: cap
+        type(memory_budget_t), intent(out) :: ledger
+        logical, intent(out) :: reused
+        type(fortsparse_status_t), intent(out) :: status
+        call status_set(status,FORTSPARSE_OK,'')
+        reused=.false.
+        ledger%limit=0_i8
+        ledger%current=self%slu_factor%memory_bytes()
+        ledger%peak=ledger%current
+        if (cap>0_i8 .and. ledger%current<cap) ledger%limit=cap
+        if (cap>0_i8 .and. ledger%current>=cap) return
+        call slu_factor_values(self%slu_factor,ptr,rows,values,status)
+        if (.not.status_ok(status)) then
+            call status_set(status,FORTSPARSE_OK,'')
+            return
+        end if
+        if (len_trim(self%slu_factor%gate_reason())/=0) return
+        call supernodal_validate(self,n,ptr,rows,values,ledger,reused,status)
+    end subroutine supernodal_reuse
+
+    subroutine supernodal_fresh(self,n,ptr,rows,values,refine,cap,ledger,reason, &
+            status,started)
+        ! Analyze, factor, gate and validate; a gate or validation failure
+        ! (reason) or a structurally singular matching falls back to the
+        ! scalar LU, whose status is returned.
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        integer(i8), intent(in) :: cap
+        type(memory_budget_t), intent(out) :: ledger
+        character(16), intent(out) :: reason
+        type(fortsparse_status_t), intent(out) :: status
+        real(dp), intent(out) :: started
+        logical :: passed
+        reason=''
+        ledger=memory_budget_t()
+        ledger%limit=cap
+        call self%slu_factor%free()
+        call slu_analyze_values(self,n,ptr,rows,values,ledger,status)
+        self%stats%analysis_s=self%slu_factor%analysis_s
+        if (status%code==FORTSPARSE_SINGULAR) then
+            ! A structurally singular matching: the scalar LU reports it.
+            reason='SINGULAR'
+            call supernodal_fallback(self,n,ptr,rows,values,refine,reason,status)
+            return
+        end if
+        if (.not.status_ok(status)) return
+        started=seconds()
+        call slu_factor_values(self%slu_factor,ptr,rows,values,status)
+        if (.not.status_ok(status) .and. .not.self%slu_factor%nonfinite) return
+        reason=self%slu_factor%gate_reason()
+        if (len_trim(reason)==0) then
+            call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
+            if (.not.status_ok(status)) return
+            if (.not.passed) reason='REFINEMENT'
+        end if
+        if (len_trim(reason)==0) return
+        self%slu_peak=max(self%slu_peak,ledger%peak)
+        call supernodal_fallback(self,n,ptr,rows,values,refine,reason,status)
+    end subroutine supernodal_fresh
+
+    subroutine slu_analyze_values(self,n,ptr,rows,values,ledger,status)
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        type(memory_budget_t), intent(inout) :: ledger
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: order
+        logical :: low
+        order=supernodal_order(self%options)
+        low=self%options%memory_policy==FORTSPARSE_MEMORY_LOW
+        call status_set(status,FORTSPARSE_INVALID_MATRIX,'native supernodal LU: value type')
+        select type (values)
+        type is (real(dp))
+            call self%slu_factor%analyze(n,ptr,rows,values,status,ordering=order, &
+                low_memory=low,pivot_perturbation=self%options%pivot_perturbation, &
+                budget=ledger,nthreads=self%options%nthreads)
+        type is (complex(dp))
+            call self%slu_factor%analyze(n,ptr,rows,values,status,ordering=order, &
+                low_memory=low,pivot_perturbation=self%options%pivot_perturbation, &
+                budget=ledger,nthreads=self%options%nthreads)
+        end select
+    end subroutine slu_analyze_values
+
+    subroutine slu_factor_values(slu,ptr,rows,values,status)
+        type(slu_factor_t), intent(inout) :: slu
+        integer, intent(in) :: ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        type(fortsparse_status_t), intent(out) :: status
+        call status_set(status,FORTSPARSE_INVALID_MATRIX,'native supernodal LU: value type')
+        select type (values)
+        type is (real(dp))
+            call slu%factor(ptr,rows,values,status)
+        type is (complex(dp))
+            call slu%factor(ptr,rows,values,status)
+        end select
+    end subroutine slu_factor_values
+
+    subroutine supernodal_retain(self,n,ptr,rows,values,refine,status)
+        ! Retain the original for refinement. Perturbed static pivots are
+        ! accurate only with refinement: retain it then even without
+        ! refine when it fits the cap, else fall back (PERTURBATION).
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        logical, intent(in) :: refine
+        type(fortsparse_status_t), intent(out) :: status
+        integer(i8) :: planned,value_bytes
+        logical :: refine_now
+        refine_now=refine
+        if (.not.refine .and. self%slu_factor%perturbed_pivots>0) then
+            planned=0_i8
+            value_bytes=8_i8
+            if (self%mode==7) value_bytes=16_i8
+            call refinement_payload_bytes(int(n,i8),int(size(rows),i8),value_bytes, &
+                planned,status,componentwise=.true.)
+            if (.not.status_ok(status)) then
+                self%ready=.false.
+                call self%slu_factor%free()
+                call update_stats(self)
+                return
+            end if
+            if (self%options%host_memory_limit_bytes>0_i8) then
+                if (current_bytes(self)+planned>self%options%host_memory_limit_bytes) then
+                    call supernodal_fallback(self,n,ptr,rows,values,refine,'PERTURBATION',status)
+                    return
+                end if
+            end if
+            self%refinement_quota=planned
+            refine_now=.true.
+        end if
+        self%ready=.true.
+        select type (values)
+        type is (real(dp))
+            call retain_real(self,n,ptr,rows,values,refine_now,status)
+        type is (complex(dp))
+            call retain_complex(self,n,ptr,rows,values,refine_now,status)
+        end select
+        self%ready=status_ok(status)
+        call update_stats(self)
+    end subroutine supernodal_retain
 
     integer function supernodal_order(options) result(order)
         ! An explicit AMD/ND request wins (ND is still refused under a host cap
@@ -1662,7 +1816,27 @@ contains
         ! One solve of A x = A xhat for a fixed exact xhat, refined against
         ! the ORIGINAL A with at most three corrections to the existing
         ! 32*eps backward-error gate. Always run after perturbations and,
-        ! with verify_factor, for every factor. 3n reals are charged.
+        ! with verify_factor, for every factor.
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        class(*), intent(in) :: values(:)
+        type(memory_budget_t), intent(inout) :: ledger
+        logical, intent(out) :: passed
+        type(fortsparse_status_t), intent(out) :: status
+        passed=.true.
+        call status_set(status,FORTSPARSE_OK,'')
+        if (self%slu_factor%perturbed_pivots==0 .and. .not.self%options%verify_factor) return
+        passed=.false.
+        select type (values)
+        type is (real(dp))
+            call validate_real(self,n,ptr,rows,values,ledger,passed,status)
+        type is (complex(dp))
+            call validate_complex(self,n,ptr,rows,values,ledger,passed,status)
+        end select
+    end subroutine supernodal_validate
+
+    subroutine validate_real(self,n,ptr,rows,values,ledger,passed,status)
+        ! Real validation solve; 3n reals are charged.
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: n,ptr(:),rows(:)
         real(dp), intent(in) :: values(:)
@@ -1673,9 +1847,6 @@ contains
         type(fortsparse_status_t) :: released
         real(dp) :: an,ant,error,xhat
         integer :: j,p,step,ierr
-        passed=.true.
-        call status_set(status,FORTSPARSE_OK,'')
-        if (self%slu_factor%perturbed_pivots==0 .and. .not.self%options%verify_factor) return
         passed=.false.
         call ledger%reserve(24_i8*int(n,i8),status,'supernodal LU validation')
         if (.not.status_ok(status)) then
@@ -1722,7 +1893,69 @@ contains
         deallocate(b,x,r)
         call ledger%release(24_i8*int(n,i8),released)
         if (status_ok(status)) status=released
-    end subroutine supernodal_validate
+    end subroutine validate_real
+
+    subroutine validate_complex(self,n,ptr,rows,values,ledger,passed,status)
+        ! Complex validation solve with a genuinely complex xhat; 3n complex
+        ! values (48n bytes) are charged.
+        class(native_general_backend_t), intent(inout) :: self
+        integer, intent(in) :: n,ptr(:),rows(:)
+        complex(dp), intent(in) :: values(:)
+        type(memory_budget_t), intent(inout) :: ledger
+        logical, intent(out) :: passed
+        type(fortsparse_status_t), intent(out) :: status
+        complex(dp), allocatable :: b(:),x(:),r(:)
+        type(fortsparse_status_t) :: released
+        real(dp) :: an,ant,error
+        complex(dp) :: xhat
+        integer :: j,p,step,ierr
+        passed=.false.
+        call ledger%reserve(48_i8*int(n,i8),status,'supernodal LU validation')
+        if (.not.status_ok(status)) then
+            self%failed_required=ledger%failed_required
+            self%failed_available=ledger%failed_available
+            return
+        end if
+        allocate(b(n),x(n),r(n),stat=ierr)
+        if (ierr/=0) then
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'native supernodal LU: validation allocation failed')
+            return
+        end if
+        call native_original_norms(n,ptr,rows,values,r,an,ant,status)
+        if (status_ok(status)) then
+            b=(0.0_dp,0.0_dp)
+            do j=1,n
+                xhat=cmplx(1.0_dp+real(mod(j,7),dp)/8.0_dp,real(mod(j,5),dp)/8.0_dp,dp)
+                do p=ptr(j),ptr(j+1)-1
+                    b(rows(p))=lu_z_update(b(rows(p)),-values(p),xhat)
+                end do
+            end do
+            x=b
+            call self%slu_factor%solve(x,status,0)
+        end if
+        if (status_ok(status)) then
+            do step=0,3
+                call native_residual_error(ptr,rows,values,b,x,0,an,r,error)
+                self%stats%backward_error=error
+                self%stats%refinement_steps=step
+                if (error<0.0_dp) exit
+                if (error<=32.0_dp*epsilon(1.0_dp)) then
+                    passed=.true.
+                    exit
+                end if
+                if (step==3) exit
+                call self%slu_factor%solve(r,status,0)
+                if (.not.status_ok(status)) exit
+                do j=1,n
+                    x(j)=lu_z_update(x(j),(-1.0_dp,0.0_dp),r(j))
+                end do
+            end do
+        end if
+        if (status%code==FORTSPARSE_SINGULAR) call status_set(status,FORTSPARSE_OK,'')
+        deallocate(b,x,r)
+        call ledger%release(48_i8*int(n,i8),released)
+        if (status_ok(status)) status=released
+    end subroutine validate_complex
 
     subroutine supernodal_fallback(self,n,ptr,rows,values,refine,reason,status)
         ! Scalar threshold LU (0.1, structural matching preference, AMD unless
@@ -1731,7 +1964,7 @@ contains
         ! supernodal attempt's pivot counters.
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: n,ptr(:),rows(:)
-        real(dp), intent(in) :: values(:)
+        class(*), intent(in) :: values(:)
         logical, intent(in) :: refine
         character(*), intent(in) :: reason
         type(fortsparse_status_t), intent(out) :: status
@@ -1750,7 +1983,13 @@ contains
         self%options%pivot_tolerance=0.1_dp
         if (self%options%ordering==FORTSPARSE_ORDER_DEFAULT) &
             self%options%ordering=FORTSPARSE_ORDER_AMD
-        call self%factor_real_raw(n,n,size(rows),ptr,rows,values,refine,status)
+        call status_set(status,FORTSPARSE_INVALID_MATRIX,'native supernodal LU: value type')
+        select type (values)
+        type is (real(dp))
+            call self%factor_real_raw(n,n,size(rows),ptr,rows,values,refine,status)
+        type is (complex(dp))
+            call self%factor_complex_raw(n,n,size(rows),ptr,rows,values,refine,status)
+        end select
         self%options=saved
         self%stats%lu_fallback=.true.
         self%stats%lu_fallback_reason=reason
@@ -1793,13 +2032,19 @@ contains
         type(fortsparse_status_t), intent(inout) :: status
         integer, allocatable :: ptr(:),rows(:)
         real(dp), allocatable :: values(:)
+        complex(dp), allocatable :: zvalues(:)
         type(fortsparse_status_t) :: fallback
-        if (self%mode/=6 .or. .not.self%refining) return
+        if (self%mode<6 .or. .not.self%refining) return
         if (self%options%host_memory_limit_bytes>0_i8) return
         call move_alloc(self%original_ptr,ptr)
         call move_alloc(self%original_rows,rows)
-        call move_alloc(self%original_values,values)
-        call supernodal_fallback(self,self%n,ptr,rows,values,.true.,'SOLVE',fallback)
+        if (self%mode==7) then
+            call move_alloc(self%original_zvalues,zvalues)
+            call supernodal_fallback(self,self%n,ptr,rows,zvalues,.true.,'SOLVE',fallback)
+        else
+            call move_alloc(self%original_values,values)
+            call supernodal_fallback(self,self%n,ptr,rows,values,.true.,'SOLVE',fallback)
+        end if
         if (status_ok(fallback)) then
             call status_set(status,FORTSPARSE_OK,'')
         else

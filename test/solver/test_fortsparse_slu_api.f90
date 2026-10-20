@@ -3,6 +3,7 @@ program test_fortsparse_slu_api
     ! block solves, same-pattern refactor reuse, implicit derivatives
     ! against finite differences and the adjoint identity, context copy
     ! lifetime, explicit refusals and the default ordering selection.
+    ! Complex coverage: test_fortsparse_slu_z_api.
     use fortsparse
     use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
     implicit none
@@ -261,8 +262,7 @@ contains
         zmatrix%row_idx = matrix%row_idx
         zmatrix%val = cmplx(matrix%val, 0.5_dp, dp)
         call sparse_factor(solver, zmatrix, status)
-        call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-            'complex supernodal LU explicitly unsupported')
+        call check(status_ok(status), 'complex supernodal LU factors (stage 8)')
         matrix%val(1) = ieee_value(1.0_dp, ieee_quiet_nan)
         call sparse_factor(solver, matrix, status)
         call check(status%code == FORTSPARSE_INVALID_MATRIX, 'non-finite input refused')
