@@ -4,7 +4,12 @@ module fs_test_mpi
 #endif
     implicit none
     private
-    public :: test_mpi_init, test_mpi_finalize
+    public :: test_mpi_init, test_mpi_finalize, test_mpi_parallel
+#ifdef FORTSPARSE_MUMPS_MPI
+    logical, parameter :: test_mpi_parallel = .true.
+#else
+    logical, parameter :: test_mpi_parallel = .false.
+#endif
 contains
     subroutine test_mpi_init()
 #ifdef FORTSPARSE_MUMPS_MPI

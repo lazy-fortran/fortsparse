@@ -28,7 +28,7 @@ module fortsparse_mumps
     implicit none
     private
 
-    public :: mumps_backend_t
+    public :: mumps_backend_t, mumps_available
 
     ! Refinement sweeps at most; stops earlier at the componentwise-free
     ! backward error below REFINE_TOL.
@@ -90,6 +90,11 @@ module fortsparse_mumps
     end type mumps_backend_t
 
     interface
+        function c_mumps_mpi_ready() bind(C, name="fsparse_mumps_mpi_ready") &
+                result(ready)
+            import :: c_int
+            integer(c_int) :: ready
+        end function c_mumps_mpi_ready
 
         function fsparse_mumps_factor_d(n, nnz, colptr1, rowidx1, val, sym, &
                 ordering, nthreads, verbose, info1, info2) &
@@ -208,6 +213,12 @@ module fortsparse_mumps
     end interface
 
 contains
+
+    logical function mumps_available() result(ready)
+        ! Sequential MUMPS is always ready. MPI MUMPS requires a live
+        ! application-owned runtime; querying it never initializes MPI.
+        ready = c_mumps_mpi_ready() /= 0
+    end function mumps_available
 
     subroutine mumps_factor_real(self, A, refine, status)
         class(mumps_backend_t), intent(inout) :: self

@@ -208,7 +208,8 @@ void *fsparse_mumps_factor_z(long n, long nnz, const int *colptr1,
     h->id.ICN(7) = ordering < 0 ? 0 : ordering; /* 0 AMD, 5 METIS */
     h->id.ICN(10) = 0; /* refinement is done by the Fortran layer */
     if (nthreads > 0) h->id.ICN(16) = nthreads;
-    h->id.ICN(48) = n >= FSPARSE_MUMPS_L0_MIN_N ? 1 : 0;
+    /* JOB_INIT disables L0-OMP when MUMPS was built without OpenMP. */
+    if (n < FSPARSE_MUMPS_L0_MIN_N) h->id.ICN(48) = 0;
 
     h->id.n = (MUMPS_INT) n;
     h->id.nnz = (MUMPS_INT8) cnt;
