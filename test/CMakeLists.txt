@@ -387,7 +387,7 @@ if(FORTSPARSE_ENABLE_MUMPS)
         add_test(NAME test_fortsparse_mumps_complex
             COMMAND test_fortsparse_mumps_complex)
         # The default AUTO backend picks SuperLU or MUMPS per matrix.
-        if(NOT MUMPS_parallel AND FORTSPARSE_ENABLE_SUPERLU)
+        if(FORTSPARSE_ENABLE_SUPERLU)
             add_executable(test_fortsparse_auto
                 ../test-cmake/mumps/test_fortsparse_auto.f90)
             target_link_libraries(test_fortsparse_auto PRIVATE fs_test_matrices)

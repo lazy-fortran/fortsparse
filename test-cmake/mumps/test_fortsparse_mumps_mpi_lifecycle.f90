@@ -1,6 +1,7 @@
 program test_fortsparse_mumps_mpi_lifecycle
     use fortsparse, only: dp, csc_t, sparse_solver_t, sparse_factor, sparse_solve, &
-        sparse_destroy, sparse_refactor, fortsparse_status_t, status_ok, &
+        sparse_destroy, sparse_refactor, sparse_auto_backend, &
+        fortsparse_status_t, status_ok, &
         FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_UNAVAILABLE
     use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
     implicit none
@@ -22,7 +23,10 @@ program test_fortsparse_mumps_mpi_lifecycle
     call sparse_factor(solver, A, status)
     if (status%code /= FORTSPARSE_BACKEND_UNAVAILABLE) &
         error stop "factor before MPI_Init must return unavailable"
+    call check_auto_fallback()
     call test_mpi_init()
+    if (sparse_auto_backend(40000, .false.) /= FORTSPARSE_BACKEND_MUMPS) &
+        error stop "AUTO must select a ready MPI MUMPS for large matrices"
     call sparse_factor(solver, A, status)
     if (.not. status_ok(status)) error stop "factor after MPI_Init failed"
     call sparse_solve(solver, b, x, status)
@@ -40,6 +44,7 @@ program test_fortsparse_mumps_mpi_lifecycle
     if (.not. status_ok(status)) error stop "late free factor failed"
     call sparse_destroy(solver)
     call test_mpi_finalize()
+    call check_auto_fallback()
     call sparse_solve(retained, b, x, status)
     if (status%code /= FORTSPARSE_BACKEND_UNAVAILABLE) &
         error stop "retained solve after MPI_Finalize must return unavailable"
@@ -53,4 +58,18 @@ program test_fortsparse_mumps_mpi_lifecycle
     call sparse_factor(solver, A, status)
     if (status%code /= FORTSPARSE_BACKEND_UNAVAILABLE) &
         error stop "factor after MPI_Finalize must return unavailable"
+contains
+    subroutine check_auto_fallback()
+        type(sparse_solver_t) :: auto_solver
+
+        if (sparse_auto_backend(40000, .false.) == FORTSPARSE_BACKEND_MUMPS) &
+            error stop "AUTO must not select an unavailable MPI MUMPS"
+        call sparse_factor(auto_solver, A, status)
+        if (.not. status_ok(status)) error stop "AUTO fallback factor failed"
+        call sparse_solve(auto_solver, b, x, status)
+        if (.not. status_ok(status)) error stop "AUTO fallback solve failed"
+        if (maxval(abs(x - [2.0_dp, 3.0_dp])) > 1.0e-14_dp) &
+            error stop "incorrect AUTO fallback solution"
+        call sparse_destroy(auto_solver)
+    end subroutine check_auto_fallback
 end program test_fortsparse_mumps_mpi_lifecycle
