@@ -788,3 +788,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
 endif()
 
 fortsparse_add_test(test_fortsparse_precision solver/test_fortsparse_precision.f90)
+
+fortsparse_add_test(test_fortsparse_mixed_lu solver/test_fortsparse_mixed_lu.f90)
+set_tests_properties(test_fortsparse_mixed_lu PROPERTIES
+    LABELS "native;precision;fast" TIMEOUT 1 PROCESSORS 2
+    ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
+fortsparse_add_test(test_fortsparse_stability solver/test_fortsparse_stability.f90)
+target_sources(test_fortsparse_stability PRIVATE solver/stability_oracle.f90)
+set_tests_properties(test_fortsparse_stability PROPERTIES
+    LABELS "native;stability;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_mixed_allocations ../test-cmake/native/test_mixed_allocations.f90
+        ../test-cmake/native/ilutp_alloc_probe.c)
+    target_link_libraries(test_mixed_allocations PRIVATE fortsparse)
+    target_link_options(test_mixed_allocations PRIVATE "LINKER:--wrap=malloc"
+        "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+    add_test(NAME test_mixed_allocations COMMAND test_mixed_allocations)
+    set_tests_properties(test_mixed_allocations PROPERTIES LABELS "native;precision;memory;fast"
+        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+endif()

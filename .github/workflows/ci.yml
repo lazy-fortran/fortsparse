@@ -65,9 +65,17 @@ jobs:
             test_fortsparse_superlu_status \
             test_fortsparse_umfpack_ipc \
             test_fortsparse_umfpack_controls \
-            fortsparse_umfpack_helper
+            fortsparse_umfpack_helper \
+            test_fortsparse_precision \
+            test_fortsparse_mixed_lu \
+            test_fortsparse_stability \
+            test_mixed_allocations \
+            test_fortsparse_native_general_api \
+            test_fortsparse_native_ldlt \
+            test_fortsparse_native_ldlt_z \
+            test_fortsparse_inertia
 
       - name: Test focused solver gates
         run: >-
           ctest --test-dir build -j 2 --output-on-failure --no-tests=error
-          -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls)$'
+          -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'

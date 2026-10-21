@@ -66,6 +66,11 @@ requests and their high-water, with an optional device payload cap. They exclude
 and do not bound total GPU memory or host memory. GPU correctness is tested
 on real hardware; performance admission remains case dependent.
 
+Native [adaptive factor storage](docs/precision.md#native-direct-factors-with-adaptive-storage)
+adds real/complex fp32 retained LU values, fp64 refinement and per-solve
+backward-error/condition estimates, block RHS, independent batches and block Jacobi.
+The default stays FP64.
+
 Native CPU also provides real/complex general sparse LU, complex HPD Cholesky,
 and pivoted real symmetric, complex Hermitian and complex symmetric indefinite
 factors as bounded-memory reference families.
