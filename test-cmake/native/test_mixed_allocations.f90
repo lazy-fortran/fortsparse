@@ -20,7 +20,7 @@ program test_mixed_allocations
     type(fortsparse_status_t) :: status
     real(dp) :: b(3),x(3)
     complex(dp) :: zb(3),zx(3)
-    integer :: k,calls
+    integer :: k,calls,setup_calls,failure
     call csc_from_triplet(3,3,[1,2,2,3],[1,1,2,3], &
         [1.1_dp,0.2_dp,2.3_dp,3.7_dp],a,status)
     call csc_from_triplet(3,3,[1,2,2,3],[1,1,2,3], &
@@ -29,6 +29,23 @@ program test_mixed_allocations
     if (status%code/=FORTSPARSE_OK) error stop 'real factor'
     call zfactor%factor(z,status,FP32)
     if (status%code/=FORTSPARSE_OK) error stop 'complex factor'
+    ! Observe setup, then reject every wrapper-owned allocation in turn.
+    call arm(-1_c_int)
+    call factor%factor(a,status,FP32)
+    setup_calls=stop_probe()
+    if (status%code/=FORTSPARSE_OK) error stop 'count setup'
+    do failure=max(0,setup_calls-9),setup_calls-1
+        call arm(int(failure,c_int))
+        call factor%factor(a,status,FP32)
+        calls=stop_probe()
+        if (status%code/=FORTSPARSE_OUT_OF_MEMORY) then
+            print *, 'allocation ',failure,' status ',status%code
+            error stop 'setup fault status'
+        end if
+        call factor%free()
+    end do
+    call factor%factor(a,status,FP32)
+    if (status%code/=FORTSPARSE_OK) error stop 'setup recovery'
     b=[1.0_dp,2.0_dp,3.0_dp]
     zb=cmplx(b,0.5_dp,dp)
     call arm(-1_c_int)

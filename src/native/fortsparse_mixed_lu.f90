@@ -122,7 +122,19 @@ contains
             call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'mixed LU scratch')
             return
         end if
-        self%original=a
+        allocate(self%original%col_ptr(size(a%col_ptr)), &
+            self%original%row_idx(size(a%row_idx)),self%original%val(size(a%val)),stat=stat)
+        if (stat/=0) then
+            call self%free()
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'mixed LU original CSC')
+            return
+        end if
+        self%original%nrow=a%nrow
+        self%original%ncol=a%ncol
+        self%original%nnz=a%nnz
+        self%original%col_ptr=a%col_ptr
+        self%original%row_idx=a%row_idx
+        self%original%val=a%val
         call native_original_norms(n,a%col_ptr,a%row_idx,a%val,self%delta, &
             self%norm(1),self%norm(2),status)
         if (status%code/=FORTSPARSE_OK) then
@@ -356,7 +368,9 @@ contains
         type(csc_t) :: empty
         call self%factors%free()
         self%original=empty
-        if (allocated(self%residual)) deallocate(self%residual,self%delta,self%denominator)
+        if (allocated(self%residual)) deallocate(self%residual)
+        if (allocated(self%delta)) deallocate(self%delta)
+        if (allocated(self%denominator)) deallocate(self%denominator)
         self%norm=0
         self%rcond=0
         self%storage=FP64
@@ -423,7 +437,19 @@ contains
             call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'mixed LU scratch')
             return
         end if
-        self%original=a
+        allocate(self%original%col_ptr(size(a%col_ptr)), &
+            self%original%row_idx(size(a%row_idx)),self%original%val(size(a%val)),stat=stat)
+        if (stat/=0) then
+            call self%free()
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'mixed LU original CSC')
+            return
+        end if
+        self%original%nrow=a%nrow
+        self%original%ncol=a%ncol
+        self%original%nnz=a%nnz
+        self%original%col_ptr=a%col_ptr
+        self%original%row_idx=a%row_idx
+        self%original%val=a%val
         call native_original_norms(n,a%col_ptr,a%row_idx,a%val,self%delta, &
             self%norm(1),self%norm(2),status)
         if (status%code/=FORTSPARSE_OK) then
@@ -657,7 +683,9 @@ contains
         type(csc_z_t) :: empty
         call self%factors%free()
         self%original=empty
-        if (allocated(self%residual)) deallocate(self%residual,self%delta,self%denominator)
+        if (allocated(self%residual)) deallocate(self%residual)
+        if (allocated(self%delta)) deallocate(self%delta)
+        if (allocated(self%denominator)) deallocate(self%denominator)
         self%norm=0
         self%rcond=0
         self%storage=FP64
