@@ -23,7 +23,12 @@ OpenMP assembles columns and merges disjoint Schur rows. `options%nthreads` or
 A private trial needing any interchange is discarded before changing the sparse
 state, then unrestricted scalar Bunch--Kaufman eliminates a pivot. This preserves
 global 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
-elimination. Retained solves and implicit derivatives use the same factors.
+elimination. In the uncapped blocked path, scalar recovery merges each complete
+rank-1/2 update once per Schur row, with disjoint rows assigned to OpenMP
+workers. Both stored triangles use the same contraction order. Small fronts
+use fewer workers to avoid team overhead; strict-cap and LOW_MEMORY execution
+retain the accountable scalar updates. Retained solves and implicit derivatives
+use the same factors.
 
 Panel inertia counts the signs of the actual block pivots, using Sylvester's
 law, with conservative row-history bounds for intermediate panel updates. As
