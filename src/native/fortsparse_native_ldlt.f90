@@ -376,7 +376,7 @@ contains
         integer, intent(in) :: k
         integer, intent(out) :: eliminated
         type(fortsparse_status_t), intent(out) :: status
-        integer :: width, m, p, q, i, j, r, vertex, nb, kb, info, step, count
+        integer :: width, m, p, q, i, j, r, vertex, nb, kb, info, step, count, active_team
         real(dp) :: a, b, c, lm1, lm2, bound1, bound2, l1, l2
         interface
             subroutine dlasyf(uplo, n, nb, kb, a, lda, ipiv, w, ldw, info)
@@ -409,8 +409,12 @@ contains
                 self%front_map(j) = m
             end do
         end do
+        ! Small fronts do not amortize large OpenMP teams. Keep at least
+        ! 64 columns per worker; the scalar recovery may still use every
+        ! requested worker for its substantially larger trailing rows.
+        active_team = min(self%teams, max(1, m/64))
         ! Each assembly column is private. No numerical-loop allocation.
-        !$omp parallel num_threads(self%teams) private(p,i,q,j,r)
+        !$omp parallel num_threads(active_team) private(p,i,q,j,r)
         !$omp single
         !$ self%active_threads = omp_get_num_threads()
         !$omp end single
@@ -529,7 +533,7 @@ contains
             count = count + 1
             self%nbr(count) = i
         end do
-        !$omp parallel do num_threads(self%teams) schedule(static)
+        !$omp parallel do num_threads(active_team) schedule(static)
         do p = kb + 1, m
             call panel_scatter_row(self, p, kb, count)
         end do
@@ -698,33 +702,38 @@ contains
                     self%lower(k + 1)%value(p) = l2
                 end if
             end do
-            do p = 1, m
-                i = self%nbr(p)
-                l1 = self%lower(k)%value(p)
-                l2 = 0.0_dp
-                if (step == 2) l2 = self%lower(k + 1)%value(p)
-                do q = p, m
-                    j = self%nbr(q)
-                    call ldlt_update_value(row_get(self%schur(i), j), &
-                                           l1, self%u(q), l2, self%v(q), value)
-                    if (.not. ieee_is_finite(value)) then
-                        call arithmetic_error(status)
-                        return
-                    end if
-                    self%row_scale(i) = max(self%row_scale(i), abs(value))
-                    self%row_scale(j) = max(self%row_scale(j), abs(value))
-                    call row_put(self%schur(i), j, value, self%low_memory, &
-                               self%limit, self%bytes, self%peak, self%required, status)
-                    if (.not. status_ok(status)) return
-                    if (i /= j) then
-                        call row_put(self%schur(j), i, value, self%low_memory, &
-                               self%limit, self%bytes, self%peak, self%required, status)
+            if (allocated(self%merge_index)) then
+                call scalar_scatter(self, k, step, m, first, second, status)
+                if (.not. status_ok(status)) return
+            else
+                do p = 1, m
+                    i = self%nbr(p)
+                    l1 = self%lower(k)%value(p)
+                    l2 = 0.0_dp
+                    if (step == 2) l2 = self%lower(k + 1)%value(p)
+                    do q = p, m
+                        j = self%nbr(q)
+                        call ldlt_update_value(row_get(self%schur(i), j), &
+                                               l1, self%u(q), l2, self%v(q), value)
+                        if (.not. ieee_is_finite(value)) then
+                            call arithmetic_error(status)
+                            return
+                        end if
+                        self%row_scale(i) = max(self%row_scale(i), abs(value))
+                        self%row_scale(j) = max(self%row_scale(j), abs(value))
+                        call row_put(self%schur(i), j, value, self%low_memory, &
+                                   self%limit, self%bytes, self%peak, self%required, status)
                         if (.not. status_ok(status)) return
-                    end if
+                        if (i /= j) then
+                            call row_put(self%schur(j), i, value, self%low_memory, &
+                                   self%limit, self%bytes, self%peak, self%required, status)
+                            if (.not. status_ok(status)) return
+                        end if
+                    end do
+                    call row_erase(self%schur(i), first)
+                    if (step == 2) call row_erase(self%schur(i), second)
                 end do
-                call row_erase(self%schur(i), first)
-                if (step == 2) call row_erase(self%schur(i), second)
-            end do
+            end if
             call release_row(self%schur(first), self%bytes)
             if (step == 2) call release_row(self%schur(second), self%bytes)
             k = k + step
@@ -756,6 +765,87 @@ contains
         state = inertia_status_of(count)
         if (present(tolerance)) tolerance = count%tolerance
     end subroutine ldlt_inertia
+
+    subroutine scalar_scatter(self, k, step, m, first, second, status)
+        ! Panel recovery still uses the unrestricted Bunch--Kaufman pivot.
+        ! Merge its complete rank-1/2 update once per row instead of inserting
+        ! each entry separately. The canonical p<=q contraction preserves the
+        ! exact same value on both sides of the stored symmetric matrix.
+        class(native_ldlt_t), intent(inout) :: self
+        integer, intent(in) :: k, step, m, first, second
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: p, q, i, old, fresh, used, column, left, right, tid, need, active_team
+        real(dp) :: previous, value, l2
+        logical :: existed
+        do p = 1, m
+            i = self%nbr(p)
+            need = int(min(int(self%n, i8), int(self%schur(i)%used, i8) + m))
+            call reserve_row(self%schur(i), need, .false., self%limit, &
+                self%bytes, self%peak, self%required, status)
+            if (.not. status_ok(status)) return
+        end do
+        self%front_map(:m) = 0
+        active_team = min(self%teams, max(1, m/64))
+        !$omp parallel num_threads(active_team) private(p,q,i,old,fresh,used,column, &
+        !$omp left,right,tid,previous,value,l2,existed)
+        !$omp single
+        !$ self%active_threads = omp_get_num_threads()
+        !$omp end single
+        tid = 1
+        !$ tid = omp_get_thread_num() + 1
+        !$omp do schedule(static)
+        do p = 1, m
+            i = self%nbr(p)
+            old = 1
+            fresh = 1
+            used = 0
+            do while (old <= self%schur(i)%used .or. fresh <= m)
+                left = self%n + 1
+                right = self%n + 1
+                if (old <= self%schur(i)%used) left = self%schur(i)%index(old)
+                if (fresh <= m) right = self%nbr(fresh)
+                column = min(left, right)
+                existed = left == column
+                previous = 0.0_dp
+                if (existed) then
+                    previous = self%schur(i)%value(old)
+                    old = old + 1
+                end if
+                value = previous
+                if (right == column) then
+                    q = fresh
+                    fresh = fresh + 1
+                    l2 = 0.0_dp
+                    if (q >= p) then
+                        if (step == 2) l2 = self%lower(k + 1)%value(p)
+                        call ldlt_update_value(previous, self%lower(k)%value(p), &
+                            self%u(q), l2, self%v(q), value)
+                    else
+                        if (step == 2) l2 = self%lower(k + 1)%value(q)
+                        call ldlt_update_value(previous, self%lower(k)%value(q), &
+                            self%u(p), l2, self%v(p), value)
+                    end if
+                    if (.not. ieee_is_finite(value)) self%front_map(p) = 1
+                    self%row_scale(i) = max(self%row_scale(i), abs(value))
+                end if
+                if (column == first .or. column == second) cycle
+                if (.not. existed .and. abs(value) <= 0.0_dp) cycle
+                used = used + 1
+                self%merge_index(used, tid) = column
+                self%merge_value(used, tid) = value
+            end do
+            self%schur(i)%index(:used) = self%merge_index(:used, tid)
+            self%schur(i)%value(:used) = self%merge_value(:used, tid)
+            self%schur(i)%used = used
+        end do
+        !$omp end do
+        !$omp end parallel
+        if (any(self%front_map(:m) /= 0)) then
+            call arithmetic_error(status)
+        else
+            call status_set(status, FORTSPARSE_OK, '')
+        end if
+    end subroutine scalar_scatter
 
     subroutine choose_pivot(self, k, pivot, step, status)
         class(native_ldlt_t), intent(in) :: self
