@@ -46,6 +46,58 @@ defaults. Update checked milestones only when their executable evidence exists.
 
 ## Current integration checkpoint
 
+### October 21 continuation checkpoint
+
+The user requested that agents conclude and preserve current evidence. No
+FortSparse source job remains active in this lane. Recheck forge state before
+promotion; required checks execute on owned hardware in the normal merge queue,
+with PR CI skipped. Preserve the original one-second native test deadlines.
+
+[PR #26](https://github.com/lazy-fortran/fortsparse/pull/26) merged as
+6d17059c7741b280d04998f479a160c341506629. It batches uncapped real-LDLT scalar
+recovery contractions by disjoint rows while retaining canonical contraction
+order. Strict-cap and LOW workspace paths remain excluded. Exact candidate
+38ea54ca95f481a0b9cb7daf2cd024ed8962b3bf passed six native tests at each of
+1/2/4/8/16 threads (30/30, cluster job 3321634) with unchanged deadlines.
+
+A matched [GLISS](https://github.com/itpplasma/GLISS) experiment, job3321625,
+retains 150 fresh processes: five trials at two public P4 configurations,
+1/2/4/8/16 cores, block control, sparse baseline and repaired sparse candidate.
+At one thread the sparse repair improves solve medians by 17–21% and total wall
+by 6–7%, with similar CPU cost. Sparse process memory is about 125 MiB versus
+about 65 MiB for the faster block control. More threads slow all solve paths.
+This is a bounded consumer improvement, not strong-scaling or Pareto admission.
+
+[PR #27](https://github.com/lazy-fortran/fortsparse/pull/27) merged as
+cc706d011f925d539308da9b81368abd4b42dfdb after strict owned CI #24 merged as
+0a625bad57e3829e47ea040dd3a77a1e57440594. It adds an explicit LP64 DGESV
+interface to the existing mixed-LU test; production solver bytes are unchanged.
+Official fpm 0.13.0/GNU 12.2 reproduced the missing-interface failure at 6d17059
+(job 21817508), then passed the affected mixed-LU/precision controls at exact
+8db2fe7eecd93999c191cdbc7b0e38c328d81247 (job 21817529). The separate Fo missing
+OpenMP link propagation remains with the tools owner; do not add a workaround
+or claim that adapter defect repaired by this source change.
+
+The large private [KIN6D](https://github.com/itpplasma/kin6d) rest-block factor/count remains unqualified. Three
+six-hour pilots timed out; bounded extracted-fixture replay also remained
+incomplete. Profiles locate scalar recovery after blocked-path fallback.
+Panel-cap experiments and an explicit-zero hypothesis did not establish a
+qualified repair and were not retained. No private matrix is published, no
+large-C inertia/solve claim is made, and no six-hour campaign should restart
+until the actual fixture admits a completed factor/count/solve under its
+unchanged numerical gates. Root/controller review owns any future promotion.
+
+Local canonical receipts, reports, scripts and two inspected comparison/scaling
+plots are indexed by ~/data/handoffs/20261021_completion/sparse_gliss.md and
+sparse_gliss/report.md in that directory. Raw application inputs remain outside
+Git with checksums. The full sparse_gliss manifest was verified for 1618 files.
+[GLISS PR #59](https://github.com/itpplasma/GLISS/pull/59) retains the qualified 6d17059 production pin; do not repin it to the
+later test-only #27 change. Its normal promotion remains held until its strict
+CI #58 actually merges and owned required gates pass.
+
+The October 16 checkpoint below is historical and must not override this
+revision-bound continuation record.
+
 FortSparse had **no open PRs** at the 2026-10-16 handoff check. Published `main`
 was `5ad34ddaba1ac51de0bff5f0bb4dc5c060bd33ff` before this planning update.
 There is therefore no outstanding FortSparse PR to merge. Consumer PRs remain
