@@ -233,13 +233,14 @@ METIS owns opaque internal workspace: ND always reports unknown complete peak
 with ND fail before calling METIS; use natural or bounded AMD for those contracts.
 This does not extend ND to the complex structured reference families.
 
-## Opt-in supernodal real LU
+## Opt-in supernodal real and complex LU
 
 `solver%options%lu_method=FORTSPARSE_LU_SUPERNODAL` selects the static-structure
-supernodal LU ([design](lu-supernodal.md)) for real GENERAL matrices on the
+supernodal LU ([design](lu-supernodal.md)) for real or complex GENERAL matrices on the
 explicit `FORTSPARSE_BACKEND_NATIVE` CPU backend. The default stays
 `FORTSPARSE_LU_SCALAR`; `FORTSPARSE_LU_AUTO` behaves as SCALAR until its
-thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNODAL'`.
+thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNODAL'` for real factors and
+`'LU_SUPERNODAL_Z'` for complex factors.
 
 - Analysis: maximum-product matching with dual scaling, then AMD (bounded
   caller-workspace AMD when available) or METIS ND on the matched symmetrized
@@ -278,13 +279,13 @@ thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNOD
   scalar LU (reason SINGULAR), which reports the singularity. The fallback runs
   its own preflight under the same cap: a refusal returns RESOURCE_LIMIT and keeps
   `lu_fallback_reason`. A successful fallback returns OK with `lu_fallback=.true.`,
-  family `LU_REAL` and the supernodal attempt's pivot counters. A refined user solve
+  family `LU_REAL` or `LU_COMPLEX` and the supernodal attempt's pivot counters. A refined user solve
   that misses the gate refactors once with the fallback when no host cap is set.
 - Refactor: a same-pattern refactor reuses matching, scaling, order, partition
   and panels (`reused=.true.`). An entry outside the static structure or a
   failed gate repeats the full analysis. NORMAL, TRANSPOSE/ADJOINT and block solves,
   refinement, implicit JVP/VJP and context copies use the retained factors.
-- Unsupported: complex values (BACKEND_UNAVAILABLE), structured symmetries,
+- Unsupported: structured symmetries,
   NATIVE_REFERENCE and devices. ND is
   refused under a host cap or LOW_MEMORY. LOW_MEMORY currently changes only
   the matching cost cache and the AMD workspace.

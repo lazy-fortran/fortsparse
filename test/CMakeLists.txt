@@ -111,6 +111,11 @@ fortsparse_add_test(test_fortsparse_slu_z_factor
     solver/test_fortsparse_slu_z_factor.f90)
 set_tests_properties(test_fortsparse_slu_z_factor PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_z_api
+    solver/test_fortsparse_slu_z_api.f90)
+set_tests_properties(test_fortsparse_slu_z_api PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_slu_api
     solver/test_fortsparse_slu_api.f90)
 set_tests_properties(test_fortsparse_slu_api PROPERTIES
