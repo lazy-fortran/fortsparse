@@ -32,10 +32,10 @@ program test_fortsparse_slu_threads
     end if
     call kin_like(9, ptr, rows, values)
     call compare_teams('3D 27-point, 2 coupled dofs', ptr, rows, values)
-    call low_memory_team(ptr, rows, values)
+    if (trim(mode) /= 'uncapped') call low_memory_team(ptr, rows, values)
     call grid2d(100, ptr, rows, values)
     call compare_teams('2D convection 9-point', ptr, rows, values)
-    call capped_team(ptr, rows, values)
+    if (trim(mode) /= 'uncapped') call capped_team(ptr, rows, values)
     call public_team(ptr, rows, values)
     call disconnected(ptr, rows, values)
     call compare_teams('disconnected 2D blocks', ptr, rows, values)
