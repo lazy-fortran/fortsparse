@@ -431,6 +431,10 @@ fortsparse_add_test(test_fortsparse_inertia solver/test_fortsparse_inertia.f90)
 set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 1)
 # This configure/build check is distinct from ordinary sub-second numerics.
 # It disables sparse dependency discovery/fetching and inspects actual linkage.
+get_target_property(_precision_fortnum_src fortnum SOURCE_DIR)
+get_filename_component(_precision_fortnum_root "${_precision_fortnum_src}" DIRECTORY)
+get_target_property(_precision_runtime_src fortgen_runtime SOURCE_DIR)
+get_filename_component(_precision_fortgen_root "${_precision_runtime_src}" DIRECTORY)
 add_test(NAME test_fortsparse_native_only_build
     COMMAND ${CMAKE_CTEST_COMMAND} --build-and-test
         ${PROJECT_SOURCE_DIR}/test-cmake/native_only
@@ -440,6 +444,8 @@ add_test(NAME test_fortsparse_native_only_build
             -DCMAKE_Fortran_COMPILER=${CMAKE_Fortran_COMPILER}
             -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
             -DCMAKE_BUILD_TYPE=Release
+            -DFETCHCONTENT_SOURCE_DIR_FORTNUM=${_precision_fortnum_root}
+            -DFETCHCONTENT_SOURCE_DIR_FORTGEN_RUNTIME=${_precision_fortgen_root}
         --test-command ${CMAKE_CTEST_COMMAND} -R ^native_only_ --output-on-failure)
 set_tests_properties(test_fortsparse_native_only_build PROPERTIES
     LABELS "build;configuration" TIMEOUT 120 PROCESSORS 2
@@ -780,3 +786,5 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_lu_panel_allocations PROPERTIES
         LABELS "native;lu;memory;fast" TIMEOUT 1)
 endif()
+
+fortsparse_add_test(test_fortsparse_precision solver/test_fortsparse_precision.f90)

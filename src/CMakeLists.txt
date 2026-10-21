@@ -6,6 +6,7 @@ add_library(fortsparse STATIC)
 
 target_sources(fortsparse PRIVATE
     # Fortran module sources (alphabetical, one per line; append here)
+    fortsparse_precision_csr.f90
     fortsparse.f90
     fortsparse_backend.f90
     fortsparse_csc.f90
@@ -142,4 +143,12 @@ endif()
 if((FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS) AND OpenMP_Fortran_FOUND)
     target_link_libraries(fortsparse PUBLIC OpenMP::OpenMP_Fortran)
     include(${PROJECT_SOURCE_DIR}/cmake/FortSparseOpenMPTasks.cmake)
+endif()
+
+target_link_libraries(fortsparse PUBLIC fortnum)
+
+# The refinement callbacks follow FortNum's qualified non-executable-stack route.
+if(FORTNUM_HAVE_HEAP_TRAMPOLINES)
+    set_source_files_properties(fortsparse_precision_csr.f90 PROPERTIES
+        COMPILE_OPTIONS "-ftrampoline-impl=heap")
 endif()

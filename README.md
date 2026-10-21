@@ -509,3 +509,5 @@ The optional FreeFem module includes FreeFem SDK headers/templates under their
 own LGPL terms. It is a separate module, disabled by default; no FreeFem header
 or library is added to the MIT core target. See its
 [SDK and licensing contract](plugins/freefem/README.md).
+
+CPU precision/storage support is described in [precision APIs](docs/precision.md).
