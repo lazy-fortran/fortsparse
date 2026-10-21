@@ -16,6 +16,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  native-analysis:
+    name: native parallel analysis
+    runs-on: ubuntu-latest
+    env:
+      OMP_NUM_THREADS: 8
+      OPENBLAS_NUM_THREADS: 1
+      OMP_DYNAMIC: "FALSE"
+      OMP_WAIT_POLICY: passive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake gfortran \
+            ninja-build liblapack-dev libblas-dev libsuitesparse-dev libmetis-dev
+      - name: Configure native Release
+        run: >-
+          cmake -S . -B native -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF
+          -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
+      - name: Build affected native gates
+        run: >-
+          cmake --build native -j2 --target test_fortsparse_slu_factor
+          test_fortsparse_slu_z_api test_fortsparse_slu_threads
+      - name: Test values and parallel reuse
+        run: >-
+          ctest --test-dir native -j1 --output-on-failure --no-tests=error
+          -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat)$'
   # Bounded solver gates, including the independent out-of-process UMFPACK
   # round-trip. Build and run only these named tests; never run the full suite.
   cmake:
