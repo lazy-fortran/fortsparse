@@ -390,8 +390,6 @@ contains
         if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
             if (self%options%ordering /= FORTSPARSE_ORDER_AMD .and. &
                 self%options%ordering /= FORTSPARSE_ORDER_ND) return
-            if (self%options%ordering == FORTSPARSE_ORDER_ND .and. &
-                self%options%symmetry /= FORTSPARSE_SYM_GENERAL) return
             supported_structure = self%options%symmetry == FORTSPARSE_SYM_GENERAL
             if (present(real_structured)) then
                 if (real_structured) supported_structure = supported_structure .or. &
@@ -487,7 +485,8 @@ contains
             self%retained_order=-1
             call self%ldlt_factor%factor(A,status,host_limit_bytes=cap, &
                 low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW, &
-                column_permutation=order)
+                column_permutation=order, blocked=self%options%ldlt_blocked, &
+                nthreads=self%options%nthreads)
             if (allocated(order)) deallocate(order)
             self%stats%factor_s = seconds()-started
             self%ready = status_ok(status)
@@ -567,7 +566,8 @@ contains
             self%retained_order=-1
             call self%ldlt_factor%refactor(A,status,host_limit_bytes=cap, &
                 low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW, &
-                column_permutation=order)
+                column_permutation=order, blocked=self%options%ldlt_blocked, &
+                nthreads=self%options%nthreads)
             if (allocated(order)) deallocate(order)
             if (status%code /= FORTSPARSE_INVALID_MATRIX) then
                 self%stats%factor_s = seconds()-started
@@ -1180,6 +1180,8 @@ contains
         else
             self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,self%stats%host_current_bytes)
         end if
+        self%stats%ldlt_blocked_panels = self%ldlt_factor%blocked_panels()
+        self%stats%ldlt_active_threads = self%ldlt_factor%numeric_threads()
         self%stats%factor_nnz = self%real_factor%factor_nnz+self%complex_factor%factor_nnz &
             +self%slu_factor%factor_nnz &
             +self%hpd_factor%factor_nnz()+self%ldlt_factor%factor_nnz()+self%complex_ldlt_factor%factor_nnz()
@@ -1244,6 +1246,7 @@ contains
             self%stats%active_threads = self%slu_factor%active_threads
             self%stats%budget_reduced_threads = self%slu_factor%budget_reduced_threads
         end if
+        if (self%mode == 3) self%stats%active_threads = self%ldlt_factor%numeric_threads()
         self%stats%nthreads = self%options%nthreads
         self%stats%ordering_used = self%selected_order
         if ((self%mode/=6 .and. (self%selected_order == FORTSPARSE_ORDER_ND .or. &
@@ -1251,6 +1254,13 @@ contains
             (self%mode==6 .and. self%slu_factor%opaque_ordering)) then
             ! Opaque graph ordering prevents a complete peak or
             ! strict-cap claim. Retained owned payload remains exactly counted.
+            self%stats%host_peak_bytes = -1_i8
+            self%stats%factor_mem_mb = -1.0_dp
+            self%stats%strict_memory_supported = .false.
+        end if
+        if (self%mode == 3 .and. self%options%ldlt_blocked .and. &
+            self%options%host_memory_limit_bytes == 0_i8 .and. &
+            self%options%memory_policy /= FORTSPARSE_MEMORY_LOW) then
             self%stats%host_peak_bytes = -1_i8
             self%stats%factor_mem_mb = -1.0_dp
             self%stats%strict_memory_supported = .false.
