@@ -126,6 +126,15 @@ if(FORTSPARSE_ENABLE_NATIVE_CUDA)
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
 endif()
+include(FetchContent)
+if(NOT TARGET fortnum)
+    set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(fortnum
+        GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
+        GIT_TAG 308b4f9544402cb44113a369cb9a32a82976a03e)
+    FetchContent_MakeAvailable(fortnum)
+endif()
+
 add_subdirectory(src)
 include(cmake/fortsparse_native_ordering.cmake)
 fortsparse_configure_native_ordering(fortsparse)
