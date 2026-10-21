@@ -47,7 +47,7 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_MEMORY_AUTO = 0
     integer, parameter, public :: FORTSPARSE_MEMORY_LOW = 1
 
-    ! Native CPU real GENERAL LU method (sparse_options_t%lu_method). AUTO
+    ! Native CPU real/complex GENERAL LU method (sparse_options_t%lu_method). AUTO
     ! behaves as SCALAR until its thresholds are calibrated; SUPERNODAL is
     ! the static-structure supernodal LU (docs/lu-supernodal.md).
     integer, parameter, public :: FORTSPARSE_LU_AUTO = 0
@@ -77,7 +77,7 @@ module fortsparse_backend
         real(dp) :: pivot_tolerance = -1.0_dp
         ! UMFPACK estimated peak only, excluding caller/IPC storage; 0: no gate.
         integer(i8) :: memory_budget_bytes = 0_i8
-        ! Native CPU real GENERAL LU method; see FORTSPARSE_LU_*.
+        ! Native CPU real/complex GENERAL LU method; see FORTSPARSE_LU_*.
         integer :: lu_method = FORTSPARSE_LU_SCALAR
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.

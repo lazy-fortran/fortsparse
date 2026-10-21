@@ -240,7 +240,6 @@ contains
         type(sparse_solver_t) :: solver
         type(fortsparse_status_t) :: status
         type(csc_t) :: matrix
-        type(csc_z_t) :: zmatrix
         integer :: n
         n = size(a,1)
         call to_csc(a, matrix)
@@ -254,15 +253,6 @@ contains
         call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
             'supernodal LU is GENERAL only')
         solver%options%symmetry = FORTSPARSE_SYM_GENERAL
-        zmatrix%nrow = n
-        zmatrix%ncol = n
-        zmatrix%nnz = matrix%nnz
-        zmatrix%col_ptr = matrix%col_ptr
-        zmatrix%row_idx = matrix%row_idx
-        zmatrix%val = cmplx(matrix%val, 0.5_dp, dp)
-        call sparse_factor(solver, zmatrix, status)
-        call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
-            'complex supernodal LU explicitly unsupported')
         matrix%val(1) = ieee_value(1.0_dp, ieee_quiet_nan)
         call sparse_factor(solver, matrix, status)
         call check(status%code == FORTSPARSE_INVALID_MATRIX, 'non-finite input refused')
