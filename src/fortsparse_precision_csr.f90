@@ -11,7 +11,10 @@ module fortsparse_precision_csr
     private
     type, public :: precision_csr_t
         private
-        integer :: n=0
+        integer :: n=0, storage_format=FP64
+        real(real64) :: value_scale=1
+        real(real64), allocatable :: wide(:)
+        real(real32), allocatable :: single(:)
         integer, allocatable :: row(:), column(:)
         type(precision_vector_t) :: values
     contains
@@ -26,7 +29,7 @@ contains
         integer, intent(in) :: n, row(:), column(:), storage
         real(real64), intent(in) :: values(:)
         logical, intent(out) :: ok
-        type(precision_vector_t) :: next
+        type(precision_vector_t) :: next, empty
         ok = .false.
         if (n < 1 .or. size(row) /= n+1) return
         if (size(column) /= size(values)) return
@@ -39,7 +42,19 @@ contains
         self%n = n
         self%row = row
         self%column = column
-        self%values = next
+        self%storage_format = storage
+        self%value_scale = next%scale_factor()
+        if (allocated(self%wide)) deallocate(self%wide)
+        if (allocated(self%single)) deallocate(self%single)
+        self%values = empty
+        select case (storage)
+        case (FP64)
+            self%wide = values
+        case (FP32)
+            self%single = real(values/self%value_scale, real32)
+        case default
+            self%values = next
+        end select
     end subroutine
 
     subroutine csr_matvec(self, x, y, compute, ok)
@@ -57,13 +72,56 @@ contains
         if (.not. all(ieee_is_finite(x))) return
         xs = maxval(abs(x))
         if (xs == 0) xs = 1
-        vs = self%values%scale_factor()
-        if (compute == FP32 .and. self%values%is_fp64()) then
-            do j=1,self%values%size()
-                if (abs(self%values%at(j)) > real(huge(0.0_real32),real64)) return
+        vs = self%value_scale
+        if (compute == FP32 .and. self%storage_format == FP64) then
+            do j=1,size(self%wide)
+                if (abs(self%wide(j)) > real(huge(0.0_real32),real64)) return
             end do
         end if
-        if (compute == FP64) then
+        ! Dispatch storage outside the indexed hot loop: no virtual accessor
+        ! or format branch per nonzero. SIMD may reassociate the reduction.
+        if (compute == FP64 .and. self%storage_format == FP64) then
+            !$omp parallel do private(j,sum64) if(self%n >= 1024)
+            do i=1,self%n
+                sum64 = 0
+                !$omp simd reduction(+:sum64)
+                do j=self%row(i), self%row(i+1)-1
+                    sum64 = sum64 + self%wide(j)*x(self%column(j))
+                end do
+                y(i) = sum64
+            end do
+        else if (compute == FP64 .and. self%storage_format == FP32) then
+            !$omp parallel do private(j,sum64) if(self%n >= 1024)
+            do i=1,self%n
+                sum64 = 0
+                !$omp simd reduction(+:sum64)
+                do j=self%row(i), self%row(i+1)-1
+                    sum64 = sum64 + real(self%single(j),real64)*x(self%column(j))
+                end do
+                y(i) = sum64*vs
+            end do
+        else if (compute == FP32 .and. self%storage_format == FP32) then
+            !$omp parallel do private(j,sum32) if(self%n >= 1024)
+            do i=1,self%n
+                sum32 = 0
+                !$omp simd reduction(+:sum32)
+                do j=self%row(i), self%row(i+1)-1
+                    sum32 = sum32 + self%single(j)*real(x(self%column(j))/xs,real32)
+                end do
+                y(i) = (real(sum32,real64)*vs)*xs
+            end do
+        else if (compute == FP32 .and. self%storage_format == FP64) then
+            !$omp parallel do private(j,sum32) if(self%n >= 1024)
+            do i=1,self%n
+                sum32 = 0
+                !$omp simd reduction(+:sum32)
+                do j=self%row(i), self%row(i+1)-1
+                    sum32 = sum32 + real(self%wide(j),real32)* &
+                        real(x(self%column(j))/xs,real32)
+                end do
+                y(i) = real(sum32,real64)*xs
+            end do
+        else if (compute == FP64) then
             !$omp parallel do private(j,sum64) if(self%n >= 1024)
             do i=1,self%n
                 sum64 = 0
@@ -89,6 +147,8 @@ contains
     pure integer(int64) function csr_bytes(self) result(n)
         class(precision_csr_t), intent(in) :: self
         n = self%values%bytes()
+        if (allocated(self%wide)) n = n + 8_int64*size(self%wide,kind=int64)
+        if (allocated(self%single)) n = n + 4_int64*size(self%single,kind=int64)
         if (allocated(self%row)) n = n + int(size(self%row),int64)* &
             storage_size(0)/8
         if (allocated(self%column)) n = n + int(size(self%column),int64)* &
@@ -109,16 +169,14 @@ contains
         type(precision_csr_t) :: low
         real(real64), allocatable :: original(:)
         integer :: active_compute, active_storage
-        logical :: valid, failed
+        logical :: failed
         info = -1
         steps = 0
         residual = huge(1.0_real64)
-        if (.not. a%values%is_fp64()) return
+        if (a%storage_format /= FP64) return
         if (a%n < 1 .or. inner_iterations < 1) return
         if (restart < 1 .or. restart > inner_iterations) return
-        allocate(original(a%values%size()))
-        call a%values%load(original, valid)
-        if (.not. valid) return
+        original = a%wide
         active_storage = -1
         failed = .false.
         call mixed_refine(exact_product, correction, b, x, policy, tolerance, &

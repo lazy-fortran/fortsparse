@@ -1,6 +1,6 @@
 ! Generated indexed sparse schedule from gen/lu_factor.f90.inc; DO NOT EDIT.
 module @MODULE@
-    use fortsparse_kinds, only: dp, i8
+    use fortsparse_kinds, only: dp, sp, i8
     use fortsparse_csc, only: @CSC@, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_SINGULAR, FORTSPARSE_NOT_FACTORED, &
@@ -13,8 +13,8 @@ module @MODULE@
     use, intrinsic :: iso_c_binding, only: c_size_t
 @REAL_ONLY_END@
     @EXTRA_USE@
-@REAL_PANEL_BEGIN@
     use fortsparse_memory, only: memory_checked_add, memory_checked_mul
+@REAL_PANEL_BEGIN@
     use fortsparse_spd_leaves, only: spd_panel_scatter
 @REAL_PANEL_END@
     implicit none
@@ -47,6 +47,8 @@ module @MODULE@
         integer, allocatable, private :: ap(:), ai(:), mark(:), stack(:), edge(:), reach(:)
         integer, allocatable, private :: prune_end(:)
         @SCALAR@, allocatable, private :: lv(:), uv(:), work(:), correction(:)
+        @LOW_SCALAR@, allocatable, private :: lv_low(:), uv_low(:)
+        @SCALAR@, allocatable, private :: column_work(:)
         real(dp), allocatable, private :: row_norm(:)
 @REAL_PANEL_BEGIN@
         real(dp), allocatable, private :: panel(:,:), panel_coefficient(:)
@@ -57,7 +59,7 @@ module @MODULE@
         procedure, private :: solve_vector, solve_block
         generic :: solve => solve_vector, solve_block
         procedure :: free
-        procedure :: memory_bytes, copy_column_order
+        procedure :: memory_bytes, copy_column_order, compress
     end type @TYPE@
 contains
     subroutine copy_column_order(self,n,col_ptr,row_idx,order,matched)
@@ -94,6 +96,7 @@ contains
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory,pruning
         integer, intent(in), optional :: row_preference(:), panel_width
+        if (allocated(self%lv_low)) call self%free()
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -131,6 +134,7 @@ contains
         @SCALAR@ :: value,diagonal
         logical :: same,use_pruning,exact_growth,lower_hint,upper_hint,attempt_slack
 
+        if (allocated(self%lv_low)) call self%free()
         self%ready=.false.
         self%factor_nnz=0_i8
         self%failed_required_bytes=0_i8
@@ -899,6 +903,88 @@ contains
         end if
     end subroutine reserve
 
+    subroutine compress(self,status)
+        ! Setup-only narrowing. Factors are built in dp; triangular arithmetic
+        ! stays dp. No allocation in retained solves, including N/T/H.
+        class(@TYPE@), intent(inout) :: self
+        type(fortsparse_status_t), intent(out) :: status
+        @LOW_SCALAR@, allocatable :: lower(:),upper(:)
+        @SCALAR@, allocatable :: column(:)
+        integer :: e,j,ierr
+        integer(i8) :: extra,required
+        call status_set(status,FORTSPARSE_NOT_FACTORED,'LU factor is not ready')
+        if (.not.self%ready) return
+        call status_set(status,FORTSPARSE_OK,'')
+        if (allocated(self%lv_low)) return
+        ! Validate before converting: reject overflow and vanished nonzeros.
+        do e=1,self%ln
+            if (@NORM@(self%lv(e))>real(huge(0.0_sp),dp)) goto 810
+            if (@NORM@(self%lv(e))>0.0_dp) then
+                if (@NORM@(self%lv(e))<real(tiny(0.0_sp),dp)) goto 810
+            end if
+        end do
+        do e=1,self%un
+            if (@NORM@(self%uv(e))>real(huge(0.0_sp),dp)) goto 810
+            if (@NORM@(self%uv(e))>0.0_dp) then
+                if (@NORM@(self%uv(e))<real(tiny(0.0_sp),dp)) goto 810
+            end if
+        end do
+        extra=(int(self%ln,i8)+int(self%un,i8))*(vb/2)+int(self%n,i8)*vb
+        call memory_checked_add(self%memory_bytes(),extra,required,status)
+        if (status%code/=FORTSPARSE_OK) return
+        if (self%limit>0_i8) then
+            if (required>self%limit) goto 820
+        end if
+        allocate(lower(self%ln),upper(self%un),column(self%n),stat=ierr)
+        if (ierr/=0) then
+            call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'LU narrow allocation')
+            return
+        end if
+        lower=self%lv(:self%ln)
+        upper=self%uv(:self%un)
+        ! Componentwise complex underflow may be harmless, but a vanished
+        ! entire U diagonal never defines a valid triangular solve.
+        do j=1,self%n
+            if (@NORM@(scalar_from_low(upper(self%up(j+1)-1)))==0.0_dp) goto 810
+        end do
+        self%peak_memory_bytes=max(self%peak_memory_bytes,required)
+        call move_alloc(lower,self%lv_low)
+        call move_alloc(upper,self%uv_low)
+        call move_alloc(column,self%column_work)
+        deallocate(self%lv,self%uv)
+        return
+810     call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'LU factors outside safe fp32 storage range; dp factors retained')
+        return
+820     self%failed_required_bytes=required
+        self%failed_available_bytes=self%limit
+        call status_set(status,FORTSPARSE_RESOURCE_LIMIT,'LU narrowing overlap exceeds cap')
+    end subroutine compress
+
+    pure function scalar_from_low(value) result(wide)
+        @LOW_SCALAR@, intent(in) :: value
+        @SCALAR@ :: wide
+        wide=value
+    end function scalar_from_low
+
+    subroutine expand_column(self,lower,first,last)
+        class(@TYPE@), intent(inout) :: self
+        logical, intent(in) :: lower
+        integer, intent(in) :: first,last
+        integer :: k
+        if (lower) then
+            !$omp simd
+            do k=first,last
+                self%column_work(k-first+1)=self%lv_low(k)
+            end do
+        else
+            !$omp simd
+            do k=first,last
+                self%column_work(k-first+1)=self%uv_low(k)
+            end do
+        end if
+    end subroutine expand_column
+
     subroutine solve_vector(self,rhs,status,operation)
         class(@TYPE@), intent(inout) :: self
         @SCALAR@, intent(inout) :: rhs(:)
@@ -934,19 +1020,36 @@ contains
                 self%correction(j)=@ZERO@
                 value=self%work(j)
                 if(self%lp(j+1)>e) then
-                    call solve_scatter(self%work,self%correction,self%lr(e:),self%lv(e:), &
-                        self%lp(j+1)-e,value)
+                    if (allocated(self%lv_low)) then
+                        call expand_column(self,.true.,e,self%lp(j+1)-1)
+                        call solve_scatter(self%work,self%correction,self%lr(e:), &
+                            self%column_work,self%lp(j+1)-e,value)
+                    else
+                        call solve_scatter(self%work,self%correction,self%lr(e:), &
+                            self%lv(e:),self%lp(j+1)-e,value)
+                    end if
                 end if
             end do
             do j=self%n,1,-1
-                self%work(j)=divide_value(corrected_value(self%work(j),self%correction(j)), &
-                    self%uv(self%up(j+1)-1))
+                if (allocated(self%uv_low)) then
+                    coefficient=self%uv_low(self%up(j+1)-1)
+                else
+                    coefficient=self%uv(self%up(j+1)-1)
+                end if
+                self%work(j)=divide_value(corrected_value(self%work(j), &
+                    self%correction(j)),coefficient)
                 self%correction(j)=@ZERO@
                 e=self%up(j)
                 value=self%work(j)
                 if(self%up(j+1)-1>e) then
-                    call solve_scatter(self%work,self%correction,self%ur(e:),self%uv(e:), &
-                        self%up(j+1)-e-1,value)
+                    if (allocated(self%uv_low)) then
+                        call expand_column(self,.false.,e,self%up(j+1)-2)
+                        call solve_scatter(self%work,self%correction,self%ur(e:), &
+                            self%column_work,self%up(j+1)-e-1,value)
+                    else
+                        call solve_scatter(self%work,self%correction,self%ur(e:), &
+                            self%uv(e:),self%up(j+1)-e-1,value)
+                    end if
                 end if
             end do
             do j=1,self%n
@@ -960,18 +1063,35 @@ contains
                 value=self%work(j)
                 e=self%up(j)
                 if(self%up(j+1)-1>e) then
-                    call solve_gather(value,self%ur(e:),self%uv(e:),self%work, &
-                        self%up(j+1)-e-1@GATHER_ADJOINT@)
+                    if (allocated(self%uv_low)) then
+                        call expand_column(self,.false.,e,self%up(j+1)-2)
+                        call solve_gather(value,self%ur(e:),self%column_work,self%work, &
+                            self%up(j+1)-e-1@GATHER_ADJOINT@)
+                    else
+                        call solve_gather(value,self%ur(e:),self%uv(e:),self%work, &
+                            self%up(j+1)-e-1@GATHER_ADJOINT@)
+                    end if
                 end if
-                coefficient=adjoint_value(self%uv(self%up(j+1)-1),op)
+                if (allocated(self%uv_low)) then
+                    coefficient=self%uv_low(self%up(j+1)-1)
+                else
+                    coefficient=self%uv(self%up(j+1)-1)
+                end if
+                coefficient=adjoint_value(coefficient,op)
                 self%work(j)=divide_value(value,coefficient)
             end do
             do j=self%n,1,-1
                 value=self%work(j)
                 e=self%lp(j)
                 if(self%lp(j+1)>e) then
-                    call solve_gather(value,self%lr(e:),self%lv(e:),self%work, &
-                        self%lp(j+1)-e@GATHER_ADJOINT@)
+                    if (allocated(self%lv_low)) then
+                        call expand_column(self,.true.,e,self%lp(j+1)-1)
+                        call solve_gather(value,self%lr(e:),self%column_work,self%work, &
+                            self%lp(j+1)-e@GATHER_ADJOINT@)
+                    else
+                        call solve_gather(value,self%lr(e:),self%lv(e:),self%work, &
+                            self%lp(j+1)-e@GATHER_ADJOINT@)
+                    end if
                 end if
                 self%work(j)=value
             end do
@@ -1036,6 +1156,9 @@ contains
         ! overhead remain process-RSS quantities rather than payload claims.
         bytes=0_i8
 @MEMORY@
+        if(allocated(self%lv_low)) bytes=bytes+(vb/2)*size(self%lv_low,kind=i8)
+        if(allocated(self%uv_low)) bytes=bytes+(vb/2)*size(self%uv_low,kind=i8)
+        if(allocated(self%column_work)) bytes=bytes+vb*size(self%column_work,kind=i8)
 @REAL_PANEL_BEGIN@
         if (allocated(self%panel)) bytes=bytes+8_i8*size(self%panel,kind=i8)
         if (allocated(self%panel_coefficient)) &
@@ -1066,6 +1189,9 @@ contains
         call discard_factors(self)
 @REAL_ONLY_END@
 @FREE@
+        if(allocated(self%lv_low)) deallocate(self%lv_low)
+        if(allocated(self%uv_low)) deallocate(self%uv_low)
+        if(allocated(self%column_work)) deallocate(self%column_work)
 @REAL_PANEL_BEGIN@
         if (allocated(self%panel)) deallocate(self%panel)
         if (allocated(self%panel_coefficient)) deallocate(self%panel_coefficient)

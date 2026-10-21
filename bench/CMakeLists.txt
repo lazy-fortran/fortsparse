@@ -72,3 +72,8 @@ if(FORTSPARSE_BENCH_MKL_ROOT)
 endif()
 
 add_subdirectory(native_families)
+
+add_executable(bench_csr_precision bench_csr_precision.f90)
+target_link_libraries(bench_csr_precision PRIVATE fortsparse)
+add_executable(bench_mixed_lu bench_mixed_lu.f90)
+target_link_libraries(bench_mixed_lu PRIVATE fortsparse)
