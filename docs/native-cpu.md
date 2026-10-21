@@ -8,11 +8,33 @@ existing Cholesky engine and other classes to the following new CPU references:
 | Real general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
 | Complex general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
 | Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Natural-order simplicial reference |
-| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
+| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots; opt-in BLAS-3 panels/OpenMP |
 | Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
 | Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
 
-Real symmetric-indefinite CSC factors accept explicit AMD ordering. The initial
+Real symmetric-indefinite CSC factors accept explicit AMD or METIS ND ordering.
+
+Set `options%ldlt_blocked = .true.` to try bounded relaxed supernodes on the
+real CPU LDLT path. Each front contains up to 32 consecutive candidates and
+at most 512 active vertices, including the complete support of every candidate.
+LAPACK `DLASYF` performs Bunch--Kaufman pivot tests and BLAS-3 trailing updates;
+OpenMP assembles columns and merges disjoint Schur rows. `options%nthreads` or
+`OMP_NUM_THREADS` controls that team; keep BLAS threads separately budgeted.
+A private trial needing any interchange is discarded before changing the sparse
+state, then unrestricted scalar Bunch--Kaufman eliminates a pivot. This preserves
+global 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
+elimination. Retained solves and implicit derivatives use the same factors.
+
+Panel inertia counts the signs of the actual block pivots, using Sylvester's
+law, with conservative row-history bounds for intermediate panel updates. As
+with scalar LDLT, RELIABLE is a floating-point diagnostic, not an exact-real or
+outward-rounded certificate. Panel bounds may classify more pivots UNCERTAIN.
+Strict host caps and LOW_MEMORY select the existing accountable scalar path.
+Opaque LAPACK/BLAS allocations prevent a complete panel payload-peak or strict
+cap claim; process RSS must be measured separately. The statistics
+`ldlt_blocked_panels` and `ldlt_active_threads` report actual accepted panels and
+observed assembly/scatter teams; zero accepted panels means scalar recovery.
+The default stays scalar pending representative performance admission. The initial
 symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
 retained for same-pattern refactors; each refactor chooses its pivots afresh.
 Natural DEFAULT and NATIVE_REFERENCE behavior is preserved; explicit AMD is
