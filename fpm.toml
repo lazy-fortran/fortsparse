@@ -23,3 +23,6 @@ source-form = "free"
 # Preprocess the solver factory and conditional backend tests.
 [preprocess]
 [preprocess.cpp]
+
+[dependencies]
+fortnum = { git = "https://github.com/lazy-fortran/fortnum.git", rev = "8c1d82bb635af6381a6873db036d56f2a0d39fd8" }
