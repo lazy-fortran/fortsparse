@@ -30,28 +30,32 @@ program test_fortsparse_inertia
             integer, intent(out) :: info
         end subroutine zheev
     end interface
-    integer :: ordering
-    integer, parameter :: orderings(2) = [FORTSPARSE_ORDER_DEFAULT, &
-                                          FORTSPARSE_ORDER_AMD]
+    integer :: ordering, implementation
+    logical :: blocked
+    integer, parameter :: orderings(3) = [FORTSPARSE_ORDER_DEFAULT, &
+                                          FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND]
 
-    call random_seed_fixed()
-    do ordering = 1, 2
-        if (.not. ordering_available(orderings(ordering))) then
-            print '(a)', 'SKIP: AMD ordering unavailable in this build (fpm)'
-            cycle
-        end if
-        call random_shifts(37, 0.15_dp, orderings(ordering))
-        call random_shifts(150, 0.03_dp, orderings(ordering))
-        call block_pencil([3, 5, 4, 6, 2, 7, 3, 5, 4, 6, 3, 2, 5, 4], &
-                          orderings(ordering), 24)
-        call saddle_point(12, 5, orderings(ordering))
+    do implementation = 1, 2
+        blocked = implementation == 2
+        call random_seed_fixed()
+        do ordering = 1, size(orderings)
+            if (.not. ordering_available(orderings(ordering))) then
+                print '(a)', 'SKIP: requested ordering unavailable in this build'
+                cycle
+            end if
+            call random_shifts(37, 0.15_dp, orderings(ordering))
+            call random_shifts(150, 0.03_dp, orderings(ordering))
+            call block_pencil([3, 5, 4, 6, 2, 7, 3, 5, 4, 6, 3, 2, 5, 4], &
+                              orderings(ordering), 24)
+            call saddle_point(12, 5, orderings(ordering))
+        end do
+        call exact_singular()
+        call near_singular()
+        call scaled_blocks()
+        call extreme_pairs()
+        call hermitian_shifts(30)
+        call unsupported_families()
     end do
-    call exact_singular()
-    call near_singular()
-    call scaled_blocks()
-    call extreme_pairs()
-    call hermitian_shifts(30)
-    call unsupported_families()
     print '(a)', 'native inertia: all checks passed'
 contains
     ! The fpm build has no AMD ordering; CMake builds must provide it.
@@ -63,6 +67,7 @@ contains
         call csc_from_triplet(2, 2, [1, 2, 1, 2], [1, 1, 2, 2], &
                               [1.0_dp, 2.0_dp, 2.0_dp, -1.0_dp], a, status)
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         call sparse_factor(solver, a, status)
@@ -190,6 +195,7 @@ contains
         end do
         call symmetric_eigenvalues(base, w)
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         do trial = 1, 7
@@ -211,11 +217,32 @@ contains
         ! Unshifted matrix (zero diagonal entries): compare with oracle signs.
         call dense_to_csc(base, mask, a)
         call sparse_factor(solver, a, status)
-        call expect(status%code == FORTSPARSE_OK, 'unshifted factor')
+        if (any(all(abs(base) <= 0.0_dp, dim=1))) then
+            ! New ND coverage also reaches a manufactured exactly zero column.
+            ! Its known nullspace and independent spectrum require SINGULAR.
+            call expect(status%code == FORTSPARSE_SINGULAR, 'isolated zero column factor')
+            call check_singular_counts(solver, w, base)
+        else
+            call expect(status%code == FORTSPARSE_OK, 'unshifted factor')
+        end if
         if (minval(abs(w)) > 1.0e-8_dp) &
             call check_counts(solver, count(w < 0.0_dp), n, 'unshifted indefinite')
         call sparse_destroy(solver)
     end subroutine random_shifts
+
+    subroutine check_singular_counts(solver, w, base)
+        type(sparse_solver_t), intent(inout) :: solver
+        real(dp), intent(in) :: w(:), base(:, :)
+        type(fortsparse_status_t) :: status
+        integer(i8) :: negative, zero, positive
+        integer :: reliability
+        call query(solver, negative, zero, positive, reliability, status)
+        call expect(status%code == FORTSPARSE_OK, 'isolated zero inertia available')
+        call expect(reliability == FORTSPARSE_INERTIA_SINGULAR, 'isolated zero reliability')
+        call expect(zero == count(all(abs(base) <= 0.0_dp, dim=1)), 'known zero-column nullspace')
+        call expect(negative == count(w < -1e-10_dp), 'singular negative spectrum')
+        call expect(positive == count(w > 1e-10_dp), 'singular positive spectrum')
+    end subroutine check_singular_counts
 
     ! GLISS-like pencil K - sigma M: variable-width dense blocks on a
     ! block-tridiagonal pattern, symmetric indefinite K and SPD M. The number
@@ -269,6 +296,7 @@ contains
         call dsygv(1, 'N', 'L', n, kc, n, mc, n, w, work, size(work), info)
         call expect(info == 0, 'dsygv oracle')
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         do s = 1, nshift
@@ -319,6 +347,7 @@ contains
                     'saddle-point oracle inertia')
         call dense_to_csc(dense, mask, a)
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         call sparse_factor(solver, a, status)
@@ -350,6 +379,7 @@ contains
             if (.not. ordering_available(orderings(order))) cycle
             call dense_to_csc(dense, mask, a)
             solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+            solver%options%ldlt_blocked = blocked
             solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
             solver%options%ordering = orderings(order)
             call sparse_factor(solver, a, status)
@@ -389,6 +419,7 @@ contains
         mask = dense /= 0.0_dp
         call dense_to_csc(dense, mask, a)
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, a, status)
         call expect(status%code == FORTSPARSE_OK, 'near-singular factor')
@@ -438,6 +469,7 @@ contains
         mask = dense /= 0.0_dp
         call dense_to_csc(dense, mask, a)
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, a, status)
         call expect(status%code == FORTSPARSE_OK, 'scaled blocks factor')
@@ -465,6 +497,7 @@ contains
             mask = dense /= 0.0_dp
             call dense_to_csc(dense, mask, a)
             solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+            solver%options%ldlt_blocked = blocked
             solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
             call sparse_factor(solver, a, status)
             call expect(status%code == FORTSPARSE_OK, 'extreme pair factor')
@@ -585,6 +618,7 @@ contains
         call expect(status%code == FORTSPARSE_OK, 'complex symmetric assembly')
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
         solver%options = sparse_options_t()
+        solver%options%ldlt_blocked = blocked
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, z, status)
         call expect(status%code == FORTSPARSE_OK, 'complex symmetric factor')

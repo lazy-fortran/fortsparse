@@ -79,6 +79,9 @@ module fortsparse_backend
         integer(i8) :: memory_budget_bytes = 0_i8
         ! Native CPU real/complex GENERAL LU method; see FORTSPARSE_LU_*.
         integer :: lu_method = FORTSPARSE_LU_SCALAR
+        ! Real symmetric indefinite: bounded dense panels, unrestricted scalar
+        ! Bunch--Kaufman recovery. Strict caps/LOW retain the scalar path.
+        logical :: ldlt_blocked = .false.
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.
         real(dp) :: pivot_perturbation = 1.0e-13_dp
@@ -90,6 +93,8 @@ module fortsparse_backend
     ! Factorization statistics; -1 / -1.0 mark a quantity the backend does not
     ! report.
     type :: sparse_factor_stats_t
+        integer :: ldlt_blocked_panels = 0 ! accepted BLAS-3 panels
+        integer :: ldlt_active_threads = 1 ! observed assembly/scatter team
         integer(i8) :: factor_nnz = -1 ! entries stored in the factors
         real(dp)    :: factor_mem_mb = -1.0_dp ! peak factorization memory
         real(dp)    :: flops = -1.0_dp ! factorization operations
