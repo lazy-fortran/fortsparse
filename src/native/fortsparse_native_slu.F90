@@ -523,7 +523,8 @@ contains
         allocate(sptr(n+1), sidx(int(sym_entries)), parent(n), count(n), post(n), &
             head(n), next(n), stack(n), stat=ierr)
         if (ierr /= 0) goto 910
-        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len)
+        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len, &
+            self%requested_threads)
         symbolic_bytes = native_symbolic_workspace_bytes(n)
         call charge(self, ledger, symbolic_bytes, SLU_PHASE_COUNTS, status)
         if (.not. status_ok(status)) return
@@ -548,7 +549,8 @@ contains
         do k = 1, n
             finv(self%col_old(k)) = k
         end do
-        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len)
+        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len, &
+            self%requested_threads)
         deallocate(graph, order)
         call release(ledger, 4_i8*int(nnz,i8)+4_i8*int(n,i8), status)
         if (.not. status_ok(status)) return
@@ -655,13 +657,15 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine validate_csc
 
-    subroutine build_symmetric(n, ptr, graph, inverse, sptr, sidx, fill, len)
+    subroutine build_symmetric(n, ptr, graph, inverse, sptr, sidx, fill, len, &
+            nthreads)
         ! Sorted, duplicate-free full CSC of S = P (B + B^T + I) P^T, where B
         ! is the pattern (ptr, graph) and inverse maps its labels to the new
         ! ones. Capacity 2*nnz(B)+n; len returns the used entries.
-        integer, intent(in) :: n, ptr(:), graph(:), inverse(:)
+        integer, intent(in) :: n, ptr(:), graph(:), inverse(:), nthreads
         integer, intent(out) :: sptr(:), sidx(:), fill(:), len
         integer :: c, e, k, l, q, start, finish, last
+        logical :: parallel_sort
         sptr = 0
         do c = 1, n
             l = inverse(c)
@@ -691,11 +695,23 @@ contains
                 fill(k) = fill(k)+1
             end do
         end do
+        ! Sort disjoint column slices before compacting them in place. The
+        ! compaction writes earlier columns and must remain serial; separating
+        ! it from sorting needs no additional workspace and preserves labels.
+        parallel_sort = nthreads > 1 .and. n >= 1024
+        if (parallel_sort) then
+            !$omp parallel do num_threads(nthreads) default(shared) private(l) &
+            !$omp schedule(dynamic,32)
+            do l = 1, n
+                call supernode_sort_rows(sidx, sptr(l), sptr(l+1)-1)
+            end do
+            !$omp end parallel do
+        end if
         q = 0
         start = 1
         do l = 1, n
             finish = sptr(l+1)-1
-            call supernode_sort_rows(sidx, start, finish)
+            if (.not. parallel_sort) call supernode_sort_rows(sidx, start, finish)
             sptr(l) = q+1
             last = 0
             do e = start, finish
