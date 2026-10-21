@@ -20,6 +20,8 @@ module fortsparse
     use fortsparse_memory, only: MEMORY_PLAN_EXACT_LAYOUT, MEMORY_PLAN_BOUND, &
         MEMORY_PLAN_ESTIMATE
     use fortsparse_version, only: fortsparse_version_string
+    use fortsparse_mixed_lu, only: mixed_lu_t, mixed_lu_z_t, &
+        mixed_solve_report_t, mixed_solve_batch, mixed_factor_batch, block_jacobi_apply
     use fortsparse_ilutp, only: sparse_ilutp_t, sparse_ilutp_stats_t
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
         csc_conjugate_transpose, csc_matmul, csc_matvec, csc_transpose, &
@@ -62,6 +64,8 @@ module fortsparse
     public :: csc_conjugate_transpose, csc_normalize_symmetric_raw
 
     ! Solver
+    public :: mixed_lu_t, mixed_lu_z_t, mixed_solve_report_t
+    public :: mixed_solve_batch, mixed_factor_batch, block_jacobi_apply
     public :: sparse_ilutp_t, sparse_ilutp_stats_t
     public :: sparse_solver_t, sparse_factor, sparse_refactor, sparse_solve, &
         sparse_free

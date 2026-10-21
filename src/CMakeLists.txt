@@ -33,6 +33,7 @@ target_sources(fortsparse PRIVATE
     native/fortsparse_native_hpd.f90
     native/fortsparse_native_ldlt.f90
     native/fortsparse_native_ldlt_z.f90
+    native/fortsparse_mixed_lu.f90
     native/fortsparse_native_lu.f90
     native/fortsparse_ilutp_selection.f90
     native/fortsparse_ilutp.f90

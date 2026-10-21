@@ -279,6 +279,7 @@ contains
                 cycle
             end if
             line=replace(line,'@MODULE@',name);line=replace(line,'@TYPE@',kind)
+            line=replace(line,'@LOW_SCALAR@',replace(scalar,'dp','sp'))
             line=replace(line,'@CSC@',csc);line=replace(line,'@SCALAR@',scalar)
             line=replace(line,'@LEAVES@',leaves)
             line=replace(line,'@SCATTER@',scatter);line=replace(line,'@GATHER@',gather)
