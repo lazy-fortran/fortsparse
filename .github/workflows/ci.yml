@@ -81,10 +81,6 @@ jobs:
     env:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -97,12 +93,12 @@ jobs:
         run: |-
           ci/run.sh ci-cmake
         env:
-          SCI_MATRIX_OS: ${{ matrix.os }}
+          SCI_MATRIX_OS: ubuntu-latest
       - name: Bundle exact sources for Slurm
         if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         env:
           SCI_TIER: ci-cmake
-          SCI_MATRIX_OS: ${{ matrix.os }}
+          SCI_MATRIX_OS: ubuntu-latest
         run: |-
           TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
       - name: Run native checks on sCluster
