@@ -665,6 +665,7 @@ contains
         integer, intent(in) :: n, ptr(:), graph(:), inverse(:), nthreads
         integer, intent(out) :: sptr(:), sidx(:), fill(:), len
         integer :: c, e, k, l, q, start, finish, last
+        logical :: parallel_sort
         sptr = 0
         do c = 1, n
             l = inverse(c)
@@ -697,16 +698,20 @@ contains
         ! Sort disjoint column slices before compacting them in place. The
         ! compaction writes earlier columns and must remain serial; separating
         ! it from sorting needs no additional workspace and preserves labels.
-        !$omp parallel do num_threads(nthreads) default(shared) private(l) &
-        !$omp schedule(dynamic,32) if(nthreads > 1 .and. n >= 1024)
-        do l = 1, n
-            call supernode_sort_rows(sidx, sptr(l), sptr(l+1)-1)
-        end do
-        !$omp end parallel do
+        parallel_sort = nthreads > 1 .and. n >= 1024
+        if (parallel_sort) then
+            !$omp parallel do num_threads(nthreads) default(shared) private(l) &
+            !$omp schedule(dynamic,32)
+            do l = 1, n
+                call supernode_sort_rows(sidx, sptr(l), sptr(l+1)-1)
+            end do
+            !$omp end parallel do
+        end if
         q = 0
         start = 1
         do l = 1, n
             finish = sptr(l+1)-1
+            if (.not. parallel_sort) call supernode_sort_rows(sidx, start, finish)
             sptr(l) = q+1
             last = 0
             do e = start, finish
