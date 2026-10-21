@@ -130,6 +130,13 @@ set_tests_properties(test_fortsparse_slu_threads PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
 if(TARGET test_fortsparse_slu_threads)
+    # Exercise parallel analysis independently of the audited AMD cap ABI.
+    # The original entry retains every cap and LOW_MEMORY assertion.
+    add_test(NAME test_fortsparse_slu_threads_uncapped
+        COMMAND test_fortsparse_slu_threads uncapped)
+    set_tests_properties(test_fortsparse_slu_threads_uncapped PROPERTIES
+        LABELS "native;lu;fast" TIMEOUT 1
+        ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
     add_test(NAME test_fortsparse_slu_threads_repeat
         COMMAND test_fortsparse_slu_threads repeat)
     set_tests_properties(test_fortsparse_slu_threads_repeat PROPERTIES
