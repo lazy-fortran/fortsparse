@@ -16,6 +16,14 @@ else
     export OPENBLAS_NUM_THREADS=1 MPLBACKEND=Agg
 fi
 unset DISPLAY
+if [ -n "${SLURM_JOB_ID:-}" ]; then
+    cpu_model=$(grep -m1 'model name' /proc/cpuinfo)
+    echo "$cpu_model"
+    case "$cpu_model" in
+        *"AMD EPYC"*) ;;
+        *) echo "FortSparse one-second gates require the AMD EPYC reference capacity" >&2; exit 1 ;;
+    esac
+fi
 export CMAKE_TOOLCHAIN_FILE=$src/ci/cluster-toolchain.cmake
 if [ -d "$root/mirrors" ]; then
     export GIT_CONFIG_GLOBAL=$root/gitconfig
