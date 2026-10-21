@@ -5,6 +5,14 @@ program test_fortsparse_mixed_lu
     use fortnum_precision, only: FP32,FP64
     use, intrinsic :: ieee_arithmetic, only: ieee_value,ieee_quiet_nan
     implicit none
+    interface
+        subroutine dgesv(n, nrhs, a, lda, ipiv, b, ldb, info)
+            import dp
+            integer, intent(in) :: n, nrhs, lda, ldb
+            real(dp), intent(inout) :: a(lda,*), b(ldb,*)
+            integer, intent(out) :: ipiv(*), info
+        end subroutine dgesv
+    end interface
     integer, parameter :: n=19
     type(csc_t) :: a,ill,matrices(2)
     type(csc_z_t) :: az
