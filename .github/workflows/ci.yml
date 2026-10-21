@@ -18,11 +18,11 @@ concurrency:
 jobs:
   native-analysis:
     name: native parallel analysis
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["self-hosted","itp-slurm"]') || fromJSON('["self-hosted","itp-build"]') }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["self-hosted","itp-slurm"]') || fromJSON('["self-hosted","itp-build"]') }}
     env:
       OMP_NUM_THREADS: 8
       OPENBLAS_NUM_THREADS: 1
-      OMP_DYNAMIC: "FALSE"
+      OMP_DYNAMIC: 'FALSE'
       OMP_WAIT_POLICY: passive
     steps:
       - uses: actions/checkout@v4
@@ -30,17 +30,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Run native checks in the build container
-        if: ${{ !github.event.pull_request.head.repo.fork && !(github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && !(github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |-
           ci/run.sh ci-native-analysis
       - name: Bundle exact sources for Slurm
-        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         env:
           SCI_TIER: ci-native-analysis
         run: |-
           TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
       - name: Run native checks on sCluster
-        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |-
           sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install native dependencies
@@ -67,9 +67,11 @@ jobs:
   # Bounded solver gates, including the independent out-of-process UMFPACK
   # round-trip. Build and run only these named tests; never run the full suite.
         if: ${{ github.event.pull_request.head.repo.fork }}
+    if: >-
+      github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
   cmake:
-    name: cmake + ctest ${{ matrix.os }}
-    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["self-hosted","itp-slurm"]') || fromJSON('["self-hosted","itp-build"]') }}
+    name: cmake + ctest ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && fromJSON('["self-hosted","itp-slurm"]') || fromJSON('["self-hosted","itp-build"]') }}
     env:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -85,20 +87,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Run native checks in the build container
-        if: ${{ !github.event.pull_request.head.repo.fork && !(github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && !(github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |-
           ci/run.sh ci-cmake
         env:
           SCI_MATRIX_OS: ${{ matrix.os }}
       - name: Bundle exact sources for Slurm
-        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         env:
           SCI_TIER: ci-cmake
           SCI_MATRIX_OS: ${{ matrix.os }}
         run: |-
           TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
       - name: Run native checks on sCluster
-        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'merge_group' || github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
+        if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name == 'schedule' || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
         run: |-
           sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install system dependencies
@@ -154,3 +156,5 @@ jobs:
           ctest --test-dir build -j 2 --output-on-failure --no-tests=error
           -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_blocked|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
         if: ${{ github.event.pull_request.head.repo.fork }}
+    if: >-
+      github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]') || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci'))
