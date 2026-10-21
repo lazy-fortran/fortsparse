@@ -18,7 +18,7 @@ concurrency:
 jobs:
   native-analysis:
     name: native parallel analysis
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","itp-slurm"]') }}
     env:
       OMP_NUM_THREADS: 8
       OPENBLAS_NUM_THREADS: 1
@@ -26,29 +26,46 @@ jobs:
       OMP_WAIT_POLICY: passive
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle exact sources for Slurm
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        env:
+          SCI_TIER: ci-native-analysis
+        run: |-
+          TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
+      - name: Run native checks on sCluster
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        run: |-
+          sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install native dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends cmake gfortran \
             ninja-build liblapack-dev libblas-dev libsuitesparse-dev libmetis-dev
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Configure native Release
         run: >-
           cmake -S . -B native -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF
           -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Build affected native gates
         run: >-
           cmake --build native -j2 --target test_fortsparse_slu_factor
           test_fortsparse_slu_z_api test_fortsparse_slu_threads
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Test values and parallel reuse
         run: >-
           ctest --test-dir native -j1 --output-on-failure --no-tests=error
           -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat)$'
   # Bounded solver gates, including the independent out-of-process UMFPACK
   # round-trip. Build and run only these named tests; never run the full suite.
+        if: ${{ github.event.pull_request.head.repo.fork }}
   cmake:
     name: cmake + ctest ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","itp-slurm"]') }}
     env:
       OMP_NUM_THREADS: 1
       OPENBLAS_NUM_THREADS: 1
@@ -60,6 +77,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bundle exact sources for Slurm
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        env:
+          SCI_TIER: ci-cmake
+          SCI_MATRIX_OS: ${{ matrix.os }}
+        run: |-
+          TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
+      - name: Run native checks on sCluster
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        run: |-
+          sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install system dependencies
         run: |
           set -euo pipefail
@@ -73,6 +104,7 @@ jobs:
             liblapack-dev \
             libblas-dev
 
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \
@@ -80,6 +112,7 @@ jobs:
             -DFORTSPARSE_BUILD_TESTING=ON \
             -DFORTSPARSE_USE_SYSTEM_DEPS=ON
 
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Build focused solver gates
         run: |
           cmake --build build -j 2 --target \
@@ -105,7 +138,9 @@ jobs:
             test_fortsparse_native_ldlt_z \
             test_fortsparse_inertia
 
+        if: ${{ github.event.pull_request.head.repo.fork }}
       - name: Test focused solver gates
         run: >-
           ctest --test-dir build -j 2 --output-on-failure --no-tests=error
           -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_blocked|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
+        if: ${{ github.event.pull_request.head.repo.fork }}
