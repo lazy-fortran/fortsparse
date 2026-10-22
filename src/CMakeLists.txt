@@ -6,6 +6,9 @@ add_library(fortsparse STATIC)
 
 target_sources(fortsparse PRIVATE
     # Fortran module sources (alphabetical, one per line; append here)
+    fortsparse_csr.f90
+    fortsparse_smoothers.f90
+    fortsparse_amg.f90
     fortsparse_precision_csr.f90
     fortsparse.f90
     fortsparse_backend.f90

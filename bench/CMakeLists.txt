@@ -77,3 +77,6 @@ add_executable(bench_csr_precision bench_csr_precision.f90)
 target_link_libraries(bench_csr_precision PRIVATE fortsparse)
 add_executable(bench_mixed_lu bench_mixed_lu.f90)
 target_link_libraries(bench_mixed_lu PRIVATE fortsparse)
+
+add_executable(bench_amg bench_amg.f90 process_metrics.c)
+target_link_libraries(bench_amg PRIVATE fortsparse_amg_test_support)

@@ -462,6 +462,14 @@ single-threaded; it runs once per factorization pattern.
 times; `bench_fortsparse_backends <kind> <size> <threads> <superlu|mumps|auto>`
 compares the backends.
 
+## AMG and CSR smoothers
+
+Real SPD systems can use smoothed-aggregation AMG through `amg_setup`,
+`amg_apply` and `amg_destroy`, with a raw-CSR bridge for PCG consumers.
+Standalone l1-Jacobi and Chebyshev smoothers share the owned FP64 CSR type.
+See the [AMG API and contracts](docs/amg.md) and
+[remote convergence and scaling results](bench/AMG_RESULTS.md).
+
 ## Layout
 
 - `src/`: library modules. Kinds, status, version, the CSC types and builders,

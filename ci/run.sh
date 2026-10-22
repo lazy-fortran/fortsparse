@@ -66,13 +66,13 @@ cmake -S . -B native -G Ninja -DCMAKE_BUILD_TYPE=Release -DFORTSPARSE_BUILD_TEST
     load_job_environment
     echo 'Build affected native gates'
     (
-cmake --build native -j2 --target test_fortsparse_slu_factor test_fortsparse_slu_z_api test_fortsparse_slu_threads
+cmake --build native -j2 --target test_fortsparse_slu_factor test_fortsparse_slu_z_api test_fortsparse_slu_threads test_fortsparse_amg test_fortsparse_csr_smoothers test_amg_allocations
 
     )
     load_job_environment
     echo 'Test values and parallel reuse'
     (
-ctest --test-dir native -j1 --output-on-failure --no-tests=error -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat)$'
+ctest --test-dir native -j1 --output-on-failure --no-tests=error -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers)$|^test_amg_allocations$'
 
     )
     load_job_environment
