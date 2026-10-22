@@ -119,7 +119,7 @@ contains
         real(dp) :: ll(wide_n, wide_n), dd(wide_n, wide_n)
         real(dp) :: aa(wide_n, wide_n), known(wide_n), rhs(wide_n), got(wide_n)
         real(dp) :: entries(wide_n*wide_n)
-        integer :: rr(wide_n*wide_n), cc(wide_n*wide_n), row, col, entry
+        integer :: rr(wide_n*wide_n), cc(wide_n*wide_n), row, col, entry, mode
         type(csc_t) :: wide
         type(sparse_solver_t) :: factor
         ll = 0.0_dp
@@ -147,23 +147,25 @@ contains
         call check()
         known = [(sin(real(row, dp)), row=1, wide_n)]
         rhs = matmul(aa, known)
-        factor%backend_id = FORTSPARSE_BACKEND_NATIVE
-        factor%options%symmetry = FORTSPARSE_SYM_INDEFINITE
-        factor%options%ldlt_blocked = .true.
-        factor%refine = .false.
-        call sparse_factor(factor, wide, status)
-        call check()
-        call sparse_inertia(factor, nn, nz, np, state, status)
-        call check()
-        call expect(nn == wide_n/2 .and. nz == 0 .and. np == wide_n/2, &
-            'wide recovery congruence inertia')
-        call expect(state == FORTSPARSE_INERTIA_RELIABLE, 'wide recovery reliability')
-        call sparse_solve(factor, rhs, got, status)
-        call check()
-        call expect(maxval(abs(got - known)) < 1e-12_dp, 'wide recovery solution')
-        call expect(maxval(abs(matmul(aa, got) - rhs)) < 1e-12_dp, &
-            'wide recovery original matrix residual')
-        call sparse_destroy(factor)
+        do mode = 0, 1
+            factor%backend_id = FORTSPARSE_BACKEND_NATIVE
+            factor%options%symmetry = FORTSPARSE_SYM_INDEFINITE
+            factor%options%ldlt_blocked = mode == 1
+            factor%refine = .false.
+            call sparse_factor(factor, wide, status)
+            call check()
+            call sparse_inertia(factor, nn, nz, np, state, status)
+            call check()
+            call expect(nn == wide_n/2 .and. nz == 0 .and. np == wide_n/2, &
+                'wide recovery congruence inertia')
+            call expect(state == FORTSPARSE_INERTIA_RELIABLE, 'wide recovery reliability')
+            call sparse_solve(factor, rhs, got, status)
+            call check()
+            call expect(maxval(abs(got - known)) < 1e-12_dp, 'wide recovery solution')
+            call expect(maxval(abs(matmul(aa, got) - rhs)) < 1e-12_dp, &
+                'wide recovery original matrix residual')
+            call sparse_destroy(factor)
+        end do
     end subroutine wide_recovery
 
     subroutine check()
