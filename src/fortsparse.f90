@@ -40,8 +40,16 @@ module fortsparse
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+    use fortsparse_csr, only: csr_t, csr_matvec
+    use fortsparse_smoothers, only: csr_smoother_t, smoother_setup, smoother_apply, &
+        smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
+    use fortsparse_amg, only: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, &
+        amg_apply, amg_destroy
     implicit none
     private
+    public :: csr_t, csr_matvec, csr_smoother_t, smoother_setup, smoother_apply
+    public :: smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
+    public :: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, amg_apply, amg_destroy
 
     ! Kinds
     public :: dp, sp, i4, i8

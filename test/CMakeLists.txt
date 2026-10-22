@@ -822,3 +822,24 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     set_tests_properties(test_mixed_allocations PROPERTIES LABELS "native;precision;memory;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
+
+fortsparse_add_test(test_fortsparse_amg solver/test_fortsparse_amg.f90)
+fortsparse_add_test(test_fortsparse_csr_smoothers solver/test_fortsparse_csr_smoothers.f90)
+foreach(amg_test test_fortsparse_amg test_fortsparse_csr_smoothers)
+    target_link_libraries(${amg_test} PRIVATE fortsparse_amg_test_support)
+    set_tests_properties(${amg_test} PROPERTIES LABELS "native;preconditioner;fast"
+        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
+endforeach()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    add_executable(test_amg_allocations
+        ../test-cmake/native/test_amg_allocations.f90
+        ../test-cmake/native/ilutp_alloc_probe.c)
+    target_link_libraries(test_amg_allocations PRIVATE fortsparse_amg_test_support)
+    target_link_options(test_amg_allocations PRIVATE "LINKER:--wrap=malloc"
+        "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
+    add_test(NAME test_amg_allocations COMMAND test_amg_allocations)
+    set_tests_properties(test_amg_allocations PROPERTIES
+        LABELS "native;preconditioner;memory;fast" TIMEOUT 1
+        ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
+endif()
