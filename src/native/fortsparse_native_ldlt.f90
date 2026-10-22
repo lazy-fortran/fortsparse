@@ -1,5 +1,5 @@
 module fortsparse_native_ldlt
-    ! Serial sparse Bunch--Kaufman reference: P^T A P = L D L^T.
+    ! Sparse Bunch--Kaufman: P^T A P = L D L^T, parallel Schur-row merges.
     ! Full canonical symmetric CSC is required. Schur rows and L columns use
     ! original vertex labels: symmetric pivoting changes maps, never n^2 data.
     ! Numeric factorization grows sparse rows under an explicit payload cap.
@@ -312,10 +312,10 @@ contains
         integer :: ierr
         integer(i8) :: request
         call status_set(status, FORTSPARSE_OK, '')
-        if (.not. self%use_panels) return
         ! Opaque LAPACK/BLAS workspace is not a hard allocation-cap contract.
-        ! Keep the existing audited scalar algorithm for strict/LOW requests.
-        if (self%limit > 0_i8 .or. self%low_memory .or. self%n < 8) then
+        ! Strict requests use scalar pivots and explicitly accounted merges.
+        if (self%limit > 0_i8) self%use_panels = .false.
+        if (self%low_memory .or. self%n < 8) then
             self%use_panels = .false.
             return
         end if
@@ -323,19 +323,30 @@ contains
         !$ self%teams = omp_get_max_threads()
         if (self%requested_threads > 0) self%teams = self%requested_threads
         self%teams = max(1, min(self%teams, self%n))
-        request = rb*int(front_limit, i8)*(front_limit + panel_width) &
-            + ib*(int(self%n, i8) + 2_i8*front_limit) &
+        ! Row merges also accelerate the default scalar factorization. They
+        ! preserve its pivot choices and canonical rank-1/2 contractions.
+        request = ib*int(self%n, i8) &
             + (ib + rb)*int(self%n, i8)*self%teams
+        if (self%use_panels) request = request &
+            + rb*int(front_limit, i8)*(front_limit + panel_width) &
+            + 2_i8*ib*front_limit
         call admit(self, request, status)
         if (.not. status_ok(status)) return
-        allocate(self%front(front_limit, front_limit), &
-            self%panel_work(front_limit, panel_width), &
-            self%vertices(front_limit), self%ipiv(front_limit), &
-            self%front_map(self%n), self%merge_index(self%n, self%teams), &
+        allocate(self%front_map(self%n), self%merge_index(self%n, self%teams), &
             self%merge_value(self%n, self%teams), stat=ierr)
         if (ierr /= 0) then
             call allocation_error(status)
             call clear_numeric(self)
+            return
+        end if
+        if (self%use_panels) then
+            allocate(self%front(front_limit, front_limit), &
+                self%panel_work(front_limit, panel_width), &
+                self%vertices(front_limit), self%ipiv(front_limit), stat=ierr)
+            if (ierr /= 0) then
+                call allocation_error(status)
+                call clear_numeric(self)
+            end if
         end if
     end subroutine panel_workspace
 
@@ -416,7 +427,7 @@ contains
         ! Each assembly column is private. No numerical-loop allocation.
         !$omp parallel num_threads(active_team) private(p,i,q,j,r)
         !$omp single
-        !$ self%active_threads = omp_get_num_threads()
+        !$ self%active_threads = max(self%active_threads, omp_get_num_threads())
         !$omp end single
         !$omp do schedule(static)
         do p = 1, m
@@ -789,7 +800,7 @@ contains
         !$omp parallel num_threads(active_team) private(p,q,i,old,fresh,used,column, &
         !$omp left,right,tid,previous,value,l2,existed)
         !$omp single
-        !$ self%active_threads = omp_get_num_threads()
+        !$ self%active_threads = max(self%active_threads, omp_get_num_threads())
         !$omp end single
         tid = 1
         !$ tid = omp_get_thread_num() + 1
