@@ -23,23 +23,28 @@ OpenMP assembles columns and merges disjoint Schur rows. `options%nthreads` or
 A private trial needing any interchange is discarded before changing the sparse
 state, then unrestricted scalar Bunch--Kaufman eliminates a pivot. This preserves
 global 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
-elimination. In the uncapped blocked path, scalar recovery merges each complete
+elimination. Default and blocked execution merge each complete
 rank-1/2 update once per Schur row, with disjoint rows assigned to OpenMP
 workers. Both stored triangles use the same contraction order. Small fronts
-use fewer workers to avoid team overhead; strict-cap and LOW_MEMORY execution
-retain the accountable scalar updates. Retained solves and implicit derivatives
+use fewer workers to avoid team overhead. Strict-cap execution accounts for
+merge workspace and row growth before allocation, while LOW_MEMORY retains
+entry-wise scalar updates. Retained solves and implicit derivatives
 use the same factors.
 
 Panel inertia counts the signs of the actual block pivots, using Sylvester's
 law, with conservative row-history bounds for intermediate panel updates. As
 with scalar LDLT, RELIABLE is a floating-point diagnostic, not an exact-real or
 outward-rounded certificate. Panel bounds may classify more pivots UNCERTAIN.
-Strict host caps and LOW_MEMORY select the existing accountable scalar path.
+Strict host caps and LOW_MEMORY disable LAPACK panels.
 Opaque LAPACK/BLAS allocations prevent a complete panel payload-peak or strict
 cap claim; process RSS must be measured separately. The statistics
 `ldlt_blocked_panels` and `ldlt_active_threads` report actual accepted panels and
-observed assembly/scatter teams; zero accepted panels means scalar recovery.
-The default stays scalar pending representative performance admission. The initial
+largest observed assembly/scatter team; zero accepted panels means scalar
+elimination with row merging (entry-wise updates under LOW_MEMORY).
+The default retains scalar pivot selection, with row merges and OpenMP, pending
+representative performance admission. Its merge workspace costs
+`4*n + 12*n*threads` bytes with 32-bit indices and 64-bit reals and is included
+in the owned payload accounting. The initial
 symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
 retained for same-pattern refactors; each refactor chooses its pivots afresh.
 Natural DEFAULT and NATIVE_REFERENCE behavior is preserved; explicit AMD is
