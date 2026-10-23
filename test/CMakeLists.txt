@@ -474,6 +474,10 @@ if(NOT FORTSPARSE_ENABLE_SUPERLU AND NOT FORTSPARSE_ENABLE_MUMPS)
         LABELS "native;fast" TIMEOUT 1
         ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=${CMAKE_CURRENT_BINARY_DIR}/no-helper")
 endif()
+fortsparse_add_test(test_fortsparse_native_spd_refactor
+    solver/test_fortsparse_native_spd_refactor.f90)
+set_tests_properties(test_fortsparse_native_spd_refactor PROPERTIES
+    LABELS "native;spd;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_native_refinement solver/test_fortsparse_native_refinement.f90)
 set_tests_properties(test_fortsparse_native_refinement PROPERTIES
     LABELS "native;refinement;fast" TIMEOUT 1)
