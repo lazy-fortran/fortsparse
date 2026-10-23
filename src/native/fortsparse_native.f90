@@ -71,6 +71,9 @@ module fortsparse_native
         integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
         integer :: analyzed_order = 0, analyzed_threads = 0, analyzed_device = -1
         integer, allocatable :: perm(:), inverse(:), source(:), op(:), oi(:)
+        ! Position of the transposed entry of every entry of the analysed
+        ! pattern: a refactor of the same pattern checks value symmetry with it.
+        integer, allocatable :: tpos(:)
         type(csc_t) :: ordered
         logical :: ready = .false., blocked = .false.
         type(supernodes_t) :: panels
@@ -222,10 +225,18 @@ contains
         logical, intent(in) :: refine
         type(fortsparse_status_t), intent(out) :: status
         real(dp) :: start
+        integer, allocatable :: transposed(:)
 
         call self%free()
-        call validate(self, A, status)
+        ! The transpose map is retained only without a strict memory budget.
+        if (self%options%host_memory_limit_bytes > 0_i8 .or. &
+            self%options%memory_policy == FORTSPARSE_MEMORY_LOW .or. refine) then
+            call validate(self, A, status)
+        else
+            call validate(self, A, status, transposed)
+        end if
         if (.not. status_ok(status)) return
+        if (allocated(transposed)) call move_alloc(transposed, self%tpos)
         call refinement_supported(self,refine,status)
         if (.not.status_ok(status)) return
         self%refining=refine
@@ -762,14 +773,66 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine analyze
 
-    subroutine validate(self, A, status)
+    subroutine validate(self, A, status, transpose)
+        ! Full check of the options and of A. transpose: position of the
+        ! transposed entry of every entry, for validate_values.
         class(native_backend_t), intent(in) :: self
         type(csc_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
-        integer :: j, p, i, lo, hi, mid, previous
+        integer, allocatable, intent(inout), optional :: transpose(:)
+        integer :: j, p, i, lo, hi, mid, previous, ierr
+        logical :: record
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
             'native SPD: require finite, full symmetric, canonical square CSC')
+        if (.not. valid_options(self, status)) return
+        if (.not. allocated(A%col_ptr)) return
+        if (.not. allocated(A%row_idx)) return
+        if (.not. allocated(A%val)) return
+        if (.not. csc_is_valid(A)) return
+        if (A%nrow /= A%ncol .or. size(A%val) /= A%nnz) return
+        if (.not. all(ieee_is_finite(A%val))) return
+        record = present(transpose)
+        if (record) then
+            if (allocated(transpose)) deallocate (transpose)
+            allocate (transpose(A%nnz), stat=ierr)
+            if (ierr /= 0) then
+                call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                    'native SPD: workspace allocation failed')
+                return
+            end if
+        end if
+        do j = 1, A%ncol
+            previous = 0
+            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                i = A%row_idx(p)
+                if (i <= previous) return
+                previous = i
+                lo = A%col_ptr(i)
+                hi = A%col_ptr(i + 1) - 1
+                do while (lo <= hi)
+                    mid = lo + (hi - lo)/2
+                    if (A%row_idx(mid) < j) then
+                        lo = mid + 1
+                    else if (A%row_idx(mid) > j) then
+                        hi = mid - 1
+                    else
+                        exit
+                    end if
+                end do
+                if (lo > hi) return
+                if (A%val(p) /= A%val(mid)) return
+                if (record) transpose(p) = mid
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine validate
+
+    logical function valid_options(self, status) result(ok)
+        ! The option checks of validate; sets status when they fail.
+        class(native_backend_t), intent(in) :: self
+        type(fortsparse_status_t), intent(inout) :: status
+        ok = .false.
         if (self%options%device_memory_limit_bytes < 0_i8) return
         if (self%options%host_memory_limit_bytes > 0_i8 .or. &
             (self%options%device_memory_limit_bytes > 0_i8 .and. &
@@ -801,36 +864,46 @@ contains
                 'native SPD: unsupported ordering option')
             return
         end if
-        if (.not. allocated(A%col_ptr)) return
-        if (.not. allocated(A%row_idx)) return
-        if (.not. allocated(A%val)) return
-        if (.not. csc_is_valid(A)) return
-        if (A%nrow /= A%ncol .or. size(A%val) /= A%nnz) return
+        ok = .true.
+    end function valid_options
+
+    logical function same_pattern(self, A) result(same)
+        ! A has the pattern that the analysis (and tpos) was made for.
+        class(native_backend_t), intent(in) :: self
+        type(csc_t), intent(in) :: A
+        same = .false.
+        if (.not. allocated(self%tpos)) return
+        if (.not. allocated(A%col_ptr) .or. .not. allocated(A%row_idx) .or. &
+            .not. allocated(A%val)) return
+        if (self%n /= A%ncol .or. A%nrow /= A%ncol) return
+        if (size(A%col_ptr) /= A%ncol + 1 .or. size(A%row_idx) /= A%nnz .or. &
+            size(A%val) /= A%nnz .or. size(self%tpos) /= A%nnz) return
+        if (allocated(self%op)) then
+            if (size(self%oi) /= A%nnz) return
+            same = all(self%op == A%col_ptr) .and. all(self%oi == A%row_idx)
+        else if (allocated(self%ap)) then
+            if (size(self%ai) /= A%nnz) return
+            same = all(self%ap == A%col_ptr) .and. all(self%ai == A%row_idx)
+        end if
+    end function same_pattern
+
+    subroutine validate_values(self, A, status)
+        ! validate for a matrix of the analysed pattern (same_pattern): the
+        ! options, finite values and exact value symmetry via tpos.
+        class(native_backend_t), intent(in) :: self
+        type(csc_t), intent(in) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: p
+
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'native SPD: require finite, full symmetric, canonical square CSC')
+        if (.not. valid_options(self, status)) return
         if (.not. all(ieee_is_finite(A%val))) return
-        do j = 1, A%ncol
-            previous = 0
-            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                i = A%row_idx(p)
-                if (i <= previous) return
-                previous = i
-                lo = A%col_ptr(i)
-                hi = A%col_ptr(i + 1) - 1
-                do while (lo <= hi)
-                    mid = lo + (hi - lo)/2
-                    if (A%row_idx(mid) < j) then
-                        lo = mid + 1
-                    else if (A%row_idx(mid) > j) then
-                        hi = mid - 1
-                    else
-                        exit
-                    end if
-                end do
-                if (lo > hi) return
-                if (A%val(p) /= A%val(mid)) return
-            end do
+        do p = 1, A%nnz
+            if (A%val(p) /= A%val(self%tpos(p))) return
         end do
         call status_set(status, FORTSPARSE_OK, '')
-    end subroutine validate
+    end subroutine validate_values
 
     subroutine row_reach(self, A, j, top)
         class(native_backend_t), intent(inout) :: self
@@ -939,7 +1012,13 @@ contains
         self%stats%refinement_steps=0
         self%stats%backward_error=-1.0_dp
         call self%reset_raw_tracking()
-        call validate(self, A, status)
+        ! The retained pattern was validated at analysis: the same pattern only
+        ! needs the finite and symmetric values (linear in the entries) checked.
+        if (same_pattern(self, A)) then
+            call validate_values(self, A, status)
+        else
+            call validate(self, A, status)
+        end if
         self%ready = .false.
         if (.not. status_ok(status)) return
         call refinement_supported(self,refine,status)
@@ -1222,6 +1301,7 @@ contains
         if (allocated(self%perm)) bytes = bytes + 4_i8*size(self%perm, kind=i8)
         if (allocated(self%inverse)) bytes = bytes + 4_i8*size(self%inverse, kind=i8)
         if (allocated(self%source)) bytes = bytes + 4_i8*size(self%source, kind=i8)
+        if (allocated(self%tpos)) bytes = bytes + 4_i8*size(self%tpos, kind=i8)
         if (allocated(self%op)) bytes = bytes + 4_i8*size(self%op, kind=i8)
         if (allocated(self%oi)) bytes = bytes + 4_i8*size(self%oi, kind=i8)
         if (allocated(self%ap)) bytes = bytes + 4_i8*size(self%ap, kind=i8)
@@ -1303,6 +1383,7 @@ contains
         if (allocated(self%perm)) deallocate (self%perm)
         if (allocated(self%inverse)) deallocate (self%inverse)
         if (allocated(self%source)) deallocate (self%source)
+        if (allocated(self%tpos)) deallocate (self%tpos)
         if (allocated(self%op)) deallocate (self%op)
         if (allocated(self%oi)) deallocate (self%oi)
         self%ordered = csc_t()
