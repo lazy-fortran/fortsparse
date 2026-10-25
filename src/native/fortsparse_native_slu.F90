@@ -59,6 +59,10 @@ module fortsparse_native_slu
         SLU_PHASE_ORDER = 3, SLU_PHASE_COUNTS = 4, SLU_PHASE_ROWS = 5, &
         SLU_PHASE_INCOMING = 6, SLU_PHASE_PANELS = 7, SLU_PHASE_SCRATCH = 8
     integer, parameter, public :: SLU_PHASE_COUNT = 8
+    ! Intra-panel tiling of heavy destinations (flops, tile sizes).
+    real(dp), parameter :: TILE_FLOPS = 4.0e6_dp, TILE_TARGET_FLOPS = 1.0e6_dp, &
+        TILE_THREAD_FLOPS = 2.0e6_dp
+    integer, parameter :: TILE_PER_THREAD = 3, TILE_MIN_COLUMNS = 16, TILE_MIN_ROWS = 32
     character(*), parameter :: phase_names(SLU_PHASE_COUNT) = [character(16) :: &
         'MPM', 'graph', 'AMD arena', 'counts', 'rows', 'incoming', 'panels', &
         'scratch']
@@ -78,6 +82,9 @@ module fortsparse_native_slu
         ! task groups; budget_reduced_threads: a host cap halved the team.
         integer :: n = 0, node_count = 0, active_threads = 1
         integer :: requested_threads = 1, task_groups = 0
+        ! Smallest panel work (flops) split into tiles by a team; 0 tiles every
+        ! panel (test hook), set before analysis.
+        real(dp) :: tile_min_flops = TILE_FLOPS
         logical :: budget_reduced_threads = .false.
         ! factor_nnz: padded L+U panel entries; symbolic_nnz: exact
         ! nnz(L+U) of the symmetrized structure (L diagonal counted once).
@@ -896,6 +903,25 @@ contains
             'supernodal LU: analysis allocation failed')
     end subroutine build_nodes
 
+    function destination_work(self, dest) result(work)
+        ! Flops of the incoming updates and the factorization of one panel.
+        class(slu_factor_t), intent(in) :: self
+        integer, intent(in) :: dest
+        real(dp) :: work
+        integer :: p, src, m2, q
+        real(dp) :: w
+        work = 0.0_dp
+        w = real(self%panels(dest)%width,dp)
+        work = 2.0_dp/3.0_dp*w**3+2.0_dp*real(self%panels(dest)%m,dp)*w**2
+        do p = self%sched%incoming_ptr(dest), self%sched%incoming_ptr(dest+1)-1
+            src = self%sched%incoming_source(p)
+            q = self%sched%incoming_q(p)
+            m2 = self%panels(src)%m-self%sched%incoming_first(p)+1
+            work = work+2.0_dp*real(m2,dp)*q*self%panels(src)%width &
+                +2.0_dp*real(m2-q,dp)*q*self%panels(src)%width
+        end do
+    end function destination_work
+
     subroutine build_schedule(self, ledger, status)
         ! Update lists, subtree groups and the exact retained plan.
         class(slu_factor_t), intent(inout) :: self
@@ -903,7 +929,8 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer :: s, first, group, dest, m, w, q, m2
         integer(i8) :: limit, update_size, panel_count, bytes, esize
-        real(dp) :: flops
+        real(dp) :: flops, tiled
+        integer :: requested
         type(memory_budget_t) :: saved
 
         esize = self%element_bytes()
@@ -946,6 +973,7 @@ contains
             if (limit > 0_i8) ledger%limit = min(limit, ledger%limit)
         end if
         call self%sched%setup_incoming(self%panels, ledger, status)
+        requested = self%sched%active_threads
         if (status_ok(status)) call self%sched%setup_groups(self%panels, &
             flops, ledger, status, lu=.true.)
         if (self%inject == SLU_PHASE_INCOMING) then
@@ -956,6 +984,17 @@ contains
             if (status%code == FORTSPARSE_RESOURCE_LIMIT) &
                 self%failed_phase = SLU_PHASE_INCOMING
             return
+        end if
+        if (status_ok(status) .and. requested > 1) then
+            ! Heavy panels split into tiles keep more threads busy than the
+            ! subtree groups alone: one thread per TILE_THREAD_FLOPS of them.
+            tiled = 0.0_dp
+            do s = 1, self%node_count
+                if (destination_work(self, s) >= self%tile_min_flops) &
+                    tiled = tiled+destination_work(self, s)
+            end do
+            self%sched%active_threads = min(requested, max(self%sched%active_threads, &
+                int(min(tiled/TILE_THREAD_FLOPS, 1.0e6_dp))))
         end if
         if (self%strict .and. self%sched%active_threads > 1) then
             ! Halve the team until the per-thread row maps, update scratch
@@ -1637,9 +1676,208 @@ contains
         thread = self%sched%workspace_thread()
         do member = self%sched%group_member_ptr(group), &
                 self%sched%group_member_ptr(group+1)-1
-            call factor_destination(self, self%sched%group_members(member), thread)
+            call factor_destination_any(self, self%sched%group_members(member), thread)
         end do
     end subroutine factor_group
+
+    subroutine factor_destination_any(self, dest, thread)
+        ! A destination with enough work is split into disjoint tiles of its
+        ! panels that idle team members take as child tasks; the elimination
+        ! tree alone leaves the top separator chain on one thread.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: dest, thread
+        if (self%sched%active_threads < 2) then
+            call factor_destination(self, dest, thread)
+        else if (destination_work(self, dest) < self%tile_min_flops) then
+            call factor_destination(self, dest, thread)
+        else
+            call factor_destination_tiled(self, dest)
+        end if
+    end subroutine factor_destination_any
+
+    subroutine factor_destination_tiled(self, dest)
+        ! Tile (column range of the destination panels) x (position range of
+        ! the destination rows) receives every incoming update in source
+        ! order, so each entry sums its updates exactly as the serial loop
+        ! does. Tiles write disjoint entries; the panel factorization splits
+        ! the triangular solves by rows.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: dest
+        integer :: wd, md, nc, nr, ic, ir, c0, c1, p0, p1, p, src, nt
+        real(dp) :: work
+        do p = self%sched%incoming_ptr(dest), self%sched%incoming_ptr(dest+1)-1
+            src = self%sched%incoming_source(p)
+            if (self%failures(src) /= 0) self%failures(dest) = self%failures(src)
+        end do
+        if (self%failures(dest) /= 0) return
+        wd = self%panels(dest)%width
+        md = self%panels(dest)%m
+        work = destination_work(self, dest)
+        nt = max(2, min(TILE_PER_THREAD*self%sched%active_threads, &
+            int(work/TILE_TARGET_FLOPS)))
+        nc = max(1, min(nt, wd/TILE_MIN_COLUMNS))
+        nr = max(1, min((nt+nc-1)/nc, md/TILE_MIN_ROWS))
+        do ic = 1, nc
+            c0 = (int(wd,i8)*(ic-1))/nc+1
+            c1 = (int(wd,i8)*ic)/nc
+            do ir = 1, nr
+                p0 = (int(md,i8)*(ir-1))/nr+1
+                p1 = (int(md,i8)*ir)/nr
+                !$omp task firstprivate(dest,c0,c1,p0,p1) default(shared)
+                call update_tile(self, dest, c0, c1, p0, p1)
+                !$omp end task
+            end do
+        end do
+        !$omp taskwait
+        call factor_panel_tiled(self, dest)
+    end subroutine factor_destination_tiled
+
+    subroutine update_tile(self, dest, c0, c1, p0, p1)
+        ! Every incoming update restricted to destination columns c0:c1 and
+        ! destination row positions p0:p1. Runs to completion on one thread.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: dest, c0, c1, p0, p1
+        integer :: thread, p, src, f, q, m, j, ja, jb, r, r1, r2, col, pos, first_d
+        thread = self%sched%workspace_thread()
+        first_d = self%panels(dest)%first
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = p
+        end do
+        do p = self%sched%incoming_ptr(dest), self%sched%incoming_ptr(dest+1)-1
+            src = self%sched%incoming_source(p)
+            f = self%sched%incoming_first(p)
+            q = self%sched%incoming_q(p)
+            m = self%panels(src)%m
+            ja = 0
+            jb = -1
+            do j = 1, q
+                col = self%panels(src)%rows(f+j-1)-first_d+1
+                if (col < c0) cycle
+                if (col > c1) exit
+                if (ja == 0) ja = j
+                jb = j
+            end do
+            if (ja == 0) cycle
+            r1 = 0
+            r2 = -1
+            do r = f, m
+                pos = self%sched%rowmap(self%panels(src)%rows(r),thread)
+                if (pos < p0) cycle
+                if (pos > p1) exit
+                if (r1 == 0) r1 = r
+                r2 = r
+            end do
+            if (r1 == 0) cycle
+            call accumulate_update_block(self, src, dest, f, q, thread, ja, jb, r1, r2)
+        end do
+        do p = 1, self%panels(dest)%m
+            self%sched%rowmap(self%panels(dest)%rows(p),thread) = 0
+        end do
+    end subroutine update_tile
+
+    subroutine factor_panel_tiled(self, d)
+        ! factor_panel with the row swaps, both triangular solves and the
+        ! finiteness and growth scans split by rows of the off-diagonal blocks.
+        ! The leading block factorization stays on the calling thread.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: d
+        integer :: m, w, mu, k, first, perturbed, swaps, nchunk, ic, i0, i1, thread, e
+        integer(i8) :: l0, u0
+        real(dp) :: min_pivot, max_u
+        real(dp), allocatable :: chunk_max(:)
+        logical, allocatable :: chunk_bad(:)
+        if (self%failures(d) /= 0) return
+        thread = self%sched%workspace_thread()
+        m = self%panels(d)%m
+        w = self%panels(d)%width
+        mu = m-w
+        first = self%panels(d)%first
+        l0 = self%panels(d)%offset_l
+        u0 = self%panels(d)%offset_u
+        perturbed = 0
+        swaps = 0
+        min_pivot = huge(1.0_dp)
+        max_u = 0.0_dp
+        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
+            self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        do k = 1, w
+            do e = 1, w
+                if (ieee_is_finite(self%values(l0+int(k-1,i8)*m+e))) cycle
+                self%failures(d) = 1
+            end do
+        end do
+        if (mu > 0) then
+            nchunk = max(1, min(TILE_PER_THREAD*self%sched%active_threads, &
+                mu/TILE_MIN_ROWS))
+            allocate(chunk_max(nchunk), chunk_bad(nchunk))
+            chunk_max = 0.0_dp
+            chunk_bad = .false.
+            do ic = 1, nchunk
+                i0 = int((int(mu,i8)*(ic-1))/nchunk)+1
+                i1 = int((int(mu,i8)*ic)/nchunk)
+                !$omp task firstprivate(ic,i0,i1) default(shared)
+                call panel_rows(self, d, i0, i1, chunk_max(ic), chunk_bad(ic))
+                !$omp end task
+            end do
+            !$omp taskwait
+            max_u = max(max_u, maxval(chunk_max))
+            if (any(chunk_bad)) self%failures(d) = 1
+            deallocate(chunk_max, chunk_bad)
+        end if
+        self%thread_stats(1,thread) = self%thread_stats(1,thread)+perturbed
+        self%thread_stats(2,thread) = self%thread_stats(2,thread)+swaps
+        self%thread_stats(3,thread) = min(self%thread_stats(3,thread), min_pivot)
+        self%thread_stats(4,thread) = max(self%thread_stats(4,thread), max_u)
+    end subroutine factor_panel_tiled
+
+    subroutine panel_rows(self, d, i0, i1, chunk_max, chunk_bad)
+        ! Rows i0:i1 of the off-diagonal blocks of panel d: exchanges on Ut,
+        ! L21 := L21 U^-1, Ut := Ut L^-T, max |Ut| and finiteness.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: d, i0, i1
+        real(dp), intent(out) :: chunk_max
+        logical, intent(out) :: chunk_bad
+        integer :: m, w, mu, k, r, i, first, nr, j
+        integer(i8) :: l0, u0
+        real(dp) :: saved
+        m = self%panels(d)%m
+        w = self%panels(d)%width
+        mu = m-w
+        first = self%panels(d)%first
+        l0 = self%panels(d)%offset_l
+        u0 = self%panels(d)%offset_u
+        nr = i1-i0+1
+        chunk_max = 0.0_dp
+        chunk_bad = .false.
+        do k = 1, w
+            r = self%pivots(first+k-1)
+            if (r == k) cycle
+            do i = i0, i1
+                saved = self%values(u0+int(k-1,i8)*mu+i)
+                self%values(u0+int(k-1,i8)*mu+i) = self%values(u0+int(r-1,i8)*mu+i)
+                self%values(u0+int(r-1,i8)*mu+i) = saved
+            end do
+        end do
+        if (self%use_blas .and. w >= 96 .and. mu >= 32) then
+            call dtrsm('R', 'U', 'N', 'N', nr, w, 1.0_dp, self%values(l0+1), m, &
+                self%values(l0+w+i0), m)
+            call dtrsm('R', 'L', 'T', 'U', nr, w, 1.0_dp, self%values(l0+1), m, &
+                self%values(u0+i0), mu)
+        else
+            call slu_trsm_upper(self%values(l0+1), m, w, self%values(l0+w+i0), m, nr)
+            call slu_trsm_unit_lower_t(self%values(l0+1), m, w, self%values(u0+i0), &
+                mu, nr)
+        end if
+        do j = 1, w
+            do i = i0, i1
+                saved = self%values(u0+int(j-1,i8)*mu+i)
+                chunk_max = max(chunk_max, abs(saved))
+                if (.not. ieee_is_finite(saved)) chunk_bad = .true.
+                if (.not. ieee_is_finite(self%values(l0+int(j-1,i8)*m+w+i))) &
+                    chunk_bad = .true.
+            end do
+        end do
+    end subroutine panel_rows
 #else
     subroutine update_panel(self, source, dest, first, q)
         class(slu_factor_t), intent(inout) :: self
@@ -1657,6 +1895,15 @@ contains
 #endif
 
     subroutine accumulate_update(self, s, d, f, q, thread)
+        ! The whole update of source s into destination d (see the block form).
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: s, d, f, q, thread
+        if (self%failures(s) /= 0) self%failures(d) = self%failures(s)
+        if (self%failures(d) /= 0) return
+        call accumulate_update_block(self, s, d, f, q, thread, 1, q, f, self%panels(s)%m)
+    end subroutine accumulate_update
+
+    subroutine accumulate_update_block(self, s, d, f, q, thread, ja, jb, ra, rb)
         ! Source rows rows_s(f:f+q-1) are destination columns. GEMM1 updates
         ! the destination L panel (full diagonal block included):
         !   L_d(map(R_f:R_end), cols) -= L_s(f:m,:) Ut_s(f-w:f-w+q-1,:)^T;
@@ -1665,17 +1912,20 @@ contains
         ! Ut_d is addressed from w_d entries before its column start, so the
         ! row map positions (> w_d) index it directly; that base lies inside
         ! the destination L panel and is never written.
+        ! Only the destination columns of the update indices ja:jb and the
+        ! entries of the source rows ra:rb are touched (the whole update is
+        ! ja = 1, jb = q, ra = f, rb = m), so concurrent blocks of one
+        ! destination write disjoint entries. The kernel choice depends on
+        ! the whole update, not on the block.
         class(slu_factor_t), intent(inout) :: self
-        integer, intent(in) :: s, d, f, q, thread
-        integer :: m, w, mu, m2, md, wd, mud, j, p, col, position, first_d
+        integer, intent(in) :: s, d, f, q, thread, ja, jb, ra, rb
+        integer :: m, w, mu, md, wd, mud, j, p, col, position, first_d
+        integer :: qc, jl, r1, r2, ru, m2, m3
         integer(i8) :: ls, us, ld, ud
         logical :: contiguous_rows
-        if (self%failures(s) /= 0) self%failures(d) = self%failures(s)
-        if (self%failures(d) /= 0) return
         m = self%panels(s)%m
         w = self%panels(s)%width
         mu = m-w
-        m2 = m-f+1
         md = self%panels(d)%m
         wd = self%panels(d)%width
         mud = md-wd
@@ -1684,16 +1934,24 @@ contains
         us = self%panels(s)%offset_u
         ld = self%panels(d)%offset_l
         ud = self%panels(d)%offset_u
+        qc = jb-ja+1
+        jl = f+ja-1
+        r1 = max(ra,f)
+        r2 = rb
+        ru = max(ra,f+q)
+        m2 = r2-r1+1
+        m3 = r2-ru+1
+        if (qc < 1 .or. m2 < 1) return
         if (w == 1) then
-            do j = 1, q
+            do j = ja, jb
                 col = self%panels(s)%rows(f+j-1)-first_d+1
                 call supernode_scatter_mapped_update( &
                     self%values(ld+int(col-1,i8)*md+1), &
-                    self%panels(s)%rows(f:), self%sched%rowmap(:,thread), &
-                    self%values(ls+f), m2, self%values(us+f-w+j-1))
-                if (m2 > q) call supernode_scatter_mapped_update( &
-                    self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(f+q:), &
-                    self%sched%rowmap(:,thread), self%values(us+f+q-w), m2-q, &
+                    self%panels(s)%rows(r1:), self%sched%rowmap(:,thread), &
+                    self%values(ls+r1), m2, self%values(us+f-w+j-1))
+                if (m3 > 0) call supernode_scatter_mapped_update( &
+                    self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(ru:), &
+                    self%sched%rowmap(:,thread), self%values(us+ru-w), m3, &
                     self%values(ls+f+j-1))
             end do
             return
@@ -1711,47 +1969,51 @@ contains
         end if
         if (contiguous_rows) then
             ! Destination rows and columns are both consecutive.
-            col = self%panels(s)%rows(f)-first_d+1
-            call dgemm('N', 'T', m2, q, w, -1.0_dp, self%values(ls+f), m, &
-                self%values(us+f-w), mu, 1.0_dp, &
+            col = self%panels(s)%rows(jl)-first_d+1
+            position = self%sched%rowmap(self%panels(s)%rows(r1),thread)
+            call dgemm('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
+                self%values(us+jl-w), mu, 1.0_dp, &
                 self%values(ld+int(col-1,i8)*md+position), md)
-            if (m2 > q) call dgemm('N', 'T', m2-q, q, w, -1.0_dp, &
-                self%values(us+f+q-w), mu, self%values(ls+f), m, 1.0_dp, &
-                self%values(ud+int(col-1,i8)*mud+position+q-wd), mud)
+            if (m3 > 0) then
+                position = self%sched%rowmap(self%panels(s)%rows(ru),thread)
+                call dgemm('N', 'T', m3, qc, w, -1.0_dp, &
+                    self%values(us+ru-w), mu, self%values(ls+jl), m, 1.0_dp, &
+                    self%values(ud+int(col-1,i8)*mud+position-wd), mud)
+            end if
             return
         end if
         if (self%use_blas) then
-            call dgemm('N', 'T', m2, q, w, -1.0_dp, self%values(ls+f), m, &
-                self%values(us+f-w), mu, 0.0_dp, self%sched%update_work(1,thread), m2)
+            call dgemm('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
+                self%values(us+jl-w), mu, 0.0_dp, self%sched%update_work(1,thread), m2)
         else
-            self%sched%update_work(1:m2*q,thread) = 0.0_dp
+            self%sched%update_work(1:m2*qc,thread) = 0.0_dp
             call slu_schur_update(self%sched%update_work(1,thread), m2, &
-                self%values(ls+f), m, self%values(us+f-w), mu, m2, q, w)
+                self%values(ls+r1), m, self%values(us+jl-w), mu, m2, qc, w)
         end if
         ! update_work holds -L_s U_s^T; the mapped scatter subtracts it times -1.
-        do j = 1, q
+        do j = ja, jb
             col = self%panels(s)%rows(f+j-1)-first_d+1
             call supernode_scatter_mapped_update(self%values(ld+int(col-1,i8)*md+1), &
-                self%panels(s)%rows(f:), self%sched%rowmap(:,thread), &
-                self%sched%update_work((j-1)*m2+1,thread), m2, -1.0_dp)
+                self%panels(s)%rows(r1:), self%sched%rowmap(:,thread), &
+                self%sched%update_work((j-ja)*m2+1,thread), m2, -1.0_dp)
         end do
-        if (m2 == q) return
+        if (m3 < 1) return
         if (self%use_blas) then
-            call dgemm('N', 'T', m2-q, q, w, -1.0_dp, self%values(us+f+q-w), mu, &
-                self%values(ls+f), m, 0.0_dp, self%sched%update_work(1,thread), m2-q)
+            call dgemm('N', 'T', m3, qc, w, -1.0_dp, self%values(us+ru-w), mu, &
+                self%values(ls+jl), m, 0.0_dp, self%sched%update_work(1,thread), m3)
         else
-            self%sched%update_work(1:(m2-q)*q,thread) = 0.0_dp
-            call slu_schur_update(self%sched%update_work(1,thread), m2-q, &
-                self%values(us+f+q-w), mu, self%values(ls+f), m, m2-q, q, w)
+            self%sched%update_work(1:m3*qc,thread) = 0.0_dp
+            call slu_schur_update(self%sched%update_work(1,thread), m3, &
+                self%values(us+ru-w), mu, self%values(ls+jl), m, m3, qc, w)
         end if
-        do j = 1, q
+        do j = ja, jb
             col = self%panels(s)%rows(f+j-1)-first_d+1
             call supernode_scatter_mapped_update( &
-                self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(f+q:), &
+                self%values(ud+int(col-1,i8)*mud+1-wd), self%panels(s)%rows(ru:), &
                 self%sched%rowmap(:,thread), &
-                self%sched%update_work((j-1)*(m2-q)+1,thread), m2-q, -1.0_dp)
+                self%sched%update_work((j-ja)*m3+1,thread), m3, -1.0_dp)
         end do
-    end subroutine accumulate_update
+    end subroutine accumulate_update_block
 
     subroutine factor_panel(self, d, thread)
         ! Restricted-pivot block LU, exchanges applied to the Ut columns
