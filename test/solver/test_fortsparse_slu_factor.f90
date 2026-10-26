@@ -7,6 +7,9 @@ program test_fortsparse_slu_factor
     use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX
     use fortsparse_native_slu, only: slu_factor_t, SLU_ORDER_AMD, SLU_ORDER_ND
+    use fortsparse, only: csc_t, csc_from_triplet, sparse_solver_t, &
+        sparse_factor_stats_t, sparse_factor, sparse_solve, sparse_factor_stats, &
+        sparse_destroy, FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_LU_SUPERNODAL
     implicit none
     interface
         subroutine dgesv(n, nrhs, a, lda, ipiv, b, ldb, info)
@@ -37,6 +40,7 @@ program test_fortsparse_slu_factor
     call check_split_root(80)
     call check_delayed_leaves(40, .false.)
     call check_delayed_leaves(160, .true.)
+    call check_adaptive_delays(40)
     print '(a,i0,a)', 'supernodal LU factor: ', total_swaps, ' block exchanges verified'
 contains
     real(dp) function uniform()
@@ -342,7 +346,7 @@ contains
         end do
     end subroutine split_root
 
-    subroutine delayed_leaves(q, a)
+    subroutine delayed_leaves(q, a, tiny)
         ! Dense root 1..q (2 I + 0.1 sin pattern) and q leaves (c1, c2) =
         ! (q+2k-1, q+2k) with block [1, 1; 1, 1+1e-8], coupled to root k by
         ! M(k,c2) = M(c2,k) = 1. The identity matching is optimal and AMD
@@ -350,7 +354,11 @@ contains
         ! within its block while its parent row holds 1.
         integer, intent(in) :: q
         real(dp), allocatable, intent(out) :: a(:,:)
+        real(dp), intent(in), optional :: tiny
         integer :: i, j, k, c1, c2
+        real(dp) :: second
+        second = 1.0e-8_dp
+        if (present(tiny)) second = tiny
         allocate(a(3*q,3*q))
         a = 0.0_dp
         do j = 1, q
@@ -365,7 +373,7 @@ contains
             a(c1,c1) = 1.0_dp
             a(c1,c2) = 1.0_dp
             a(c2,c1) = 1.0_dp
-            a(c2,c2) = 1.0_dp+1.0e-8_dp
+            a(c2,c2) = 1.0_dp+second
             a(k,c2) = 1.0_dp
             a(c2,k) = 1.0_dp
         end do
@@ -439,6 +447,72 @@ contains
         call check_matrix(a, .false., swaps)
         call check_matrix(a, .true., swaps)
     end subroutine check_delayed_leaves
+
+    subroutine check_adaptive_delays(q)
+        ! The fast factor is the default: growth that passes the gate costs no
+        ! relayout, and only a gate trip refactors with delayed pivots, so the
+        ! scalar fallback LU is not needed.
+        integer, intent(in) :: q
+        real(dp), allocatable :: a(:,:), values(:), x(:), xs(:)
+        integer, allocatable :: ptr(:), rows(:)
+        type(slu_factor_t) :: lu
+        type(fortsparse_status_t) :: status
+        integer :: i
+        ! Second leaf pivot 1e-6 gives growth 5e5, above gate/16 and below the gate.
+        call delayed_leaves(q, a, 1.0e-6_dp)
+        call to_csc(a, ptr, rows, values)
+        call lu%analyze(size(a,1), ptr, rows, values, status, ordering=SLU_ORDER_AMD)
+        call lu%factor(ptr, rows, values, status)
+        call check(status%code == FORTSPARSE_OK, 'moderate-growth factor')
+        call check(lu%max_growth > 1.0e5_dp .and. len_trim(lu%gate_reason()) == 0, &
+            'growth is high but passes the gate')
+        call check(lu%delayed_columns == 0 .and. lu%delay_rounds == 0, &
+            'a factor that passes the gate is not relaid out')
+        call lu%free()
+        call delayed_leaves(q, a)
+        call run_backend(a, x, xs)
+        call check(maxval(abs(x-xs)) <= 1.0e-6_dp*maxval(abs(xs)), &
+            'gate trip: delayed refactor solves accurately')
+    end subroutine check_adaptive_delays
+
+    subroutine run_backend(m, sol, ref)
+        real(dp), intent(in) :: m(:,:)
+        real(dp), allocatable, intent(out) :: sol(:), ref(:)
+        type(sparse_solver_t) :: solver
+        type(sparse_factor_stats_t) :: stats
+        type(csc_t) :: c
+        integer, allocatable :: r(:), cl(:)
+        real(dp), allocatable :: v(:), rhs(:)
+        type(fortsparse_status_t) :: status
+        integer :: i, j, k, n
+        n = size(m,1)
+        k = count(m /= 0.0_dp)
+        allocate(r(k), cl(k), v(k))
+        k = 0
+        do j = 1, n
+            do i = 1, n
+                if (m(i,j) == 0.0_dp) cycle
+                k = k+1
+                r(k) = i
+                cl(k) = j
+                v(k) = m(i,j)
+            end do
+        end do
+        call csc_from_triplet(n, n, r, cl, v, c, status)
+        allocate(ref(n), sol(n), rhs(n))
+        ref = [(cos(real(i,dp)), i=1, n)]
+        rhs = matmul(m, ref)
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%lu_method = FORTSPARSE_LU_SUPERNODAL
+        call sparse_factor(solver, c, status)
+        call check(status%code == FORTSPARSE_OK, 'gate trip: backend factor')
+        call sparse_factor_stats(solver, stats, status)
+        call check(.not. stats%lu_fallback, 'gate trip: no scalar fallback')
+        call check(stats%pivot_growth < 10.0_dp, 'gate trip: delayed growth')
+        call sparse_solve(solver, rhs, sol, status)
+        call check(status%code == FORTSPARSE_OK, 'gate trip: solve')
+        call sparse_destroy(solver)
+    end subroutine run_backend
 
     subroutine check_split_root(q)
         ! A chain wider than the BLAS panel width stays one pivot domain, so

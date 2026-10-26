@@ -70,7 +70,6 @@ module fortsparse_native_slu
     ! Delayed pivots: default threshold u and relayouts per factorization.
     real(dp), parameter :: SLU_DELAY_THRESHOLD = 0.01_dp
     integer, parameter :: SLU_DELAY_ROUNDS = 3
-    real(dp), parameter :: SLU_DELAY_MARGIN = 16.0_dp
     character(*), parameter :: phase_names(SLU_PHASE_COUNT) = [character(16) :: &
         'MPM', 'graph', 'AMD arena', 'counts', 'rows', 'incoming', 'panels', &
         'scratch']
@@ -1557,11 +1556,11 @@ contains
                 self%active_threads = self%sched%active_threads
             end if
             ! Delayed pivots need the analysed pattern (assembly map) and no cap.
-            ! Relayouts run only while the growth leaves less than
-            ! SLU_DELAY_MARGIN to the default growth gate.
+            ! Relayouts run only once the default growth gate trips, so a
+            ! factor that passes it keeps the fast restricted-pivot path.
             if (round == SLU_DELAY_ROUNDS .or. .not. self%delay_threshold > 0.0_dp &
                 .or. self%map_nnz == 0) exit
-            if (.not. round_growth(self) > default_growth_limit()/SLU_DELAY_MARGIN) exit
+            if (.not. round_growth(self) > default_growth_limit()) exit
             call mark_delays(self, delays)
             if (delays == 0) exit
             if (.not. allocated(delay)) allocate(delay(self%n))
