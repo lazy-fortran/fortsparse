@@ -82,6 +82,12 @@ module fortsparse_backend
         ! Real symmetric indefinite: bounded dense panels, unrestricted scalar
         ! Bunch--Kaufman recovery. Strict caps/LOW retain the scalar path.
         logical :: ldlt_blocked = .false.
+        ! Real symmetric indefinite, native CPU without memory caps: the
+        ! supernodal SPD schedule with Bunch--Kaufman (rook) LDL^T pivots
+        ! restricted to each supernode diagonal block (panels whose block is
+        ! SPD keep the Cholesky). Reports exact pivot inertia. Not a robust
+        ! replacement for the unrestricted scalar Bunch--Kaufman reference.
+        logical :: ldlt_supernodal = .false.
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.
         real(dp) :: pivot_perturbation = 1.0e-13_dp

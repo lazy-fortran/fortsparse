@@ -31,6 +31,22 @@ merge workspace and row growth before allocation, while LOW_MEMORY retains
 entry-wise scalar updates. Retained solves and implicit derivatives
 use the same factors.
 
+Set `options%ldlt_supernodal = .true.` (with `SYM_INDEFINITE`, real values,
+native CPU, no host cap or LOW_MEMORY) to factor on the supernodal SPD
+schedule instead. Each supernode first tries the Cholesky of its diagonal
+block, as in SPD mode; a block that is not positive definite is factored by
+LAPACK `DSYTRF_RK` (bounded Bunch--Kaufman, rook 1x1/2x2 pivots) inside the
+block, and `L21 = A21 Q L^-T D^-1`. Pivots never leave their supernode, so the
+symbolic structure, OpenMP task schedule and retained refactors are those of
+the SPD path. This is restricted pivoting: there are no delayed pivots or
+perturbations, an exactly zero block pivot fails with `FORTSPARSE_SINGULAR`
+(saddle-point matrices with zero-diagonal leaves can fail where the scalar
+reference succeeds), and element growth is bounded only within each block.
+Inertia counts the signs of the actual block pivots (Cholesky blocks count
+positive) and reports `native_factor_family = 'LDLT_SUPERNODAL'`. Intended for
+nearly positive definite matrices such as damped Newton Hessians, where the
+Cholesky attempt and the indefinite fallback otherwise cost two factorizations.
+
 Panel inertia counts the signs of the actual block pivots, using Sylvester's
 law, with conservative row-history bounds for intermediate panel updates. As
 with scalar LDLT, RELIABLE is a floating-point diagnostic, not an exact-real or
