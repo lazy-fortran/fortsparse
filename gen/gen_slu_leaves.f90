@@ -36,7 +36,7 @@ program gen_slu_leaves
     write(unit, '(a)') '    public :: slu_update, slu_divide, slu_scale'
     write(unit, '(a)') &
         '    public :: slu_block_factor, slu_trsm_upper, slu_trsm_unit_lower_t'
-    write(unit, '(a)') '    public :: slu_schur_update, slu_apply_swaps'
+    write(unit, '(a)') '    public :: slu_panel_factor, slu_schur_update, slu_apply_swaps'
     write(unit, '(a)') '    public :: slu_block_lower, slu_block_upper'
     write(unit, '(a)') '    public :: slu_block_upper_t, slu_block_lower_t'
     write(unit, '(a)') 'contains'

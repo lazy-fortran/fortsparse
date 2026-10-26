@@ -169,6 +169,8 @@ Flop shares from the diagnostic (relaxed, postordered, weighted+ND):
 
 Landed (stage 4, serial): `factor(ptr, rows, values, status)` assembles M through binary searches in the static row lists (an entry outside the structure returns INVALID_MATRIX, so a changed pattern is re-analyzed) and runs the left-looking scheme above. Contiguous destinations use `dgemm` directly; otherwise `update_work` plus the mapped scatter. Rank-one sources scatter directly. Without BLAS (small flops or a strict cap), `slu_schur_update` and the generated triangular solves are used; BLAS `dtrsm` applies for w >= 96 and m-w >= 32, as for SPD. `perturbed_pivots`, `block_swaps`, `max_growth` (max|U|/max|M|) and `min_pivot` are exact for each factorization; `nonfinite` flags a non-finite panel entry (status SINGULAR). Nothing is allocated after `analyze`.
 
+Pivot domains (fortsparse#34): the real, uncapped supernodal LU partitions without the exact-merge width limit (`supernode_partition(..., exact_width=n)`), so a zero-padding chain is one supernode and its whole diagonal block is one pivot domain. Splitting such a chain at 128 columns confined each piece's pivot search to its own rows; on dense separators of the KIN6D closure-A Jacobians the candidate rows of the later pieces then became L21 entries up to 1.9e6 and the growth reached 3.6e7. Blocks wider than 128 columns factor in 64-column panels (`slu_panel_factor`, same pivot rule) with `dtrsm`/`dgemm` trailing updates. Strict (capped) analyses and complex factors keep the width-limited partition.
+
 ## 5. Solves, permutations, scalings
 
 - **Normal solve** A x = b: t = Q̃ᵀ(Dr·(Pm b)); forward L̂ (per supernode: accumulate, apply P_d, unit-lower diagonal block); backward U; x = Dc·(Q̃ t).

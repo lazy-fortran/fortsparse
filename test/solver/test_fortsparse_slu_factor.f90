@@ -34,6 +34,7 @@ program test_fortsparse_slu_factor
     call check_zero_pivot([1.0_dp, 1.0_dp, 1.0_dp, 1.0_dp], 1.0_dp)
     call check_zero_pivot([1.0_dp, 1.0_dp, -1.0_dp, -1.0_dp-2.0_dp**(-50)], -1.0_dp)
     call check_outside_pattern()
+    call check_split_root(80)
     print '(a,i0,a)', 'supernodal LU factor: ', total_swaps, ' block exchanges verified'
 contains
     real(dp) function uniform()
@@ -310,6 +311,70 @@ contains
         call check(sign(1.0_dp, x(2)) == sign_expected, 'perturbation keeps the sign, sign(0)=+')
         call check(abs(x(2)) >= 1.0e12_dp, 'solve uses the perturbed pivot')
     end subroutine check_zero_pivot
+
+    subroutine split_root(q, a)
+        ! Leaf-coupled dense root (fortsparse#34 shape): root unknowns 1..2q
+        ! with M_rr = [I, I/2; I/2, I] + 1e-10 R, leaf r+i coupled to root i
+        ! by M(i,r+i) = 1, M(r+i,i) = 1-1e-8, M(r+i,r+i) = 1. The identity
+        ! matching is optimal, leaves are eliminated first, and the root Schur
+        ! complement is S = [d I, I/2; I/2, d I] with d ~ 1e-8: column i must
+        ! pivot on row q+i. The root is one exact chain of width 2q.
+        integer, intent(in) :: q
+        real(dp), allocatable, intent(out) :: a(:,:)
+        integer :: r, i, j
+        r = 2*q
+        allocate(a(2*r,2*r))
+        a = 0.0_dp
+        do j = 1, r
+            do i = 1, r
+                a(i,j) = 1.0e-10_dp*(2.0_dp*uniform()-1.0_dp)
+            end do
+            a(j,j) = a(j,j)+1.0_dp
+            a(r+j,j) = 1.0_dp-1.0e-8_dp
+            a(j,r+j) = 1.0_dp
+            a(r+j,r+j) = 1.0_dp
+        end do
+        do i = 1, q
+            a(i,q+i) = a(i,q+i)+0.5_dp
+            a(q+i,i) = a(q+i,i)+0.5_dp
+        end do
+    end subroutine split_root
+
+    subroutine check_split_root(q)
+        ! A chain wider than the BLAS panel width stays one pivot domain, so
+        ! the partner rows of the root are pivot candidates and the growth
+        ! stays O(1); a width-capped split confines column i to its piece
+        ! and grows by about 1/d. Checked unblocked and blocked (force_blas).
+        integer, intent(in) :: q
+        real(dp), allocatable :: a(:,:), values(:)
+        integer, allocatable :: ptr(:), rows(:), nrows(:)
+        type(slu_factor_t) :: lu
+        type(fortsparse_status_t) :: status
+        integer :: swaps, s, node, first, width, m, widest
+        logical :: blas
+        call split_root(q, a)
+        swaps = 0
+        call check_matrix(a, .false., swaps)
+        call check_matrix(a, .true., swaps)
+        call to_csc(a, ptr, rows, values)
+        do s = 1, 2
+            blas = s == 2
+            call lu%analyze(size(a,1), ptr, rows, values, status, &
+                ordering=SLU_ORDER_AMD, force_blas=blas)
+            call check(status%code == FORTSPARSE_OK, 'split-root analysis')
+            widest = 0
+            do node = 1, lu%node_count
+                call lu%node_structure(node, first, width, m, nrows)
+                widest = max(widest, width)
+            end do
+            call check(widest == 2*q, 'the dense root chain is one supernode')
+            call lu%factor(ptr, rows, values, status)
+            call check(status%code == FORTSPARSE_OK, 'split-root factor')
+            call check(lu%max_growth < 10.0_dp, 'root pivots across the whole chain')
+            call check(len_trim(lu%gate_reason()) == 0, 'split root passes the gates')
+            call lu%free()
+        end do
+    end subroutine check_split_root
 
     subroutine check_outside_pattern()
         type(slu_factor_t) :: lu

@@ -44,6 +44,7 @@ module fortsparse_native_slu
         supernode_sort_rows, supernode_scatter_mapped_update, supernode_find_row
     use fortsparse_spd_leaves, only: spd_scatter_update, spd_gather_update
     use fortsparse_slu_leaves, only: slu_update, slu_scale, slu_block_factor, &
+        slu_panel_factor, &
         slu_trsm_upper, slu_trsm_unit_lower_t, slu_schur_update, slu_apply_swaps, &
         slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
@@ -63,6 +64,9 @@ module fortsparse_native_slu
     real(dp), parameter :: TILE_FLOPS = 4.0e6_dp, TILE_TARGET_FLOPS = 1.0e6_dp, &
         TILE_THREAD_FLOPS = 2.0e6_dp
     integer, parameter :: TILE_PER_THREAD = 3, TILE_MIN_COLUMNS = 16, TILE_MIN_ROWS = 32
+    ! Diagonal blocks wider than SLU_BLOCKED_WIDTH factor in SLU_PANEL_NB
+    ! column panels with BLAS-3 trailing updates (when BLAS is in use).
+    integer, parameter :: SLU_BLOCKED_WIDTH = 128, SLU_PANEL_NB = 64
     character(*), parameter :: phase_names(SLU_PHASE_COUNT) = [character(16) :: &
         'MPM', 'graph', 'AMD arena', 'counts', 'rows', 'incoming', 'panels', &
         'scratch']
@@ -821,7 +825,18 @@ contains
         integer :: s, ns, first, last, m, w, q, c, p, r, ierr
         integer(i8) :: descriptor_bytes
 
-        call supernode_partition(n, parent, count, self%strict, starts, ends, msize, ns)
+        if (self%strict .or. self%complex_values) then
+            call supernode_partition(n, parent, count, self%strict, starts, ends, &
+                msize, ns)
+        else
+            ! Pivot domains: an exact (zero-padding) chain stays one supernode,
+            ! so pivoting covers its whole diagonal block. Splitting it at a
+            ! fixed width confines the pivot search to each piece, and the
+            ! remaining candidate rows of the chain become L21 entries; on
+            ! dense separators this produced growth above the gate (#34).
+            call supernode_partition(n, parent, count, self%strict, starts, ends, &
+                msize, ns, exact_width=n)
+        end if
         self%node_count = ns
         descriptor_bytes = int(storage_size(slu_panel_t())/8,i8)
         ! Descriptors, task tokens and failure flags, column ownership.
@@ -1798,8 +1813,8 @@ contains
         swaps = 0
         min_pivot = huge(1.0_dp)
         max_u = 0.0_dp
-        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
-            self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        call factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
         do k = 1, w
             do e = 1, w
                 if (ieee_is_finite(self%values(l0+int(k-1,i8)*m+e))) cycle
@@ -2038,8 +2053,8 @@ contains
         swaps = 0
         min_pivot = huge(1.0_dp)
         max_u = 0.0_dp
-        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
-            self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        call factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
         if (mu > 0) then
             do k = 1, w
                 r = self%pivots(first+k-1)
@@ -2234,6 +2249,60 @@ contains
             call slu_apply_swaps(self%solve_work(first), self%pivots(first), w, .true.)
         end do
     end subroutine backward_transpose
+
+    subroutine factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
+        ! Restricted-pivot LU of the w-by-w diagonal block (lda = m): blocked
+        ! with BLAS-3 trailing updates above SLU_BLOCKED_WIDTH, else unblocked.
+        class(slu_factor_t), intent(inout) :: self
+        integer(i8), intent(in) :: l0
+        integer, intent(in) :: m, w, first
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot, max_u
+        if (self%use_blas .and. w > SLU_BLOCKED_WIDTH) then
+            call blocked_block_factor(self, l0, m, w, first, perturbed, swaps, &
+                min_pivot, max_u)
+        else
+            call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
+                self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        end if
+    end subroutine factor_diagonal_block
+
+    subroutine blocked_block_factor(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
+        ! Right-looking blocked form of slu_block_factor for a wide diagonal
+        ! block (lda = m): slu_panel_factor on SLU_PANEL_NB columns with the
+        ! same pivot rule over all block rows, then dtrsm/dgemm on the
+        ! trailing block. Pivots, exchanges and perturbations follow the
+        ! unblocked rule; only the summation order of the updates differs.
+        class(slu_factor_t), intent(inout) :: self
+        integer(i8), intent(in) :: l0
+        integer, intent(in) :: m, w, first
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot, max_u
+        integer :: k0, kb, rest, i, j
+        integer(i8) :: a0, a12, a21, a22
+        do k0 = 1, w, SLU_PANEL_NB
+            kb = min(SLU_PANEL_NB, w-k0+1)
+            call slu_panel_factor(self%values(l0+1), m, w, k0, kb, self%tau_abs, &
+                self%pivots(first), perturbed, swaps, min_pivot)
+            rest = w-k0-kb+1
+            if (rest <= 0) cycle
+            a0 = l0+int(k0-1,i8)*m+k0
+            a12 = l0+int(k0+kb-1,i8)*m+k0
+            a21 = a0+kb
+            a22 = a12+kb
+            call dtrsm('L', 'L', 'N', 'U', kb, rest, 1.0_dp, self%values(a0), m, &
+                self%values(a12), m)
+            call dgemm('N', 'N', rest, rest, kb, -1.0_dp, self%values(a21), m, &
+                self%values(a12), m, 1.0_dp, self%values(a22), m)
+        end do
+        do j = 1, w
+            do i = 1, j
+                max_u = max(max_u, abs(self%values(l0+int(j-1,i8)*m+i)))
+            end do
+        end do
+    end subroutine blocked_block_factor
 
     function gate_reason(self, perturb_limit, growth_limit) result(reason)
         ! Factor-time gates (design section 6); blank when the factor passes.
