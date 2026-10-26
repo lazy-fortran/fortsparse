@@ -5,8 +5,8 @@ module fortsparse_precision_csr
     use fortnum_precision, only: FP64, FP32, precision_policy_t, &
         precision_pair_t, STAGE_PRECONDITION
     use fortnum_precision_vector, only: precision_vector_t
-    use fortnum_refinement, only: mixed_refine
-    use fortnum_krylov, only: real_fgmres_operator
+    use fortnum_refinement, only: mixed_refine, refinement_solver_t
+    use fortnum_krylov, only: real_fgmres, real_linear_operator_t
     implicit none
     private
     type, public :: precision_csr_t
@@ -23,6 +23,31 @@ module fortsparse_precision_csr
         procedure :: bytes => csr_bytes
     end type
     public :: csr_gmres_ir
+    type, extends(real_linear_operator_t) :: exact_csr_operator_t
+        type(precision_csr_t), pointer :: matrix => null()
+    contains
+        procedure :: apply => exact_csr_apply
+    end type
+    type, extends(real_linear_operator_t) :: low_csr_operator_t
+        type(precision_csr_t) :: matrix
+        integer :: compute = FP64
+        logical :: failed = .false.
+    contains
+        procedure :: apply => low_csr_apply
+    end type
+    type, extends(real_linear_operator_t) :: identity_operator_t
+    contains
+        procedure :: apply => identity_apply
+    end type
+    type, extends(refinement_solver_t) :: csr_correction_t
+        type(precision_csr_t), pointer :: exact => null()
+        type(low_csr_operator_t) :: low
+        real(real64), allocatable :: original(:)
+        integer :: active_storage = -1, inner_iterations, restart
+    contains
+        procedure :: solve => csr_correction_solve
+    end type
+
 contains
     subroutine csr_store(self, n, row, column, values, storage, ok)
         class(precision_csr_t), intent(inout) :: self
@@ -159,73 +184,81 @@ contains
             inner_iterations, restart, info, steps, residual)
         !! Exact matrix must be fp64. Rounded copies are rebuilt after escalation.
         !! Reuses FortNum FGMRES: basis/orthogonalization fp64, operator selectable.
-        type(precision_csr_t), intent(in) :: a
+        type(precision_csr_t), intent(in), target :: a
         real(real64), intent(in) :: b(:), tolerance
         real(real64), intent(inout) :: x(:)
         type(precision_policy_t), intent(inout) :: policy
         integer, intent(in) :: max_steps, inner_iterations, restart
         integer, intent(out) :: info, steps
         real(real64), intent(out) :: residual
-        type(precision_csr_t) :: low
-        real(real64), allocatable :: original(:)
-        integer :: active_compute, active_storage
-        logical :: failed
+        type(exact_csr_operator_t) :: exact
+        type(csr_correction_t) :: correction
         info = -1
         steps = 0
         residual = huge(1.0_real64)
         if (a%storage_format /= FP64) return
         if (a%n < 1 .or. inner_iterations < 1) return
         if (restart < 1 .or. restart > inner_iterations) return
-        original = a%wide
-        active_storage = -1
-        failed = .false.
-        call mixed_refine(exact_product, correction, b, x, policy, tolerance, &
+        exact%matrix => a
+        correction%exact => a
+        correction%original = a%wide
+        correction%active_storage = -1
+        correction%inner_iterations = inner_iterations
+        correction%restart = restart
+        call mixed_refine(exact, correction, b, x, policy, tolerance, &
             max_steps, info, steps, residual)
-    contains
-        subroutine exact_product(input, output)
-            real(real64), intent(in) :: input(:)
-            real(real64), intent(out) :: output(:)
-            logical :: ok
-            call a%matvec(input, output, FP64, ok)
-        end subroutine
-        subroutine correction(rhs, delta, precision, status)
-            real(real64), intent(in) :: rhs(:)
-            real(real64), intent(out) :: delta(:)
-            type(precision_pair_t), intent(in) :: precision
-            integer, intent(out) :: status
-            integer :: iterations
-            real(real64) :: norm
-            logical :: ok
-            if (precision%storage /= active_storage) then
-                call low%store(a%n, a%row, a%column, original, &
-                    precision%storage, ok)
-                if (.not. ok) then
-                    status = -1
-                    return
-                end if
-                active_storage = precision%storage
+    end subroutine
+
+    subroutine exact_csr_apply(self, input, output)
+        class(exact_csr_operator_t), intent(inout) :: self
+        real(real64), intent(in) :: input(:)
+        real(real64), intent(out) :: output(:)
+        logical :: ok
+        call self%matrix%matvec(input, output, FP64, ok)
+    end subroutine
+
+    subroutine low_csr_apply(self, input, output)
+        class(low_csr_operator_t), intent(inout) :: self
+        real(real64), intent(in) :: input(:)
+        real(real64), intent(out) :: output(:)
+        logical :: ok
+        call self%matrix%matvec(input, output, self%compute, ok)
+        if (.not. ok) self%failed = .true.
+    end subroutine
+
+    subroutine identity_apply(self, input, output)
+        class(identity_operator_t), intent(inout) :: self
+        real(real64), intent(in) :: input(:)
+        real(real64), intent(out) :: output(:)
+        output = input
+    end subroutine
+
+    subroutine csr_correction_solve(self, rhs, delta, precision, info)
+        class(csr_correction_t), intent(inout) :: self
+        real(real64), intent(in) :: rhs(:)
+        real(real64), intent(out) :: delta(:)
+        type(precision_pair_t), intent(in) :: precision
+        integer, intent(out) :: info
+        type(identity_operator_t) :: identity
+        integer :: iterations
+        real(real64) :: norm
+        logical :: ok
+        if (precision%storage /= self%active_storage) then
+            call self%low%matrix%store(self%exact%n, self%exact%row, &
+                self%exact%column, self%original, precision%storage, ok)
+            if (.not. ok) then
+                info = -1
+                return
             end if
-            active_compute = precision%compute
-            failed = .false.
-            delta = 0
-            call real_fgmres_operator(low_product, identity, rhs, delta, &
-                0.05_real64, inner_iterations, restart, status, iterations, norm)
-            ! An inexact correction is useful; its acceptance is decided by the
-            ! independently recomputed outer defect, including stagnation.
-            if (status >= 0 .and. .not. failed) status = 0
-            if (failed) status = -1
-        end subroutine
-        subroutine low_product(input, output)
-            real(real64), intent(in) :: input(:)
-            real(real64), intent(out) :: output(:)
-            logical :: ok
-            call low%matvec(input, output, active_compute, ok)
-            if (.not. ok) failed = .true.
-        end subroutine
-        subroutine identity(input, output)
-            real(real64), intent(in) :: input(:)
-            real(real64), intent(out) :: output(:)
-            output = input
-        end subroutine
+            self%active_storage = precision%storage
+        end if
+        self%low%compute = precision%compute
+        self%low%failed = .false.
+        delta = 0
+        call real_fgmres(self%low, identity, rhs, delta, 0.05_real64, &
+            self%inner_iterations, self%restart, info, iterations, norm)
+        ! The independently recomputed outer defect decides acceptance.
+        if (info >= 0 .and. .not. self%low%failed) info = 0
+        if (self%low%failed) info = -1
     end subroutine
 end module fortsparse_precision_csr

@@ -140,7 +140,7 @@ if(NOT TARGET fortnum)
     set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(fortnum
         GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
-        GIT_TAG 308b4f9544402cb44113a369cb9a32a82976a03e)
+        GIT_TAG b763bce9eb4fd521ba8fe3a7d6afa8c7a450f2f3)
     FetchContent_MakeAvailable(fortnum)
 endif()
 
