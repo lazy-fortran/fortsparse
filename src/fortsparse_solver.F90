@@ -1061,7 +1061,8 @@ contains
             end if
         end if
         if (allocated(solver%backend)) then
-            if (backend_is(solver%backend, id, is_complex, solver%options%symmetry)) then
+            if (backend_is(solver%backend, id, is_complex, solver%options%symmetry, &
+                solver%options%ldlt_supernodal)) then
                 solver%backend%options = solver%options
                 call status_set(status, FORTSPARSE_OK, "")
                 return
@@ -1070,7 +1071,8 @@ contains
         end if
         select case (id)
         case (FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE)
-            if (is_complex .or. solver%options%symmetry /= FORTSPARSE_SYM_SPD) then
+            if (.not. native_cholesky_family(is_complex, solver%options%symmetry, &
+                solver%options%ldlt_supernodal)) then
                 allocate(native_general_backend_t :: solver%backend)
             else
                 allocate(native_backend_t :: solver%backend)
@@ -1118,10 +1120,21 @@ contains
     end function has_approximate_factors
 
     ! True when an allocated backend is the concrete kind for backend_id.
-    logical function backend_is(backend, backend_id, is_complex, symmetry)
+    ! The native Cholesky backend owns real SPD and, on request, the real
+    ! symmetric indefinite supernodal LDL^T.
+    pure logical function native_cholesky_family(is_complex, symmetry, &
+            ldlt_supernodal) result(owned)
+        logical, intent(in) :: is_complex, ldlt_supernodal
+        integer, intent(in) :: symmetry
+        owned = .not. is_complex .and. (symmetry == FORTSPARSE_SYM_SPD .or. &
+            (symmetry == FORTSPARSE_SYM_INDEFINITE .and. ldlt_supernodal))
+    end function native_cholesky_family
+
+    logical function backend_is(backend, backend_id, is_complex, symmetry, &
+            ldlt_supernodal)
         class(sparse_backend_t), intent(in) :: backend
         integer,                 intent(in) :: backend_id, symmetry
-        logical, intent(in) :: is_complex
+        logical, intent(in) :: is_complex, ldlt_supernodal
 
         backend_is = .false.
         select type (backend)
@@ -1130,9 +1143,9 @@ contains
                 (backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE)) return
             backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE .or. &
                 backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE) .and. &
-                (is_complex .or. symmetry /= FORTSPARSE_SYM_SPD)
+                .not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)
             type is (native_backend_t)
-            if (is_complex .or. symmetry /= FORTSPARSE_SYM_SPD) return
+            if (.not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)) return
             if (backend%reference_only) then
                 backend_is = backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
             else
