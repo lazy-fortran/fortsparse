@@ -35,6 +35,8 @@ program test_fortsparse_slu_factor
     call check_zero_pivot([1.0_dp, 1.0_dp, -1.0_dp, -1.0_dp-2.0_dp**(-50)], -1.0_dp)
     call check_outside_pattern()
     call check_split_root(80)
+    call check_delayed_leaves(40, .false.)
+    call check_delayed_leaves(160, .true.)
     print '(a,i0,a)', 'supernodal LU factor: ', total_swaps, ' block exchanges verified'
 contains
     real(dp) function uniform()
@@ -339,6 +341,104 @@ contains
             a(q+i,i) = a(q+i,i)+0.5_dp
         end do
     end subroutine split_root
+
+    subroutine delayed_leaves(q, a)
+        ! Dense root 1..q (2 I + 0.1 sin pattern) and q leaves (c1, c2) =
+        ! (q+2k-1, q+2k) with block [1, 1; 1, 1+1e-8], coupled to root k by
+        ! M(k,c2) = M(c2,k) = 1. The identity matching is optimal and AMD
+        ! eliminates the leaves first, so each leaf's second pivot is 1e-8
+        ! within its block while its parent row holds 1.
+        integer, intent(in) :: q
+        real(dp), allocatable, intent(out) :: a(:,:)
+        integer :: i, j, k, c1, c2
+        allocate(a(3*q,3*q))
+        a = 0.0_dp
+        do j = 1, q
+            do i = 1, q
+                a(i,j) = 0.1_dp*sin(real(i+3*j,dp))
+            end do
+            a(j,j) = 2.0_dp
+        end do
+        do k = 1, q
+            c1 = q+2*k-1
+            c2 = q+2*k
+            a(c1,c1) = 1.0_dp
+            a(c1,c2) = 1.0_dp
+            a(c2,c1) = 1.0_dp
+            a(c2,c2) = 1.0_dp+1.0e-8_dp
+            a(k,c2) = 1.0_dp
+            a(c2,k) = 1.0_dp
+        end do
+    end subroutine delayed_leaves
+
+    subroutine check_delayed_leaves(q, team)
+        ! Delayed pivots: without them the restricted leaf pivots grow the
+        ! root by about 1e8 and fail the growth gate; with them one column
+        ! per leaf joins the root's pivot domain in one relayout, the gate
+        ! passes with growth O(1), and a refactor keeps the layout. Serial
+        ! and BLAS factors are checked against LAPACK and the restricted-pivot
+        ! emulation of the delayed layout; team runs a four-thread tiled
+        ! factor instead and compares it with the serial one.
+        integer, intent(in) :: q
+        logical, intent(in) :: team
+        real(dp), allocatable :: a(:,:), values(:), x(:), b(:), serial(:)
+        integer, allocatable :: ptr(:), rows(:)
+        type(slu_factor_t) :: lu, plain
+        type(fortsparse_status_t) :: status
+        integer :: swaps, s, i, threads
+        logical :: blas
+        call delayed_leaves(q, a)
+        call to_csc(a, ptr, rows, values)
+        plain%delay_threshold = 0.0_dp
+        call plain%analyze(size(a,1), ptr, rows, values, status, ordering=SLU_ORDER_AMD)
+        call check(status%code == FORTSPARSE_OK, 'delayed-leaves analysis')
+        call plain%factor(ptr, rows, values, status)
+        call check(status%code == FORTSPARSE_OK, 'factor without delays')
+        call check(plain%max_growth > 1.0e7_dp, 'restricted leaf pivots grow the root')
+        call check(trim(plain%gate_reason()) == 'GROWTH', 'growth gate without delays')
+        call plain%free()
+        allocate(x(size(a,1)), b(size(a,1)))
+        x = [(cos(real(i,dp)), i=1, size(a,1))]
+        do s = 1, 2
+            blas = s == 2
+            threads = 1
+            if (team .and. blas) then
+                threads = 4
+                lu%tile_min_flops = 0.0_dp
+            end if
+            call lu%analyze(size(a,1), ptr, rows, values, status, &
+                ordering=SLU_ORDER_AMD, force_blas=blas, nthreads=threads)
+            call check(status%code == FORTSPARSE_OK, 'delayed-leaves analysis')
+            call lu%factor(ptr, rows, values, status)
+            call check(status%code == FORTSPARSE_OK, 'factor with delays')
+            call check(lu%delayed_columns == q .and. lu%delay_rounds == 1, &
+                'one column per leaf delayed in one relayout')
+            call check(lu%max_growth < 10.0_dp, 'delayed columns pivot on parent rows')
+            call check(len_trim(lu%gate_reason()) == 0, &
+                'delayed factor passes the gates')
+            call lu%factor(ptr, rows, values, status)
+            call check(status%code == FORTSPARSE_OK .and. lu%delay_rounds == 0 .and. &
+                lu%delayed_columns == q, 'refactor reuses the delayed layout')
+            b = matmul(a, x)
+            call lu%solve(b, status)
+            call check(status%code == FORTSPARSE_OK, 'delayed solve')
+            call check(backward(a, b, matmul(a, x)) < 1.0e-13_dp, &
+                'delayed original-matrix backward error')
+            if (s == 1) then
+                serial = b
+            else if (team) then
+                call check(maxval(abs(b-serial)) <= 1.0e-12_dp*maxval(abs(serial)), &
+                    'delayed team factor equals the serial one within roundoff')
+                print '(a,i0,a,i0)', 'delayed leaves: team active=', &
+                    lu%active_threads, ' groups=', lu%task_groups
+            end if
+            call lu%free()
+        end do
+        if (team) return
+        swaps = 0
+        call check_matrix(a, .false., swaps)
+        call check_matrix(a, .true., swaps)
+    end subroutine check_delayed_leaves
 
     subroutine check_split_root(q)
         ! A chain wider than the BLAS panel width stays one pivot domain, so
