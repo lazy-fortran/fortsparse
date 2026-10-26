@@ -25,4 +25,4 @@ source-form = "free"
 [preprocess.cpp]
 
 [dependencies]
-fortnum = { git = "https://github.com/lazy-fortran/fortnum.git", rev = "8c1d82bb635af6381a6873db036d56f2a0d39fd8" }
+fortnum = { git = "https://github.com/lazy-fortran/fortnum.git", rev = "187831c72dd8b6a2d4b71f5cff75e8997076a6fa" }
