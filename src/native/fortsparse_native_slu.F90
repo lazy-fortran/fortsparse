@@ -44,6 +44,7 @@ module fortsparse_native_slu
         supernode_sort_rows, supernode_scatter_mapped_update, supernode_find_row
     use fortsparse_spd_leaves, only: spd_scatter_update, spd_gather_update
     use fortsparse_slu_leaves, only: slu_update, slu_scale, slu_block_factor, &
+        slu_panel_factor, &
         slu_trsm_upper, slu_trsm_unit_lower_t, slu_schur_update, slu_apply_swaps, &
         slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
@@ -63,6 +64,12 @@ module fortsparse_native_slu
     real(dp), parameter :: TILE_FLOPS = 4.0e6_dp, TILE_TARGET_FLOPS = 1.0e6_dp, &
         TILE_THREAD_FLOPS = 2.0e6_dp
     integer, parameter :: TILE_PER_THREAD = 3, TILE_MIN_COLUMNS = 16, TILE_MIN_ROWS = 32
+    ! Diagonal blocks wider than SLU_BLOCKED_WIDTH factor in SLU_PANEL_NB
+    ! column panels with BLAS-3 trailing updates (when BLAS is in use).
+    integer, parameter :: SLU_BLOCKED_WIDTH = 128, SLU_PANEL_NB = 64
+    ! Delayed pivots: default threshold u and relayouts per factorization.
+    real(dp), parameter :: SLU_DELAY_THRESHOLD = 0.01_dp
+    integer, parameter :: SLU_DELAY_ROUNDS = 3
     character(*), parameter :: phase_names(SLU_PHASE_COUNT) = [character(16) :: &
         'MPM', 'graph', 'AMD arena', 'counts', 'rows', 'incoming', 'panels', &
         'scratch']
@@ -85,6 +92,15 @@ module fortsparse_native_slu
         ! Smallest panel work (flops) split into tiles by a team; 0 tiles every
         ! panel (test hook), set before analysis.
         real(dp) :: tile_min_flops = TILE_FLOPS
+        ! Threshold u of the delayed pivots (real uncapped factors with an
+        ! assembly map): a column whose multipliers exceed 1/u, i.e. whose
+        ! restricted pivot is below u times an entry of a parent row, joins
+        ! the parent supernode's pivot domain and the factor is repeated on
+        ! that layout (at most SLU_DELAY_ROUNDS times). 0 disables delays.
+        ! delayed_columns counts the columns moved in the current layout,
+        ! delay_rounds the relayouts of the last factorization.
+        real(dp) :: delay_threshold = SLU_DELAY_THRESHOLD
+        integer :: delayed_columns = 0, delay_rounds = 0
         logical :: budget_reduced_threads = .false.
         ! factor_nnz: padded L+U panel entries; symbolic_nnz: exact
         ! nnz(L+U) of the symmetrized structure (L diagonal counted once).
@@ -109,6 +125,8 @@ module fortsparse_native_slu
         real(dp) :: analysis_s = 0.0_dp, factor_s = 0.0_dp
         logical, private :: analyzed = .false., factored = .false.
         logical, private :: strict = .false., use_blas = .true.
+        ! force_blas of the analysis (-1 none, 0 off, 1 on), kept by relayouts.
+        integer, private :: blas_override = -1
         integer, private :: inject = 0, maxwork = 0, maxrows = 0, nthreads = 1
         real(dp), private :: tau = 1.0e-13_dp, tau_abs = 0.0_dp, max_abs_m = 0.0_dp
         real(dp), private :: max_abs_u = 0.0_dp, anorm = 0.0_dp
@@ -327,7 +345,10 @@ contains
         baseline = ledger%current
         call analyze_phases(self, n, ptr, rows, values, order_kind, low, ledger, &
             status)
-        if (status_ok(status) .and. present(force_blas)) self%use_blas = force_blas
+        if (status_ok(status) .and. present(force_blas)) then
+            self%use_blas = force_blas
+            self%blas_override = merge(1, 0, force_blas)
+        end if
         if (status_ok(status)) then
             self%owned_budget_bytes = self%memory_bytes()
             if (ledger%current-baseline /= self%owned_budget_bytes .or. &
@@ -809,19 +830,36 @@ contains
     end subroutine etree_postorder
 
     subroutine build_nodes(self, n, sptr, sidx, len, parent, count, starts, ends, &
-            msize, mark, ledger, status)
+            msize, mark, ledger, status, forced_count)
         ! Partition, descriptors, column ownership and per-node row lists.
         ! starts/ends/msize/mark are caller scratch of length n.
+        ! forced_count: starts/ends already hold a contiguous partition into
+        ! forced_count supernodes with forward parents (a delayed-pivot
+        ! relayout); the row counts are then those of the row unions.
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: n, sptr(:), sidx(:), len, parent(:), count(:)
         integer, intent(inout) :: starts(:), ends(:), msize(:), mark(:)
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
+        integer, optional, intent(in) :: forced_count
         integer, allocatable :: rowlist(:), chead(:), cnext(:)
         integer :: s, ns, first, last, m, w, q, c, p, r, ierr
         integer(i8) :: descriptor_bytes
 
-        call supernode_partition(n, parent, count, self%strict, starts, ends, msize, ns)
+        if (present(forced_count)) then
+            ns = forced_count
+        else if (self%strict .or. self%complex_values) then
+            call supernode_partition(n, parent, count, self%strict, starts, ends, &
+                msize, ns)
+        else
+            ! Pivot domains: an exact (zero-padding) chain stays one supernode,
+            ! so pivoting covers its whole diagonal block. Splitting it at a
+            ! fixed width confines the pivot search to each piece, and the
+            ! remaining candidate rows of the chain become L21 entries; on
+            ! dense separators this produced growth above the gate (#34).
+            call supernode_partition(n, parent, count, self%strict, starts, ends, &
+                msize, ns, exact_width=n)
+        end if
         self%node_count = ns
         descriptor_bytes = int(storage_size(slu_panel_t())/8,i8)
         ! Descriptors, task tokens and failure flags, column ownership.
@@ -870,6 +908,7 @@ contains
                 c = cnext(c)
             end do
             call supernode_sort_rows(rowlist, 1, q)
+            if (present(forced_count)) m = q
             if (q /= m) then
                 call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
                     'supernodal LU: row union disagrees with column counts')
@@ -1400,6 +1439,9 @@ contains
         self%factored = .false.
         self%strict = .false.
         self%use_blas = .true.
+        self%blas_override = -1
+        self%delayed_columns = 0
+        self%delay_rounds = 0
         self%inject = 0
         self%maxwork = 0
         self%maxrows = 0
@@ -1429,8 +1471,9 @@ contains
         integer, intent(in) :: ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s
+        integer :: s, round, delays
         real(dp) :: started
+        logical, allocatable :: delay(:)
         integer, pointer :: token(:)
         !$ integer :: outer
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
@@ -1449,69 +1492,251 @@ contains
         call validate_csc(self%n, ptr, rows, values, status)
         if (.not. status_ok(status)) return
         started = seconds()
-        call assemble(self, ptr, rows, values, status)
-        if (.not. status_ok(status)) return
-        call reset_thread_stats(self)
-        if (self%sched%active_threads == 1) then
-            ! One planned thread: an OpenMP BLAS called outside a parallel
-            ! region would otherwise start its own default team per call.
-            !$ outer = omp_get_max_threads()
-            !$ call omp_set_num_threads(1)
-            do s = 1, self%node_count
-                call factor_destination(self, s, 1)
-            end do
-            !$ call omp_set_num_threads(outer)
-        else
-#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
-            token => self%sched%group_tokens
-            sources => self%sched%group_sources
-            !$omp parallel num_threads(self%sched%active_threads) default(shared)
-            !$omp single
-            !$ self%sched%active_threads = omp_get_num_threads()
-            do s = 1, self%sched%task_groups
-                incoming_start = self%sched%group_ptr(s)
-                ! OpenMP iterator end is exclusive, including in Fortran.
-                incoming_end = self%sched%group_ptr(s+1)
-                !$omp task firstprivate(s) &
-                !$omp depend(iterator(incoming=incoming_start:incoming_end), &
-                !$omp in:token(sources(incoming))) depend(out:token(s))
-                call factor_group(self, s)
-                !$omp end task
-            end do
-            !$omp end single
-            !$omp end parallel
-#else
-            ! Without iterator dependencies: one task per destination panel
-            ! and per update, ordered by panel tokens (as the SPD factor).
-            ! The per-panel failure flags serve as the dependence addresses:
-            ! each is written only under its own panel's dependence.
-            token => self%failures
-            !$omp parallel num_threads(self%sched%active_threads) default(shared)
-            !$omp single
-            !$ self%sched%active_threads = omp_get_num_threads()
-            do s = 1, self%node_count
-                !$omp task firstprivate(s) depend(inout:token(s))
-                call factor_panel(self, s, self%sched%workspace_thread())
-                !$omp end task
-                first = self%panels(s)%width+1
-                do while (first <= self%panels(s)%m)
-                    call self%sched%update_group(self%panels(s)%supernode_t, &
-                        first, group, dest)
-                    q = group-first
-                    !$omp task firstprivate(s,dest,first,q) &
-                    !$omp depend(in:token(s)) depend(inout:token(dest))
-                    call update_panel(self, s, dest, first, q)
-                    !$omp end task
-                    first = group
+        self%delay_rounds = 0
+        do round = 0, SLU_DELAY_ROUNDS
+            call assemble(self, ptr, rows, values, status)
+            if (.not. status_ok(status)) return
+            call reset_thread_stats(self)
+            if (self%sched%active_threads == 1) then
+                ! One planned thread: an OpenMP BLAS called outside a parallel
+                ! region would otherwise start its own default team per call.
+                !$ outer = omp_get_max_threads()
+                !$ call omp_set_num_threads(1)
+                do s = 1, self%node_count
+                    call factor_destination(self, s, 1)
                 end do
-            end do
-            !$omp end single
-            !$omp end parallel
+                !$ call omp_set_num_threads(outer)
+            else
+#ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
+                token => self%sched%group_tokens
+                sources => self%sched%group_sources
+                !$omp parallel num_threads(self%sched%active_threads) default(shared)
+                !$omp single
+                !$ self%sched%active_threads = omp_get_num_threads()
+                do s = 1, self%sched%task_groups
+                    incoming_start = self%sched%group_ptr(s)
+                    ! OpenMP iterator end is exclusive, including in Fortran.
+                    incoming_end = self%sched%group_ptr(s+1)
+                    !$omp task firstprivate(s) &
+                    !$omp depend(iterator(incoming=incoming_start:incoming_end), &
+                    !$omp in:token(sources(incoming))) depend(out:token(s))
+                    call factor_group(self, s)
+                    !$omp end task
+                end do
+                !$omp end single
+                !$omp end parallel
+#else
+                ! Without iterator dependencies: one task per destination panel
+                ! and per update, ordered by panel tokens (as the SPD factor).
+                ! The per-panel failure flags serve as the dependence addresses:
+                ! each is written only under its own panel's dependence.
+                token => self%failures
+                !$omp parallel num_threads(self%sched%active_threads) default(shared)
+                !$omp single
+                !$ self%sched%active_threads = omp_get_num_threads()
+                do s = 1, self%node_count
+                    !$omp task firstprivate(s) depend(inout:token(s))
+                    call factor_panel(self, s, self%sched%workspace_thread())
+                    !$omp end task
+                    first = self%panels(s)%width+1
+                    do while (first <= self%panels(s)%m)
+                        call self%sched%update_group(self%panels(s)%supernode_t, &
+                            first, group, dest)
+                        q = group-first
+                        !$omp task firstprivate(s,dest,first,q) &
+                        !$omp depend(in:token(s)) depend(inout:token(dest))
+                        call update_panel(self, s, dest, first, q)
+                        !$omp end task
+                        first = group
+                    end do
+                end do
+                !$omp end single
+                !$omp end parallel
 #endif
-            self%active_threads = self%sched%active_threads
-        end if
+                self%active_threads = self%sched%active_threads
+            end if
+            ! Delayed pivots need the analysed pattern (assembly map) and no cap.
+            ! Relayouts run only once the default growth gate trips, so a
+            ! factor that passes it keeps the fast restricted-pivot path.
+            if (round == SLU_DELAY_ROUNDS .or. .not. self%delay_threshold > 0.0_dp &
+                .or. self%map_nnz == 0) exit
+            if (.not. round_growth(self) > default_growth_limit()) exit
+            call mark_delays(self, delays)
+            if (delays == 0) exit
+            if (.not. allocated(delay)) allocate(delay(self%n))
+            call mark_delays(self, delays, delay)
+            call relayout_delays(self, delay, status)
+            if (.not. status_ok(status)) return
+            self%delay_rounds = round+1
+        end do
         call finish_factor(self, started, status)
     end subroutine factor_real
+
+    real(dp) function round_growth(self) result(growth)
+        ! max|U|/max|M| of the factorization just run (thread slots).
+        class(slu_factor_t), intent(in) :: self
+        integer :: t
+        growth = 0.0_dp
+        do t = 1, size(self%thread_stats,2)
+            growth = max(growth, self%thread_stats(4,t))
+        end do
+        if (self%max_abs_m > 0.0_dp) growth = growth/self%max_abs_m
+    end function round_growth
+
+    subroutine mark_delays(self, count, delay)
+        ! Threshold test of the restricted pivots: column k of a supernode
+        ! with a parent fails when a multiplier |L21(i,k)| exceeds 1/u, that
+        ! is when a parent row holds an entry above |u_kk|/u. With block
+        ! partial pivoting the block multipliers are already bounded by 1.
+        ! Without delay only the failing columns are counted (no allocation).
+        class(slu_factor_t), intent(in) :: self
+        integer, intent(out) :: count
+        logical, optional, intent(out) :: delay(:)
+        integer :: s, k, i, m, w
+        integer(i8) :: c0
+        real(dp) :: bound
+        if (present(delay)) delay = .false.
+        count = 0
+        bound = 1.0_dp/self%delay_threshold
+        do s = 1, self%node_count
+            m = self%panels(s)%m
+            w = self%panels(s)%width
+            if (m == w .or. self%failures(s) /= 0) cycle
+            do k = 1, w
+                c0 = self%panels(s)%offset_l+int(k-1,i8)*m
+                do i = w+1, m
+                    if (abs(self%values(c0+i)) > bound) exit
+                end do
+                if (i > m) cycle
+                count = count+1
+                if (present(delay)) delay(self%panels(s)%first+k-1) = .true.
+            end do
+        end do
+    end subroutine mark_delays
+
+    subroutine relayout_delays(self, delay, status)
+        ! Delayed pivots: each marked column moves to the front of its parent
+        ! supernode's column block in the permuted order, and the layout is
+        ! rebuilt from the analysed pattern. This is a symmetric permutation
+        ! that keeps the matching, the scaling and every other supernode;
+        ! the moved column's diagonal block then contains the parent rows
+        ! that held its large entries. A supernode whose columns all move
+        ! disappears. The panels, schedule and scratch are reallocated
+        ! (outside any caller budget: delays run only without a host cap).
+        class(slu_factor_t), intent(inout) :: self
+        logical, intent(in) :: delay(:)
+        type(fortsparse_status_t), intent(out) :: status
+        type(memory_budget_t) :: ledger
+        integer, allocatable :: perm(:), starts(:), ends(:), msize(:), mark(:)
+        integer, allocatable :: up(:), dhead(:), dtail(:), dnext(:)
+        integer, allocatable :: apt(:), arows(:), graph(:), finv(:), sptr(:)
+        integer, allocatable :: sidx(:), parent(:), count(:), col_old(:), row_old(:)
+        real(dp), allocatable :: drp(:), dcp(:)
+        integer :: n, ns, nodes, s, t, c, j, k, first, nnz, len, moved, ierr
+        integer :: override
+        n = self%n
+        ns = self%node_count
+        nnz = self%map_nnz
+        allocate(perm(n), starts(n), ends(n), msize(n), mark(n), up(ns), &
+            dhead(ns), dtail(ns), dnext(ns), stat=ierr)
+        if (ierr /= 0) goto 910
+        up = 0
+        dhead = 0
+        dtail = 0
+        dnext = 0
+        do s = 1, ns
+            if (self%panels(s)%m == self%panels(s)%width) cycle
+            t = self%sched%colnode(self%panels(s)%rows(self%panels(s)%width+1))
+            up(s) = t
+            if (dtail(t) == 0) then
+                dhead(t) = s
+            else
+                dnext(dtail(t)) = s
+            end if
+            dtail(t) = s
+        end do
+        k = 0
+        nodes = 0
+        moved = 0
+        do t = 1, ns
+            first = k+1
+            c = dhead(t)
+            do while (c /= 0)
+                do j = self%panels(c)%first, self%panels(c)%first+self%panels(c)%width-1
+                    if (.not. delay(j)) cycle
+                    k = k+1
+                    perm(k) = j
+                    moved = moved+1
+                end do
+                c = dnext(c)
+            end do
+            do j = self%panels(t)%first, self%panels(t)%first+self%panels(t)%width-1
+                if (delay(j) .and. up(t) > 0) cycle
+                k = k+1
+                perm(k) = j
+            end do
+            if (k < first) cycle
+            nodes = nodes+1
+            starts(nodes) = first
+            ends(nodes) = k
+        end do
+        call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
+            'supernodal LU: delayed-pivot relayout lost a column')
+        if (k /= n) return
+        ! Analysed pattern with matched original columns as row labels, and
+        ! the relabelled matching, scaling and ordering.
+        allocate(apt(n+1), arows(nnz), graph(nnz), finv(n), col_old(n), &
+            row_old(n), drp(n), dcp(n), stat=ierr)
+        if (ierr /= 0) goto 910
+        apt = self%map_ptr
+        arows = self%map_rows
+        do j = 1, nnz
+            graph(j) = self%col_old(self%row_new(arows(j)))
+        end do
+        do k = 1, n
+            col_old(k) = self%col_old(perm(k))
+            row_old(k) = self%row_old(perm(k))
+            drp(k) = self%drp(perm(k))
+            dcp(k) = self%dcp(perm(k))
+        end do
+        call move_alloc(col_old, self%col_old)
+        call move_alloc(row_old, self%row_old)
+        call move_alloc(drp, self%drp)
+        call move_alloc(dcp, self%dcp)
+        do k = 1, n
+            self%row_new(self%row_old(k)) = k
+            finv(self%col_old(k)) = k
+        end do
+        allocate(sptr(n+1), sidx(2*nnz+n), parent(n), count(n), stat=ierr)
+        if (ierr /= 0) goto 910
+        call build_symmetric(n, apt, graph, finv, sptr, sidx, mark, len, &
+            self%requested_threads)
+        call native_symbolic_counts(n, sptr, sidx(1:len), parent, count, status)
+        if (.not. status_ok(status)) return
+        self%symbolic_nnz = 2_i8*sum(int(count,i8))+int(n,i8)
+        ! Rebuild the numeric layout; matching and labels are already final.
+        override = self%blas_override
+        deallocate(self%panels, self%failures, self%pivots, self%values, &
+            self%solve_work, self%thread_stats, self%map_ptr, self%map_rows, &
+            self%map_pos)
+        call self%sched%free()
+        ledger = memory_budget_t()
+        call build_nodes(self, n, sptr, sidx, len, parent, count, starts, ends, &
+            msize, mark, ledger, status, forced_count=nodes)
+        if (.not. status_ok(status)) return
+        call build_schedule(self, ledger, status)
+        if (.not. status_ok(status)) return
+        call allocate_numeric(self, ledger, status)
+        if (.not. status_ok(status)) return
+        call build_assembly_map(self, apt, arows)
+        if (override >= 0) self%use_blas = override == 1
+        self%owned_budget_bytes = self%memory_bytes()
+        self%delayed_columns = self%delayed_columns+moved
+        call status_set(status, FORTSPARSE_OK, '')
+        return
+910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+            'supernodal LU: delayed-pivot relayout allocation failed')
+    end subroutine relayout_delays
 
     subroutine reset_thread_stats(self)
         class(slu_factor_t), intent(inout) :: self
@@ -1798,8 +2023,8 @@ contains
         swaps = 0
         min_pivot = huge(1.0_dp)
         max_u = 0.0_dp
-        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
-            self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        call factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
         do k = 1, w
             do e = 1, w
                 if (ieee_is_finite(self%values(l0+int(k-1,i8)*m+e))) cycle
@@ -2038,8 +2263,8 @@ contains
         swaps = 0
         min_pivot = huge(1.0_dp)
         max_u = 0.0_dp
-        call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
-            self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        call factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
         if (mu > 0) then
             do k = 1, w
                 r = self%pivots(first+k-1)
@@ -2235,6 +2460,65 @@ contains
         end do
     end subroutine backward_transpose
 
+    subroutine factor_diagonal_block(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
+        ! Restricted-pivot LU of the w-by-w diagonal block (lda = m): blocked
+        ! with BLAS-3 trailing updates above SLU_BLOCKED_WIDTH, else unblocked.
+        class(slu_factor_t), intent(inout) :: self
+        integer(i8), intent(in) :: l0
+        integer, intent(in) :: m, w, first
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot, max_u
+        if (self%use_blas .and. w > SLU_BLOCKED_WIDTH) then
+            call blocked_block_factor(self, l0, m, w, first, perturbed, swaps, &
+                min_pivot, max_u)
+        else
+            call slu_block_factor(self%values(l0+1), m, w, self%tau_abs, &
+                self%pivots(first), perturbed, swaps, min_pivot, max_u)
+        end if
+    end subroutine factor_diagonal_block
+
+    subroutine blocked_block_factor(self, l0, m, w, first, perturbed, swaps, &
+            min_pivot, max_u)
+        ! Right-looking blocked form of slu_block_factor for a wide diagonal
+        ! block (lda = m): slu_panel_factor on SLU_PANEL_NB columns with the
+        ! same pivot rule over all block rows, then dtrsm/dgemm on the
+        ! trailing block. Pivots, exchanges and perturbations follow the
+        ! unblocked rule; only the summation order of the updates differs.
+        class(slu_factor_t), intent(inout) :: self
+        integer(i8), intent(in) :: l0
+        integer, intent(in) :: m, w, first
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot, max_u
+        integer :: k0, kb, rest, i, j
+        integer(i8) :: a0, a12, a21, a22
+        do k0 = 1, w, SLU_PANEL_NB
+            kb = min(SLU_PANEL_NB, w-k0+1)
+            call slu_panel_factor(self%values(l0+1), m, w, k0, kb, self%tau_abs, &
+                self%pivots(first), perturbed, swaps, min_pivot)
+            rest = w-k0-kb+1
+            if (rest <= 0) cycle
+            a0 = l0+int(k0-1,i8)*m+k0
+            a12 = l0+int(k0+kb-1,i8)*m+k0
+            a21 = a0+kb
+            a22 = a12+kb
+            call dtrsm('L', 'L', 'N', 'U', kb, rest, 1.0_dp, self%values(a0), m, &
+                self%values(a12), m)
+            call dgemm('N', 'N', rest, rest, kb, -1.0_dp, self%values(a21), m, &
+                self%values(a12), m, 1.0_dp, self%values(a22), m)
+        end do
+        do j = 1, w
+            do i = 1, j
+                max_u = max(max_u, abs(self%values(l0+int(j-1,i8)*m+i)))
+            end do
+        end do
+    end subroutine blocked_block_factor
+
+    pure real(dp) function default_growth_limit() result(growth)
+        ! Default growth gate 1/(64 sqrt(eps)) (design section 6).
+        growth = 1.0_dp/(64.0_dp*sqrt(epsilon(1.0_dp)))
+    end function default_growth_limit
+
     function gate_reason(self, perturb_limit, growth_limit) result(reason)
         ! Factor-time gates (design section 6); blank when the factor passes.
         ! Defaults: more than max(0, n/1000) perturbed pivots, or growth
@@ -2248,7 +2532,7 @@ contains
         reason = ''
         limit = max(0, self%n/1000)
         if (present(perturb_limit)) limit = perturb_limit
-        growth = 1.0_dp/(64.0_dp*sqrt(epsilon(1.0_dp)))
+        growth = default_growth_limit()
         if (present(growth_limit)) growth = growth_limit
         if (self%nonfinite) then
             reason = 'NONFINITE'
