@@ -142,6 +142,11 @@ if(TARGET test_fortsparse_slu_threads)
     set_tests_properties(test_fortsparse_slu_threads_uncapped PROPERTIES
         LABELS "native;lu;fast" TIMEOUT 1
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
+    add_test(NAME test_fortsparse_slu_threads_tiles
+        COMMAND test_fortsparse_slu_threads tiles)
+    set_tests_properties(test_fortsparse_slu_threads_tiles PROPERTIES
+        LABELS "native;lu;fast" TIMEOUT 1
+        ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
     add_test(NAME test_fortsparse_slu_threads_repeat
         COMMAND test_fortsparse_slu_threads repeat)
     set_tests_properties(test_fortsparse_slu_threads_repeat PROPERTIES
