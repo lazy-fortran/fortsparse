@@ -428,6 +428,10 @@ fortsparse_add_test(test_fortsparse_memory_api solver/test_fortsparse_memory_api
 set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_ldlt_blocked solver/test_fortsparse_ldlt_blocked.f90)
 set_tests_properties(test_fortsparse_ldlt_blocked PROPERTIES LABELS "native;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_ldlt_supernodal solver/test_fortsparse_ldlt_supernodal.f90)
+set_tests_properties(test_fortsparse_ldlt_supernodal PROPERTIES
+    LABELS "native;fast" TIMEOUT 1 PROCESSORS 4
+    ENVIRONMENT "OMP_NUM_THREADS=4;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_ldlt_merge solver/test_fortsparse_ldlt_merge.f90)
 set_tests_properties(test_fortsparse_ldlt_merge PROPERTIES
     LABELS "native;performance;fast" TIMEOUT 1 PROCESSORS 2
