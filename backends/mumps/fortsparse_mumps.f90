@@ -216,6 +216,10 @@ contains
             write (msg, '(a,i0,a,i0)') "mumps factor failed: INFOG(1)=", &
                 info1, " INFOG(2)=", info2
             select case (info1)
+            case (-1004)
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    "mumps backend requires active MPI; "// &
+                    "MPI_Init before factor, MPI_Finalize after free")
             case (-6, -10, -40)
                 call status_set(status, FORTSPARSE_SINGULAR, trim(msg))
             case default
@@ -282,6 +286,10 @@ contains
             write (msg, '(a,i0,a,i0)') "zmumps factor failed: INFOG(1)=", &
                 info1, " INFOG(2)=", info2
             select case (info1)
+            case (-1004)
+                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                    "mumps backend requires active MPI; "// &
+                    "MPI_Init before factor, MPI_Finalize after free")
             case (-2000)
                 call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                     "mumps backend was built without complex (ZMUMPS) support")
@@ -349,6 +357,9 @@ contains
         write (msg, '(a,i0,a,i0)') "mumps refactor failed: INFOG(1)=", &
             info1, " INFOG(2)=", info2
         select case (info1)
+        case (-1004)
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "mumps refactor requires active MPI")
         case (-6, -10, -40)
             call status_set(status, FORTSPARSE_SINGULAR, trim(msg))
         case default
@@ -548,7 +559,12 @@ contains
         return
 900     write (msg, '(a,i0,a,i0)') "zmumps solve failed: INFOG(1)=", info1, &
             " INFOG(2)=", info2
-        call status_set(status, FORTSPARSE_INTERNAL_ERROR, trim(msg))
+        if (info1 == -1004) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "mumps solve requires active MPI")
+        else
+            call status_set(status, FORTSPARSE_INTERNAL_ERROR, trim(msg))
+        end if
     end subroutine solve_block_inplace_z
 
     subroutine residual_z(self, b, x, r, berr)
@@ -651,7 +667,12 @@ contains
         return
 900     write (msg, '(a,i0,a,i0)') "mumps solve failed: INFOG(1)=", info1, &
             " INFOG(2)=", info2
-        call status_set(status, FORTSPARSE_INTERNAL_ERROR, trim(msg))
+        if (info1 == -1004) then
+            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+                "mumps solve requires active MPI")
+        else
+            call status_set(status, FORTSPARSE_INTERNAL_ERROR, trim(msg))
+        end if
     end subroutine solve_block_inplace
 
     ! r = b - A x and the scaled backward error max(berr, |r|/(|A||x|+|b|)).

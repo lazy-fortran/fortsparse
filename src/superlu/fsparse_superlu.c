@@ -4,6 +4,7 @@
  * original CSC SuperMatrix) is held in an opaque handle so repeated solves
  * reuse it. License of this file: MIT (our code). It links only SuperLU. */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -117,8 +118,8 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
                            h->rowidx0, h->colptr0, SLU_NC, SLU_D, SLU_GE);
 
     set_default_options(&h->options);
-    h->options.ColPerm = COLAMD;
-    get_perm_c(COLAMD, &h->A, h->perm_c);
+    h->options.ColPerm = MMD_AT_PLUS_A;
+    get_perm_c(h->options.ColPerm, &h->A, h->perm_c);
     sp_preorder(&h->options, &h->A, h->perm_c, h->etree, &h->AC);
 
     panel_size = sp_ienv(1);
@@ -134,6 +135,19 @@ void *fsparse_slu_factor_d(int n, int nnz, const int *colptr1,
         *info = (lu_info > 0) ? 1 : -1;
         fsparse_slu_free_d(h);
         return NULL;
+    }
+    /* Scratch factor-storage diagnostics for the real MMD experiment. */
+    {
+        mem_usage_t usage = {0};
+        int query_status = dQuerySpace(&h->L, &h->U, &usage);
+        printf("K SuperLU real factor: ordering=%d L_nnz=%lld U_nnz=%lld "
+               "query_status=%d for_lu=%.9g total_needed=%.9g\n",
+               (int) h->options.ColPerm,
+               (long long) ((SCformat *) h->L.Store)->nnz,
+               (long long) ((NCformat *) h->U.Store)->nnz,
+               query_status, (double) usage.for_lu,
+               (double) usage.total_needed);
+        fflush(stdout);
     }
     return h;
 }

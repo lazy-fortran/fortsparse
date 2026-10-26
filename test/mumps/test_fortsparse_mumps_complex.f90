@@ -9,11 +9,13 @@ program test_fortsparse_mumps_complex
         fortsparse_status_t, status_ok, FORTSPARSE_BACKEND_MUMPS, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_SINGULAR
+    use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
     implicit none
 
     integer :: nfail
     integer :: seed_state = 12345
 
+    call test_mpi_init()
     nfail = 0
     call test_kind("general", FORTSPARSE_SYM_GENERAL, 0, 300, nfail)
     call test_kind("hermitian-indefinite", FORTSPARSE_SYM_HERMITIAN, 1, 300, nfail)
@@ -27,6 +29,7 @@ program test_fortsparse_mumps_complex
     call test_concurrent_objects(nfail)
     call test_singular(nfail)
 
+    call test_mpi_finalize()
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
         stop 1

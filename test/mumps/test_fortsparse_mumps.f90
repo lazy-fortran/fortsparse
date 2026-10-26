@@ -11,11 +11,13 @@ program test_fortsparse_mumps
         FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_GENERAL, &
         FORTSPARSE_SINGULAR
     use fs_test_matrices, only: laplace2d, p3_poisson, inf_residual
+    use fs_test_mpi, only: test_mpi_init, test_mpi_finalize
     implicit none
 
     integer :: nfail
     real(dp), parameter :: pi = acos(-1.0_dp)
 
+    call test_mpi_init()
     nfail = 0
     call test_laplacian(nfail)
     call test_p3_energy(nfail)
@@ -25,6 +27,7 @@ program test_fortsparse_mumps
     call test_indefinite_and_general(nfail)
     call test_not_positive_definite(nfail)
 
+    call test_mpi_finalize()
     if (nfail > 0) then
         write (error_unit, "(i0,a)") nfail, " test(s) failed"
         stop 1
@@ -203,6 +206,8 @@ contains
         do i = 1, size(counts)
             call spd_solver(solver, counts(i))
             call sparse_factor(solver, A, status)
+            if (.not. status_ok(status)) &
+                write (error_unit, '(a,i0,2a)') "threads=", counts(i), ": ", trim(status%msg)
             call check_true("thread factor", status_ok(status), nfail)
             if (.not. status_ok(status)) return
             call sparse_solve(solver, b, x(:, i), status)
