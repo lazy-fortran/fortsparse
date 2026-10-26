@@ -124,6 +124,11 @@ fortsparse_add_test(test_fortsparse_slu_fallback
     solver/test_fortsparse_slu_fallback.f90)
 set_tests_properties(test_fortsparse_slu_fallback PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_slu_refactor
+    solver/test_fortsparse_slu_refactor.f90)
+set_tests_properties(test_fortsparse_slu_refactor PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=2")
 fortsparse_add_test(test_fortsparse_slu_threads
     solver/test_fortsparse_slu_threads.f90)
 set_tests_properties(test_fortsparse_slu_threads PROPERTIES

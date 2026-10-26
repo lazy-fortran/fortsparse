@@ -48,7 +48,7 @@ module fortsparse_native_slu
         slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    !$ use omp_lib, only: omp_get_num_threads, omp_get_max_threads
+    !$ use omp_lib, only: omp_get_num_threads, omp_get_max_threads, omp_set_num_threads
     implicit none
     private
     public :: slu_factor_t
@@ -115,6 +115,15 @@ module fortsparse_native_slu
         ! reduced in thread order after a factorization: counts are exact and
         ! extrema order independent, so the totals match the serial factor.
         real(dp), allocatable, private :: thread_stats(:,:)
+        ! Assembly map of the analysed real pattern (not under a host cap or
+        ! LOW_MEMORY): the analysed col_ptr/row_idx and the panel position
+        ! of every entry. A factorization of the same pattern scatters
+        ! through it instead of searching the panel rows; any other pattern
+        ! takes the search. Built once per analysis, part of plan_bytes.
+        integer, private :: map_nnz = 0
+        logical, private :: map_ready = .false.
+        integer, allocatable, private :: map_ptr(:), map_rows(:)
+        integer(i8), allocatable, private :: map_pos(:)
         ! Complex-valued factor (analyze with complex values): panels, update
         ! and solve scratch. values, solve_work and sched%update_work stay
         ! unallocated; the real arrays are unallocated for a real factor.
@@ -139,6 +148,7 @@ module fortsparse_native_slu
         procedure :: is_analyzed
         procedure :: node_structure
         procedure :: ordering
+        procedure :: thread_request
         procedure, private :: structure_bytes
         procedure, private :: element_bytes
     end type slu_factor_t
@@ -571,11 +581,14 @@ contains
         call release(ledger, 4_i8*(sym_entries+int(n,i8)+1_i8+7_i8*n), status)
         if (.not. status_ok(status)) return
 
+        self%map_nnz = 0
+        if (.not. (self%strict .or. low .or. self%complex_values)) self%map_nnz = nnz
         call build_schedule(self, ledger, status)
         if (.not. status_ok(status)) return
         call allocate_numeric(self, ledger, status)
         if (.not. status_ok(status)) return
         call finalize_labels(self)
+        if (self%map_nnz > 0) call build_assembly_map(self, ptr, rows)
         call status_set(status, FORTSPARSE_OK, '')
         return
 910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
@@ -973,6 +986,7 @@ contains
         bytes = bytes+esize*int(self%maxwork,i8)*self%sched%active_threads
         bytes = bytes+esize*(int(self%n,i8)+int(self%maxrows,i8))
         bytes = bytes+32_i8*self%sched%active_threads
+        bytes = bytes+map_bytes(self)
         self%plan_bytes = bytes
     end subroutine build_schedule
 
@@ -1079,6 +1093,13 @@ contains
         allocate(self%thread_stats(4,self%sched%active_threads), stat=ierr)
         if (ierr /= 0) goto 910
         self%thread_stats = 0.0_dp
+        if (self%map_nnz > 0) then
+            call charge(self, ledger, map_bytes(self), SLU_PHASE_SCRATCH, status)
+            if (.not. status_ok(status)) return
+            allocate(self%map_ptr(self%n+1), self%map_rows(self%map_nnz), &
+                self%map_pos(self%map_nnz), stat=ierr)
+            if (ierr /= 0) goto 910
+        end if
         return
 910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
             'supernodal LU: panel allocation failed')
@@ -1176,7 +1197,79 @@ contains
             bytes = bytes+16_i8*size(self%zsolve_work,kind=i8)
         if (allocated(self%zupdate_work)) &
             bytes = bytes+16_i8*size(self%zupdate_work,kind=i8)
+        if (allocated(self%map_pos)) bytes = bytes+map_bytes(self)
     end function memory_bytes
+
+    pure integer(i8) function map_bytes(self) result(bytes)
+        ! Assembly map: analysed col_ptr and row_idx, one position per entry.
+        class(slu_factor_t), intent(in) :: self
+        bytes = 0_i8
+        if (self%map_nnz > 0) bytes = 4_i8*(int(self%n,i8)+1_i8) &
+            +12_i8*int(self%map_nnz,i8)
+    end function map_bytes
+
+    pure integer function thread_request(self) result(request)
+        ! The analysed team request: 0 = OpenMP default, LOW_MEMORY gives 1.
+        class(slu_factor_t), intent(in) :: self
+        request = self%nthreads
+    end function thread_request
+
+    subroutine build_assembly_map(self, ptr, rows)
+        ! Panel position of every entry of the analysed pattern, as assemble
+        ! computes it by search. An entry outside the structure (impossible
+        ! for the analysed pattern) leaves the map unused.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        integer :: l, c, e, k, dl, dk, pos
+        integer(i8) :: p
+        self%map_ready = .false.
+        self%map_ptr = ptr(1:self%n+1)
+        self%map_rows = rows(1:self%map_nnz)
+        do l = 1, self%n
+            c = self%col_old(l)
+            dl = self%sched%colnode(l)
+            do e = ptr(c), ptr(c+1)-1
+                k = self%row_new(rows(e))
+                dk = self%sched%colnode(k)
+                if (dk == dl) then
+                    p = self%panels(dl)%offset_l &
+                        +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m &
+                        +(k-self%panels(dl)%first+1)
+                else if (k > l) then
+                    pos = supernode_find_row(self%panels(dl)%supernode_t, k)
+                    if (pos == 0) return
+                    p = self%panels(dl)%offset_l &
+                        +int(l-self%panels(dl)%first,i8)*self%panels(dl)%m+pos
+                else
+                    pos = supernode_find_row(self%panels(dk)%supernode_t, l)
+                    if (pos == 0) return
+                    p = self%panels(dk)%offset_u+int(k-self%panels(dk)%first,i8) &
+                        *(self%panels(dk)%m-self%panels(dk)%width) &
+                        +(pos-self%panels(dk)%width)
+                end if
+                self%map_pos(e) = p
+            end do
+        end do
+        self%map_ready = .true.
+    end subroutine build_assembly_map
+
+    logical function map_matches(self, ptr, rows) result(same)
+        ! ptr/rows equal the analysed pattern of the assembly map.
+        class(slu_factor_t), intent(in) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        integer :: j, e
+        same = .false.
+        if (.not. self%map_ready) return
+        if (size(ptr) < self%n+1) return
+        if (ptr(self%n+1)-1 /= self%map_nnz .or. size(rows) < self%map_nnz) return
+        do j = 1, self%n+1
+            if (ptr(j) /= self%map_ptr(j)) return
+        end do
+        do e = 1, self%map_nnz
+            if (rows(e) /= self%map_rows(e)) return
+        end do
+        same = .true.
+    end function map_matches
 
     function plan(self) result(layout)
         ! Exact layout of the analyzed factor (owned arrays only).
@@ -1234,6 +1327,11 @@ contains
         if (allocated(self%zvalues)) deallocate(self%zvalues)
         if (allocated(self%zsolve_work)) deallocate(self%zsolve_work)
         if (allocated(self%zupdate_work)) deallocate(self%zupdate_work)
+        if (allocated(self%map_ptr)) deallocate(self%map_ptr)
+        if (allocated(self%map_rows)) deallocate(self%map_rows)
+        if (allocated(self%map_pos)) deallocate(self%map_pos)
+        self%map_nnz = 0
+        self%map_ready = .false.
         self%complex_values = .false.
         call self%sched%free()
         self%n = 0
@@ -1295,6 +1393,7 @@ contains
         integer :: s
         real(dp) :: started
         integer, pointer :: token(:)
+        !$ integer :: outer
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
         integer, pointer :: sources(:)
         integer :: incoming_start, incoming_end
@@ -1315,9 +1414,14 @@ contains
         if (.not. status_ok(status)) return
         call reset_thread_stats(self)
         if (self%sched%active_threads == 1) then
+            ! One planned thread: an OpenMP BLAS called outside a parallel
+            ! region would otherwise start its own default team per call.
+            !$ outer = omp_get_max_threads()
+            !$ call omp_set_num_threads(1)
             do s = 1, self%node_count
                 call factor_destination(self, s, 1)
             end do
+            !$ call omp_set_num_threads(outer)
         else
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
             token => self%sched%group_tokens
@@ -1418,6 +1522,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer :: s
         real(dp) :: started
+        !$ integer :: outer
         self%factored = .false.
         self%nonfinite = .false.
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernodal LU: not analyzed')
@@ -1432,9 +1537,12 @@ contains
         if (.not. status_ok(status)) return
         call reset_thread_stats(self)
         if (self%sched%active_threads == 1) then
+            !$ outer = omp_get_max_threads()
+            !$ call omp_set_num_threads(1)
             do s = 1, self%node_count
                 call factor_destination_z(self, s, 1)
             end do
+            !$ call omp_set_num_threads(outer)
         else
             call factor_tasks_z(self)
             self%active_threads = self%sched%active_threads
@@ -1452,6 +1560,8 @@ contains
         integer :: l, c, e, k, dl, dk, pos
         integer(i8) :: p
         real(dp) :: v
+        logical :: mapped
+        mapped = map_matches(self, ptr, rows)
         self%values = 0.0_dp
         self%solve_work(1:self%n) = 0.0_dp
         self%max_abs_m = 0.0_dp
@@ -1465,6 +1575,10 @@ contains
                 v = slu_scale(self%drp(k), values(e), self%dcp(l))
                 self%solve_work(k) = slu_update(self%solve_work(k), -1.0_dp, abs(v))
                 self%max_abs_m = max(self%max_abs_m, abs(v))
+                if (mapped) then
+                    self%values(self%map_pos(e)) = v
+                    cycle
+                end if
                 dk = self%sched%colnode(k)
                 if (dk == dl) then
                     p = self%panels(dl)%offset_l &
