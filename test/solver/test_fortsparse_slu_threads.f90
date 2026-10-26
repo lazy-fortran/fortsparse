@@ -30,6 +30,18 @@ program test_fortsparse_slu_threads
         print '(a)', 'supernodal LU threads: repeated team factorizations verified'
         stop
     end if
+    ! "tiles" runs a block operator whose top panels are heavy enough to be
+    ! split into tiles by the team (destination_work >= TILE_MIN_FLOPS).
+    if (trim(mode) == 'tiles') then
+        call block27(4, 12, ptr, rows, values)
+        call compare_teams('block 27-point, 12 dofs (tiled panels)', ptr, rows, values)
+        ! Every panel tiled, with in-block exchanges on the off-diagonal rows.
+        call kin_like(9, ptr, rows, values)
+        call compare_teams('3D 27-point, 2 dofs, every panel tiled', ptr, rows, values, &
+            0.0_dp)
+        print '(a)', 'supernodal LU threads: tiled panels verified'
+        stop
+    end if
     call kin_like(9, ptr, rows, values)
     call compare_teams('3D 27-point, 2 coupled dofs', ptr, rows, values)
     if (trim(mode) /= 'uncapped') call low_memory_team(ptr, rows, values)
@@ -50,8 +62,9 @@ contains
         uniform = real(seed, dp)/2147483648.0_dp
     end function uniform
 
-    subroutine compare_teams(label, ptr, rows, values)
+    subroutine compare_teams(label, ptr, rows, values, tile_flops)
         character(*), intent(in) :: label
+        real(dp), optional, intent(in) :: tile_flops
         integer, intent(in) :: ptr(:), rows(:)
         real(dp), intent(in) :: values(:)
         type(slu_factor_t) :: serial, team
@@ -68,7 +81,8 @@ contains
         call serial%factor(ptr, rows, values, status)
         call check(status%code == FORTSPARSE_OK, label//': serial factor')
         call check(serial%perturbed_pivots == 0, label//': no perturbed pivots')
-        call check(serial%block_swaps > 0, label//': in-block exchanges exercised')
+        if (index(label, '(tiled') == 0) &
+            call check(serial%block_swaps > 0, label//': in-block exchanges exercised')
         x = b
         call serial%solve(x, status, 0)
         be_serial = backward_error(ptr, rows, values, x, b)
@@ -77,6 +91,7 @@ contains
         call check(be_serial < 1.0e-13_dp, label//': serial backward error')
         threads = [2, 4, 8]
         do t = 1, size(threads)
+            if (present(tile_flops)) team%tile_min_flops = tile_flops
             call team%analyze(n, ptr, rows, values, status, nthreads=threads(t))
             call check(status%code == FORTSPARSE_OK, label//': team analysis')
             if (team%requested_threads > 1) threaded = .true.
@@ -376,6 +391,48 @@ contains
         rows = rows(:k)
         values = values(:k)
     end subroutine kin_like
+
+    subroutine block27(g, b, ptr, rows, values)
+        ! 27-point stencil on a g^3 grid with b dense unknowns per node and
+        ! unsymmetric blocks; a heavy top separator, as the KIN6D Newton matrix.
+        integer, intent(in) :: g, b
+        integer, allocatable, intent(out) :: ptr(:), rows(:)
+        real(dp), allocatable, intent(out) :: values(:)
+        integer :: n, i, j, k, di, dj, dk, node, other, u, v, col, nz
+        n = g**3*b
+        allocate(ptr(n+1), rows(27*b*n), values(27*b*n))
+        nz = 0
+        ptr(1) = 1
+        do k = 0, g-1
+            do j = 0, g-1
+                do i = 0, g-1
+                    node = i+g*j+g*g*k
+                    do v = 1, b
+                        col = node*b+v
+                        do dk = -1, 1
+                            do dj = -1, 1
+                                do di = -1, 1
+                                    if (min(i+di, j+dj, k+dk) < 0) cycle
+                                    if (max(i+di, j+dj, k+dk) > g-1) cycle
+                                    other = node+di+g*dj+g*g*dk
+                                    do u = 1, b
+                                        nz = nz+1
+                                        rows(nz) = other*b+u
+                                        values(nz) = sin(real(7*nz,dp))
+                                        if (other == node .and. u == v) &
+                                            values(nz) = values(nz)+30.0_dp*b
+                                    end do
+                                end do
+                            end do
+                        end do
+                        ptr(col+1) = nz+1
+                    end do
+                end do
+            end do
+        end do
+        rows = rows(:nz)
+        values = values(:nz)
+    end subroutine block27
 
     subroutine disconnected(ptr, rows, values)
         ! Three independent 2D blocks: separate elimination forests.
