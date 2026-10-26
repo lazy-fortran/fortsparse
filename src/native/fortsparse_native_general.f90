@@ -1628,8 +1628,12 @@ contains
         self%factor_invoked=.true.
         self%retained_order=-1
         started=seconds()
+        ! The thread team is planned by the analysis: a changed nthreads
+        ! request analyzes again, as the SPD backend does.
         if (reuse .and. self%slu_factor%is_analyzed() .and. self%slu_factor%n==n .and. &
-            (self%slu_factor%is_complex().eqv.is_complex)) then
+            (self%slu_factor%is_complex().eqv.is_complex) .and. &
+            self%slu_factor%thread_request() == &
+            supernodal_thread_request(self%options)) then
             ! The retained panels were admitted by an earlier analysis.
             ledger%limit=0_i8
             ledger%current=self%slu_factor%memory_bytes()
@@ -1965,6 +1969,13 @@ contains
             if (refine) threshold = 0.01_dp
         end if
     end function lu_pivot_threshold
+
+    pure integer function supernodal_thread_request(options) result(request)
+        ! The slu_factor%analyze team request for these options.
+        type(sparse_options_t), intent(in) :: options
+        request = max(0,options%nthreads)
+        if (options%memory_policy==FORTSPARSE_MEMORY_LOW) request = 1
+    end function supernodal_thread_request
 
     logical function supernodal_requested(self)
         class(native_general_backend_t), intent(in) :: self
