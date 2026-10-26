@@ -14,6 +14,10 @@ call only these leaves:
   exchanges whole block rows. A pivot with |p| < tau_abs becomes
   sign(p)*tau_abs with sign(0) = +. Perturbations and exchanges are counted
   exactly; min |u_kk| and max |u_ij| are accumulated.
+- `slu_panel_factor`: one column panel k0..k0+kb-1 of the blocked form of
+  `slu_block_factor` for wide diagonal blocks, with the same pivot,
+  exchange and perturbation rule; the caller applies the BLAS-3 trailing
+  update (`dtrsm`, `dgemm`).
 - `slu_trsm_upper` (B := B U^-1) and `slu_trsm_unit_lower_t` (B := B L^-T): the
   panel triangular solves below the BLAS thresholds and on the strict no-BLAS
   path.

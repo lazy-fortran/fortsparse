@@ -67,6 +67,62 @@
         end do
     end subroutine slu_block_factor
 
+    ! Panel step of the blocked LU of the same w-by-w diagonal block: columns
+    ! k0..k0+kb-1, whose rows k0..w already carry every update from columns
+    ! before k0. Column k pivots, perturbs and counts exactly as
+    ! slu_block_factor over block rows k..w and exchanges whole block rows
+    ! 1..w; only columns k+1..k0+kb-1 are updated, so the caller finishes
+    ! the trailing columns with U12 := L11^-1 A12 and A22 -= A21 U12.
+    pure subroutine slu_panel_factor(a, lda, w, k0, kb, tau_abs, ipiv, &
+            perturbed, swaps, min_pivot)
+        integer, intent(in) :: lda, w, k0, kb
+        real(dp), intent(inout) :: a(lda,*)
+        real(dp), intent(in) :: tau_abs
+        integer, intent(inout) :: ipiv(*)
+        integer, intent(inout) :: perturbed, swaps
+        real(dp), intent(inout) :: min_pivot
+        integer :: i, j, k, r
+        real(dp) :: best, saved
+        do k = k0, k0+kb-1
+            r = k
+            best = abs(a(k,k))
+            do i = k+1, w
+                if (abs(a(i,k)) > best) then
+                    best = abs(a(i,k))
+                    r = i
+                end if
+            end do
+            ipiv(k) = r
+            if (r /= k) then
+                swaps = swaps+1
+                do j = 1, w
+                    saved = a(k,j)
+                    a(k,j) = a(r,j)
+                    a(r,j) = saved
+                end do
+            end if
+            if (abs(a(k,k)) < tau_abs) then
+                if (a(k,k) >= 0.0_dp) then
+                    a(k,k) = tau_abs
+                else
+                    a(k,k) = -tau_abs
+                end if
+                perturbed = perturbed+1
+            end if
+            min_pivot = min(min_pivot, abs(a(k,k)))
+            !$omp simd
+            do i = k+1, w
+                a(i,k) = slu_divide(a(i,k), a(k,k))
+            end do
+            do j = k+1, k0+kb-1
+                !$omp simd
+                do i = k+1, w
+                    a(i,j) = slu_update(a(i,j), a(i,k), a(k,j))
+                end do
+            end do
+        end do
+    end subroutine slu_panel_factor
+
     ! B := B U^(-1) for the rows-by-w block b; U is upper, non-unit, in
     ! u(1:w,1:w).
     pure subroutine slu_trsm_upper(u, ldu, w, b, ldb, rows)

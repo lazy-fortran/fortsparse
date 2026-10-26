@@ -57,15 +57,19 @@ module fortsparse_native_supernode_schedule
     end type supernode_schedule_t
 contains
     pure subroutine supernode_partition(n, parent, count, strict, starts, ends, m, &
-            node_count)
+            node_count, exact_width)
         ! Fundamental and relaxed amalgamation along elimination-tree parent
         ! chains. count excludes the diagonal. A merge of last+1 requires
         ! parent(last) = last+1; then the union of the column structures has
         ! width+count(last) rows, so the rule needs only parent and count.
         ! strict selects the compact exact-width limit (bounded workspaces).
+        ! exact_width, when present, replaces the exact-merge width limit:
+        ! the supernodal LU passes n so that a zero-padding chain is never
+        ! split, which keeps its whole diagonal block one pivot domain.
         integer, intent(in) :: n, parent(:), count(:)
         logical, intent(in) :: strict
         integer, intent(out) :: starts(:), ends(:), m(:), node_count
+        integer, optional, intent(in) :: exact_width
         integer :: first, last, rows, candidate_m, candidate_w, exact_limit
         integer(i8) :: original_count, candidate_count, padded
 
@@ -74,6 +78,7 @@ contains
             if (int(n,i8)+sum(int(count(:n),i8)) > 128_i8*n) &
                 exact_limit = SUPERNODE_EXACT_WIDTH
         end if
+        if (present(exact_width)) exact_limit = max(1, exact_width)
         node_count = 0
         first = 1
         do while (first <= n)
