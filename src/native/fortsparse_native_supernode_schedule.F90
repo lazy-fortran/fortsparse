@@ -191,14 +191,21 @@ contains
 
     subroutine request_threads(self, nthreads, flops, serial)
         ! nthreads: 0 = OpenMP default, >0 explicit. Small factors and
-        ! serial (device) executions keep one team member.
+        ! serial (device) executions keep one team member. The OpenMP
+        ! default is capped at one member per FLOP_GRAIN factor flops:
+        ! measured in KIN6D Newton solves (sCluster node13, job 3370335),
+        ! 1.5e7-flop Cholesky/LDL^T factors were fastest serial, 9.3e7-flop
+        ! ones at 2 to 4 threads and 1.4e8-flop supernodal LUs at 4.
         class(supernode_schedule_t), intent(inout) :: self
         integer, intent(in) :: nthreads
         real(dp), intent(in) :: flops
         logical, intent(in) :: serial
+        real(dp), parameter :: FLOP_GRAIN = 3.0e7_dp
         self%active_threads = 1
         if (nthreads == 0) then
             !$ self%active_threads = omp_get_max_threads()
+            self%active_threads = max(1, min(self%active_threads, &
+                int(min(flops/FLOP_GRAIN, real(huge(1), dp)))))
         end if
         if (nthreads > 0) then
             !$ self%active_threads = nthreads
