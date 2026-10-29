@@ -86,6 +86,6 @@ int main(void) {
             message(STATUS "Audited AMD caller-workspace ABI unavailable; project-owned bounded AMD used")
         endif()
     else()
-        message(STATUS "SuiteSparse AMD unavailable: project-owned AMD ordering used")
+        message(STATUS "SuiteSparse AMD unavailable: built-in AMD ordering used")
     endif()
 endfunction()

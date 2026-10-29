@@ -50,14 +50,14 @@ Raw rows: `trials.csv`.
   natural order has one trial per matrix.
 - Toolchain: FortSparse ff261c0 built by fpm 0.13.0 with `--profile release`
   (gfortran 16.2.1, `-O3 -funroll-loops -fopenmp`), OpenBLAS 0.3.34, Linux
-  7.2.11. The fpm build contains the project-owned AMD, not SuiteSparse. Every
+  7.2.11. The fpm build contains the built-in AMD, not SuiteSparse. Every
   run was capped at 600 s and 16 GiB without swap; none reached a cap.
 
 ## AMD quality and nested dissection
 
 Raw outputs of the three diagnostic drivers are in `diagnostics.txt`.
 `drivers/amd_quality.c` compares Cholesky fill of the symmetric pattern under
-the project-owned AMD and SuiteSparse AMD 3.3.4. The ratio is 0.99-1.01 on
+the built-in AMD and SuiteSparse AMD 3.3.4. The ratio is 0.99-1.01 on
 randomly renumbered 2D grids up to n=160,000, 1.03 on a 40^3 3D grid and
 0.99-1.00 on random graphs. With the minimum workspace (`MEMORY_LOW`), the
 core compacted its graph 191 times over the run (counted in an instrumented
@@ -69,12 +69,12 @@ the symmetric pattern, n=200,978):
 | Ordering | nnz(L) | flops (sum of squared column counts) |
 |---|---|---|
 | natural | 127.3 M | 8.1e10 |
-| project-owned AMD | 19.3 M | 8.1e9 |
+| built-in AMD | 19.3 M | 8.1e9 |
 | SuiteSparse AMD 3.3.4 | 18.5 M | 7.0e9 |
 | METIS 5.2.1 nested dissection | 16.1 M | 4.6e9 |
 
 On this one 2D mesh, nested dissection (ND) needs 17% less fill and 43% fewer
-flops than the project-owned AMD (13% and 34% fewer than SuiteSparse AMD),
+flops than the built-in AMD (13% and 34% fewer than SuiteSparse AMD),
 against 6.6x less fill and 10x fewer flops for AMD over natural order. ND
 usually gains more on 3D meshes. It stays available through optional METIS;
 a native ND was not attempted.

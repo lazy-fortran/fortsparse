@@ -1,7 +1,8 @@
 #ifndef FSPARSE_NATIVE_AMD_CORE_H
 #define FSPARSE_NATIVE_AMD_CORE_H
 #include <stdint.h>
-/* MIT: project-owned approximate minimum degree on a zero-based symmetric
+/* Built-in approximate minimum degree (BSD-3-Clause, after SuiteSparse AMD,
+ * see fsparse_native_amd_core.c) on a zero-based symmetric
  * graph without diagonal entries. Same caller-workspace contract as AMD's
  * amd_2: pe/len/iw hold the adjacency lists, iw[pfree..iwlen) is elbow room
  * with iwlen >= pfree+n, and every array is destroyed. On return

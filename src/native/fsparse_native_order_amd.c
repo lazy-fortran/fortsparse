@@ -1,5 +1,5 @@
 /* MIT wrapper; AMD's BSD-3-Clause implementation remains an external library.
- * Without it, the project-owned AMD core is used through the bounded adapter. */
+ * Without it, the built-in AMD core is used through the bounded adapter. */
 #include <stdint.h>
 #include <stdlib.h>
 #include "fsparse_order_graph.h"
