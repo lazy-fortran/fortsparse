@@ -1,0 +1,32 @@
+# drivers/amd_quality.c (gcc -O2; own AMD vs SuiteSparse AMD 3.3.4; Cholesky fill of the symmetric pattern)
+grid50-shuffled        n=   2500 nnz=   12300 natural=     485558 own=     38659 own_low=     38659 suitesparse=     38259 own/ss=1.010
+grid200-shuffled       n=  40000 nnz=  199200 natural=  124472940 own=   1123254 own_low=   1123254 suitesparse=   1130342 own/ss=0.994
+grid400-shuffled       n= 160000 nnz=  798400 natural= 1934434212 own=   5941649 own_low=   5941649 suitesparse=   5872644 own/ss=1.012
+grid3d-40              n=  64000 nnz=  438400 natural=   99966439 own=  21316032 own_low=  21316032 suitesparse=  20614676 own/ss=1.034
+random0                n=   2475 nnz=   41213 natural=    1965328 own=    787505 own_low=    787505 suitesparse=    788801 own/ss=0.998
+random8                n=   2725 nnz=   29485 natural=    2730563 own=    194335 own_low=    194335 suitesparse=    196476 own/ss=0.989
+random16               n=   2027 nnz=   27243 natural=    1192626 own=    322944 own_low=    322944 suitesparse=    325317 own/ss=0.993
+random24               n=   2391 nnz=   32263 natural=    1481744 own=    447910 own_low=    447910 suitesparse=    448376 own/ss=0.999
+random32               n=   2261 nnz=   40139 natural=    1748703 own=    759725 own_low=    759725 suitesparse=    765601 own/ss=0.992
+compactions 191   (instrumented copy counting graph compactions over the whole run)
+STRESS PASS       (all 40 random graphs, both workspace sizes, valid permutations)
+
+# drivers/amd_vs_nd.c 317 (elasticity pattern, n=200978)
+natural   nnz(L)=  127320827 flops~8.083e+10
+own AMD   nnz(L)=   19263235 flops~8.107e+09
+SS AMD    nnz(L)=   18516399 flops~6.965e+09
+METIS ND  nnz(L)=   16051971 flops~4.572e+09
+
+# drivers/ldlt_probe.f90 (fpm --profile release; order 3 = natural, 1 = AMD)
+shift  0.0000 order  3 factor_nnz    343069 factor_s    0.248
+shift  0.0000 order  1 factor_nnz     80696 factor_s    0.052
+shift  0.0500 order  3 factor_nnz    343076 factor_s    0.286
+shift  0.0500 order  1 factor_nnz     80696 factor_s    0.063
+shift  0.3000 order  3 factor_nnz    343120 factor_s    0.271
+shift  0.3000 order  1 factor_nnz    100671 factor_s    0.094
+shift  1.0000 order  3 factor_nnz    343318 factor_s    0.300
+shift  1.0000 order  1 factor_nnz    241581 factor_s    0.477
+shift  2.0137 order  3 factor_nnz    337880 factor_s    0.228
+shift  2.0137 order  1 factor_nnz    787870 factor_s    5.373
+shift  3.5000 order  3 factor_nnz    397017 factor_s    0.305
+shift  3.5000 order  1 factor_nnz   2014465 factor_s   25.933

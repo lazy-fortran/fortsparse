@@ -21,6 +21,7 @@ module fortsparse_solver
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_NATURAL, &
         FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
         FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
         FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL
@@ -87,7 +88,8 @@ module fortsparse_solver
     public :: sparse_solve_op, sparse_solve_block_op
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
-    public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+    public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_NATURAL
 
     ! Solver handle. Holds backend selection, refinement toggle, the factored
     ! flag, and the polymorphic backend that owns the retained factorization.
@@ -289,6 +291,7 @@ contains
         end if
         if (solver%options%symmetry /= FORTSPARSE_SYM_SPD .or. &
             (solver%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+             solver%options%ordering /= FORTSPARSE_ORDER_NATURAL .and. &
              solver%options%ordering /= FORTSPARSE_ORDER_AMD) .or. &
             solver%options%structural_matching .or. solver%options%device /= -1) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &

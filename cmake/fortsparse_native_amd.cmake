@@ -6,7 +6,8 @@ function(fortsparse_configure_native_amd target)
     set(FORTSPARSE_NATIVE_BOUNDED_AMD_FOUND OFF PARENT_SCOPE)
     target_sources(${target} PRIVATE
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/native/fsparse_native_order_amd.c"
-        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/native/fsparse_native_amd_bounded.c")
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/native/fsparse_native_amd_bounded.c"
+        "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../src/native/fsparse_native_amd_core.c")
     if(NOT FORTSPARSE_ENABLE_AMD)
         return()
     endif()
@@ -82,9 +83,9 @@ int main(void) {
             target_compile_definitions(${target} PRIVATE FORTSPARSE_HAVE_BOUNDED_AMD)
             set(FORTSPARSE_NATIVE_BOUNDED_AMD_FOUND ON PARENT_SCOPE)
         else()
-            message(STATUS "Audited AMD caller-workspace ABI unavailable; strict AMD disabled")
+            message(STATUS "Audited AMD caller-workspace ABI unavailable; project-owned bounded AMD used")
         endif()
     else()
-        message(STATUS "AMD unavailable: native AMD ordering disabled")
+        message(STATUS "SuiteSparse AMD unavailable: built-in AMD ordering used")
     endif()
 endfunction()

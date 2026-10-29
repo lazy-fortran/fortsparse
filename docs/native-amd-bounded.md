@@ -1,9 +1,11 @@
 # Bounded AMD ordering for native CPU factors
 
 Explicit AMD ordering supports positive host allocation caps and `MEMORY_LOW`
-for native real/complex general LU and real SPD Cholesky when the audited
-AMD 3.3.4 caller-workspace ABI is available. Natural `DEFAULT` and general-LU
-`NATIVE_REFERENCE` retain their previous policies. This is CPU ordering; row
+for native real/complex general LU and real SPD Cholesky. The caller-workspace
+path calls the audited AMD 3.3.4 `amd_2` when that ABI is built and the
+project-owned `fsparse_amd_core` otherwise; both take the same arena and
+elbow room, and the core allocates nothing. General-LU `DEFAULT` uses this path
+whenever it selects AMD; `NATIVE_REFERENCE` retains its natural policy. This is CPU ordering; row
 pivoting, value scaling, sparse numerical factors and retained N/T/H solves are
 unchanged. These checks establish correctness and array-payload accounting,
 not performance admission or completion of the broader memory roadmap.
@@ -19,9 +21,9 @@ constructs and validates the complete private graph before calling AMD.
 
 Configure checks require the reviewed 3.3.4 header, exact function signature,
 32-bit C integer ABI and linkable `amd_2`/`amd_version` symbols. Every bounded
-operation checks the runtime version too. Other header/runtime versions or a
-missing interface return `BACKEND_UNAVAILABLE`; uncapped capability remains
-available independently. There are no global SuiteSparse allocator hooks,
+operation checks the runtime version too. A header or interface that fails the
+configure checks builds the project-owned core instead; a runtime version
+mismatch of a built vendor ABI returns `BACKEND_UNAVAILABLE`. There are no global SuiteSparse allocator hooks,
 production preload or hardcoded installation paths.
 
 The allocation contract trusts the audited upstream **AMD 3.3.4** implementation:

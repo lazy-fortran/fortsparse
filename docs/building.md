@@ -24,7 +24,7 @@ All options are set with `-D`.
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | Find SuperLU and UMFPACK with `find_package` instead of fetching them. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend; see [backends](backends.md#mumps). |
-| `FORTSPARSE_ENABLE_AMD` | `ON` | Use the optional BSD AMD ordering for the native solvers. |
+| `FORTSPARSE_ENABLE_AMD` | `ON` | Use SuiteSparse's BSD AMD for the native AMD ordering; otherwise the built-in implementation is used. |
 | `FORTSPARSE_ENABLE_METIS` | `ON` | Use the optional METIS nested-dissection ordering for the native solvers. |
 | `FORTSPARSE_ENABLE_NATIVE_CUDA` | `OFF` | Build the native CUDA kernels. |
 | `FORTSPARSE_ENABLE_OPENMP` | `ON` | Thread the CSC matrix-vector product with OpenMP. |
@@ -68,7 +68,8 @@ AMD/METIS ordering and CUDA can be enabled on top of this when available.
 ## fpm
 
 `fpm.toml` builds the native CPU library with system BLAS/LAPACK and fetches
-fortnum. It does not build SuperLU, MUMPS, AMD/METIS or the UMFPACK helper, so
+fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD, METIS or the UMFPACK
+helper (the built-in AMD ordering is included), so
 `FORTSPARSE_BACKEND_AUTO` selects the native backend. An explicitly requested
 backend that is not configured returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
 

@@ -1,8 +1,10 @@
 # Optional AMD ordering dependency
 
 The MIT adapter calls AMD's public `amd_order` API through a separately linked
-library. It contains no AMD algorithm source or vendored third-party headers.
-AMD is optional; an unavailable build returns status 3 from the adapter.
+library when SuiteSparse AMD is found. Otherwise the built-in ordering in
+`src/native/fsparse_native_amd_core.c` is used. That file was written with
+reference to SuiteSparse AMD's `amd_2.c` at the revision below and carries the
+AMD copyright and BSD 3-clause notice.
 
 Primary source retained on 2026-10-16:
 

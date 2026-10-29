@@ -19,7 +19,6 @@ int main(void) {
                          1, 3, 4, 5, 4, 5, 6};
     int perm[6], inverse[6], again[6], again_inverse[6];
     int status = fsparse_native_order_amd(6, 18, ptr, row, perm, inverse);
-#ifdef FORTSPARSE_TEST_AMD
     if (status != 0 || !check_inverse(perm, inverse, 6)) return 1;
     if (fsparse_native_order_amd(6, 18, ptr, row, again, again_inverse) != 0)
         return 2;
@@ -55,12 +54,6 @@ int main(void) {
         fsparse_native_order_amd_general(2, 2, two_ptr, bad_row, perm, inverse) != 2 ||
         fsparse_native_order_amd_general(2, 2, duplicate_ptr, duplicate_row,
                                         perm, inverse) != 2) return 13;
-#else
-    (void)check_inverse; (void)again; (void)again_inverse;
-    if (status != 3) return 10;
-    if (fsparse_native_order_amd_general(6, 18, ptr, row, perm, inverse) != 3)
-        return 14;
-#endif
     puts("PASS AMD permutation, inverse, deterministic ordering and status");
     return 0;
 }

@@ -19,15 +19,14 @@ A backend that was not built returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
 ## Native backend
 
 The native backend is written in this repository and needs only BLAS/LAPACK;
-AMD and METIS orderings are optional.
+AMD ordering is built in; SuiteSparse AMD and METIS are optional.
 
 For real SPD matrices set `solver%options%symmetry = FORTSPARSE_SYM_SPD` and
 supply full symmetric CSC with sorted, unique row indices and finite values
 (`csc_from_triplet` canonicalizes duplicates and ordering). The solver uses a
 simplicial path for low fill and blocked OpenMP tasks for larger fronts. AMD is
-the default ordering for larger non-banded systems when available, with METIS
-nested dissection as an alternative; `FORTSPARSE_ORDER_AMD` and
-`FORTSPARSE_ORDER_ND` require the corresponding library. A nonpositive or
+the default ordering for larger non-banded systems, with METIS nested
+dissection as an alternative; `FORTSPARSE_ORDER_ND` requires METIS. A nonpositive or
 nonfinite pivot returns `FORTSPARSE_NOT_POSITIVE_DEFINITE`. The analysis is
 kept for same-pattern refactorization. Statistics report factor storage and
 the requested and actual number of threads; they are not a forward-error bound.

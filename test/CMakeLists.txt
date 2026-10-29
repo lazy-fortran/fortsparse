@@ -197,9 +197,6 @@ set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 1
 add_executable(test_native_order_amd
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order_amd.c)
 target_link_libraries(test_native_order_amd PRIVATE fortsparse)
-if(FORTSPARSE_NATIVE_AMD_FOUND)
-    target_compile_definitions(test_native_order_amd PRIVATE FORTSPARSE_TEST_AMD)
-endif()
 add_test(NAME test_native_order_amd COMMAND test_native_order_amd)
 set_tests_properties(test_native_order_amd PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
@@ -450,6 +447,12 @@ fortsparse_add_test(test_fortsparse_native_general_api solver/test_fortsparse_na
 set_tests_properties(test_fortsparse_native_general_api PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1 WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 
+fortsparse_add_test(test_fortsparse_native_default_ordering
+    solver/test_fortsparse_native_default_ordering.f90)
+set_tests_properties(test_fortsparse_native_default_ordering PROPERTIES
+    LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+
 fortsparse_add_test(test_fortsparse_context_copy
     solver/test_fortsparse_context_copy.f90)
 set_tests_properties(test_fortsparse_context_copy PROPERTIES
@@ -577,9 +580,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     target_link_libraries(test_general_amd PRIVATE fortsparse)
     target_link_options(test_general_amd PRIVATE
         "LINKER:--wrap=fsparse_native_order_amd_general")
-    if(FORTSPARSE_NATIVE_AMD_FOUND)
-        target_compile_definitions(test_general_amd PRIVATE FORTSPARSE_TEST_AMD)
-    endif()
+    target_compile_definitions(test_general_amd PRIVATE FORTSPARSE_TEST_AMD)
     add_test(NAME test_general_amd COMMAND test_general_amd)
     set_tests_properties(test_general_amd PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
 endif()
@@ -627,10 +628,8 @@ add_executable(test_native_cxx_api ../test-cmake/native/test_native_cxx_api.cpp)
 target_compile_features(test_native_cxx_api PRIVATE cxx_std_11)
 target_link_libraries(test_native_cxx_api PRIVATE fortsparse)
 add_test(NAME test_native_cxx_api COMMAND test_native_cxx_api)
-if(FORTSPARSE_NATIVE_AMD_FOUND)
-    target_compile_definitions(test_native_c_api PRIVATE FS_TEST_EXPECT_AMD)
-    target_compile_definitions(test_native_cxx_api PRIVATE FS_TEST_EXPECT_AMD)
-endif()
+target_compile_definitions(test_native_c_api PRIVATE FS_TEST_EXPECT_AMD)
+target_compile_definitions(test_native_cxx_api PRIVATE FS_TEST_EXPECT_AMD)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     foreach(_c_api_target test_native_c_api test_native_cxx_api)
         target_sources(${_c_api_target} PRIVATE ../test-cmake/native/count_general_amd.c)

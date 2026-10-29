@@ -18,15 +18,18 @@ these buffers together with backend storage.
 `factor_d/z` factor afresh; `refactor_d/z` permits the owning backend to retain
 symbolic work for an unchanged pattern. Every failed factor/refactor invalidates
 old factors, including invalid input. A later valid factor/refactor can recover.
-Default ordering is the native DEFAULT (natural) ordering; optional AMD/METIS and
-all external sparse solver backends may be disabled in this API's minimal build.
+Default ordering is the native DEFAULT: AMD for large non-banded matrices,
+natural order otherwise ([default ordering](native-cpu.md#default-ordering)).
+METIS and all external sparse solver backends may be disabled in this API's
+minimal build; AMD is always built.
 `set_refine(handle,1)` enables native original-equation residual refinement on the
 next factor. Changing the flag invalidates factors. It does not promise another
 vendor's iteration sequence or a rigorous forward-error certificate.
 
-`set_ordering(handle,FS_NATIVE_ORDER_AMD)` explicitly enables optional AMD
-ordering. `FS_NATIVE_ORDER_DEFAULT=0` stays the default; `AMD=1` uses only the
-optional BSD ordering library, with no external sparse factorization fallback.
+`set_ordering(handle,FS_NATIVE_ORDER_AMD)` requests AMD for every matrix and
+`FS_NATIVE_ORDER_NATURAL=3` keeps the input order. `FS_NATIVE_ORDER_DEFAULT=0`
+stays the default; `AMD=1` uses SuiteSparse AMD when built and the built-in
+implementation otherwise, with no external sparse factorization fallback.
 `ordering_available(order)` returns status 0 for supported, 3 for unavailable,
 and 2 for an invalid enum; it does not change any context diagnostic.
 `FS_NATIVE_ORDER_ND=2` enables optional METIS nested dissection for real/complex

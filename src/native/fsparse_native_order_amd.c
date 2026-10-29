@@ -1,18 +1,17 @@
-/* MIT wrapper; AMD's BSD-3-Clause implementation remains an external library. */
+/* MIT wrapper; AMD's BSD-3-Clause implementation remains an external library.
+ * Without it, the built-in AMD core is used through the bounded adapter. */
 #include <stdint.h>
 #include <stdlib.h>
+#include "fsparse_order_graph.h"
 #ifdef FORTSPARSE_HAVE_AMD
 #include <amd.h>
-#include "fsparse_order_graph.h"
+#else
+#include "fsparse_native_amd_bounded.h"
 #endif
 
 /* Capability query without allocating a graph or invoking the vendor. */
 int fsparse_native_order_amd_available(void) {
-#ifdef FORTSPARSE_HAVE_AMD
     return 1;
-#else
-    return 0;
-#endif
 }
 
 /* Same public index/status conventions as fsparse_native_order (METIS).
@@ -20,9 +19,19 @@ int fsparse_native_order_amd_available(void) {
 static int order_amd(int n, int nnz, const int *ptr, const int *row,
                      int *perm, int *inverse, int symmetric) {
 #ifndef FORTSPARSE_HAVE_AMD
-    (void)n; (void)nnz; (void)ptr; (void)row; (void)perm; (void)inverse;
-    (void)symmetric;
-    return 3;
+    int64_t arena_bytes = 0, output_bytes = 0;
+    if (!perm || !inverse) return 2;
+    if (symmetric && !fsparse_graph_valid(n, nnz, ptr, row)) return 2;
+    int code = fsparse_native_amd_bounded_size(n, nnz, ptr, row, 0,
+                                               &arena_bytes, &output_bytes);
+    if (code != 0) return code;
+    if ((uint64_t)arena_bytes > SIZE_MAX) return 6;
+    int32_t *arena = malloc(arena_bytes ? (size_t)arena_bytes : 1);
+    if (!arena) return 6;
+    code = fsparse_native_amd_bounded(n, nnz, ptr, row, 0, arena, arena_bytes,
+                                      perm, inverse);
+    free(arena);
+    return code;
 #else
     int32_t *ap = NULL, *ai = NULL, *p = NULL, *ip = NULL;
     int result = 0;

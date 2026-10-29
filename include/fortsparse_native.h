@@ -20,22 +20,25 @@ typedef double _Complex fs_native_complex;
 int32_t fs_native_create(int32_t scalar_kind, void **handle); /* 0 real, 1 complex */
 int32_t fs_native_free(void **handle);
 /* Changing refinement invalidates factors. Default false; applied on next factor.
- * Native ordering is DEFAULT (natural); no external factorization fallback.
+ * Native ordering is DEFAULT; no external factorization fallback.
  */
 int32_t fs_native_set_refine(void *handle, int32_t refine);
 enum fs_native_ordering {
     FS_NATIVE_ORDER_DEFAULT = 0,
     FS_NATIVE_ORDER_AMD = 1,
-    FS_NATIVE_ORDER_ND = 2
+    FS_NATIVE_ORDER_ND = 2,
+    FS_NATIVE_ORDER_NATURAL = 3
 };
 /* Returns status 0 supported, 3 unavailable, 2 invalid enum. No context/error
- * mutation. ND requires optional METIS; AMD requires optional AMD.
+ * mutation. ND requires optional METIS; AMD is always built (SuiteSparse AMD
+ * when configured, otherwise the project-owned implementation).
  */
 int32_t fs_native_ordering_available(int32_t ordering);
-/* Default remains natural. Successful policy changes invalidate factors;
+/* DEFAULT orders large non-banded patterns by AMD and others naturally;
+ * NATURAL keeps the input order. Successful policy changes invalidate factors;
  * setting the same policy retains them. Invalid/unavailable requests preserve
  * policy and factors, and store the error; a valid setter clears that error.
- * AMD/ND require their optional graph library, never an external factor backend.
+ * ND requires the optional METIS graph library, never an external factor backend.
  * ND factorization rejects positive host caps/LOW before opaque METIS allocation.
  */
 int32_t fs_native_set_ordering(void *handle, int32_t ordering);

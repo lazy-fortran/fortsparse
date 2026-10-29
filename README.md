@@ -14,8 +14,9 @@ Status: research code under active development; interfaces may change.
   (optional, in process), UMFPACK (in a separate GPL helper process) and a
   project-owned native backend.
 - Native CPU factorizations: real SPD Cholesky, complex HPD Cholesky, real and
-  complex general LU, and pivoted symmetric/Hermitian indefinite LDL^T. Optional
-  AMD or METIS ordering, OpenMP, and optional CUDA for real SPD.
+  complex general LU, and pivoted symmetric/Hermitian indefinite LDL^T. Built-in
+  AMD fill-reducing ordering by default, optional METIS ordering, OpenMP, and
+  optional CUDA for real SPD.
 - Real and complex CSC matrices (`csc_t`, `csc_z_t`), built from 1-based COO
   triplets; block solves, transpose/adjoint solves and same-pattern refactorization.
 - Exact implicit derivatives of real solves (`sparse_solve_jvp`, `sparse_solve_vjp`)
