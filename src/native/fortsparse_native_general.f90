@@ -10,7 +10,7 @@ module fortsparse_native_general
         backend_factor_complex_raw_budgeted, backend_refactor_complex_raw_budgeted, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, &
-        FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_ND, FORTSPARSE_ORDER_NATURAL, &
         FORTSPARSE_MEMORY_LOW, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL, &
         FORTSPARSE_MATCHING_NONE, FORTSPARSE_MATCHING_STRUCTURAL, &
         FORTSPARSE_MATCHING_WEIGHTED
@@ -29,7 +29,8 @@ module fortsparse_native_general
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_RESOURCE_LIMIT, &
         FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_SINGULAR, FORTSPARSE_INDEX_OVERFLOW
-    use fortsparse_native_amd, only: bounded_amd_available, bounded_amd_size, bounded_amd_order
+    use fortsparse_native_amd, only: bounded_amd_available, bounded_amd_size, &
+        bounded_amd_order, default_prefers_amd
     use fortsparse_native_matching, only: structural_row_matching, matching_graph_rows
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
@@ -60,6 +61,9 @@ module fortsparse_native_general
         private
         logical, public :: reference_only = .false.
         integer :: selected_order = FORTSPARSE_ORDER_DEFAULT
+        ! Ordering of this factorization after resolving DEFAULT/NATURAL;
+        ! FORTSPARSE_ORDER_DEFAULT here means natural order.
+        integer :: order_request = FORTSPARSE_ORDER_DEFAULT
         integer :: retained_order = -1
         logical :: same_ordering_strategy = .false.
         logical :: bounded_amd = .false., factor_invoked = .false.
@@ -133,7 +137,7 @@ contains
         logical :: matched
         real(dp) :: started
         call status_set(status,FORTSPARSE_OK,'')
-        if (self%options%ordering == FORTSPARSE_ORDER_DEFAULT) return
+        if (self%order_request == FORTSPARSE_ORDER_DEFAULT) return
         if (n <= 0 .or. n == huge(n)) then
             call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: ordering needs positive dimension')
             return
@@ -201,7 +205,7 @@ contains
                 end if
                 call record_order_peak(self,total)
                 code=bounded_amd_order(n,size(rows),ptr,rows,low,arena,arena_bytes,order,inverse)
-            else if (self%options%ordering == FORTSPARSE_ORDER_ND) then
+            else if (self%order_request == FORTSPARSE_ORDER_ND) then
                 code=order_nd_general(n,size(rows),ptr,rows,order,inverse)
             else
                 code=order_amd_general(n,size(rows),ptr,rows,order,inverse)
@@ -223,7 +227,7 @@ contains
             end if
             self%factor_external_live=self%factor_external_live+order_bytes
         end if
-        self%selected_order=self%options%ordering
+        self%selected_order=self%order_request
         call status_set(status,FORTSPARSE_OK,'')
 900     continue
         if (allocated(arena)) deallocate(arena)
@@ -255,7 +259,8 @@ contains
         call status_set(status,FORTSPARSE_INVALID_MATRIX,'matching: dimension exceeds workspace range')
         if(n<0.or.n>huge(0)/7) return
         entries=7_i8*int(n,i8)
-        if(self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) entries=entries+size(rows,kind=i8)
+        if(self%order_request/=FORTSPARSE_ORDER_DEFAULT) &
+            entries=entries+size(rows,kind=i8)
         bytes=0_i8
         call memory_checked_mul(matching_integer_bytes,entries,bytes,status)
         if(.not.status_ok(status)) return
@@ -276,7 +281,7 @@ contains
                 self%matching_inverse,self%matching_work,status)
         end if
         if(.not.status_ok(status)) goto 900
-        if(self%options%ordering/=FORTSPARSE_ORDER_DEFAULT) then
+        if(self%order_request/=FORTSPARSE_ORDER_DEFAULT) then
             allocate(self%matching_rows(size(rows)),stat=ierr)
             if(ierr/=0) then
                 call status_set(status,FORTSPARSE_OUT_OF_MEMORY,'matching graph allocation failed')
@@ -357,17 +362,30 @@ contains
         self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self)+bytes)
     end subroutine record_order_peak
 
-    subroutine prepare(self, refine, cap, status, real_structured)
+    subroutine prepare(self, refine, cap, status, real_structured, ptr, rows)
+        ! ptr/rows: the pattern to be ordered; without it DEFAULT is natural.
         class(native_general_backend_t), intent(inout) :: self
         logical, intent(in) :: refine
         logical, intent(in), optional :: real_structured
-        logical :: supported_structure
+        integer, intent(in), optional :: ptr(:), rows(:)
+        logical :: supported_structure, automatic
         integer(i8), intent(out) :: cap
         type(fortsparse_status_t), intent(out) :: status
+        integer :: previous_order
         self%ready = .false.
         call release_matching(self)
         call self%reset_raw_tracking()
-        self%same_ordering_strategy = self%selected_order == self%options%ordering
+        previous_order = self%selected_order
+        automatic = self%options%ordering == FORTSPARSE_ORDER_DEFAULT
+        self%order_request = self%options%ordering
+        if (self%order_request == FORTSPARSE_ORDER_NATURAL) &
+            self%order_request = FORTSPARSE_ORDER_DEFAULT
+        if (automatic .and. present(ptr) .and. present(rows)) then
+            if (size(ptr) < huge(0)/4 .and. size(rows) < huge(0)/4) then
+                if (default_prefers_amd(ptr, rows)) &
+                    self%order_request = FORTSPARSE_ORDER_AMD
+            end if
+        end if
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
         self%stats = sparse_factor_stats_t()
         self%bounded_amd=.false.
@@ -387,19 +405,32 @@ contains
         if (self%options%device /= -1) return
         if (self%options%symmetry < FORTSPARSE_SYM_GENERAL .or. &
             self%options%symmetry > FORTSPARSE_SYM_HERMITIAN) return
-        if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT) then
-            if (self%options%ordering /= FORTSPARSE_ORDER_AMD .and. &
-                self%options%ordering /= FORTSPARSE_ORDER_ND) return
+        if (self%order_request /= FORTSPARSE_ORDER_DEFAULT) then
+            if (self%order_request /= FORTSPARSE_ORDER_AMD .and. &
+                self%order_request /= FORTSPARSE_ORDER_ND) return
             supported_structure = self%options%symmetry == FORTSPARSE_SYM_GENERAL
             if (present(real_structured)) then
                 if (real_structured) supported_structure = supported_structure .or. &
                     self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
                     self%options%symmetry == FORTSPARSE_SYM_HERMITIAN
             end if
+            ! An implicit DEFAULT never fails: those factors stay natural. The
+            ! scalar LDLT's unrestricted Bunch-Kaufman interchanges can undo a
+            ! fill-reducing order on strongly indefinite matrices (measured up
+            ! to 5x more fill than natural order), so only LU defaults to AMD.
+            if (automatic .and. (self%reference_only .or. &
+                self%options%symmetry /= FORTSPARSE_SYM_GENERAL)) &
+                self%order_request = FORTSPARSE_ORDER_DEFAULT
+        end if
+        self%same_ordering_strategy = previous_order == self%order_request
+        if (self%order_request /= FORTSPARSE_ORDER_DEFAULT) then
             if (.not. supported_structure) return
             if (self%reference_only) return
-            if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
-                if (self%options%ordering == FORTSPARSE_ORDER_ND) then
+            ! The implicit default always takes the accounted caller-arena AMD,
+            ! so default factors keep an exact host peak.
+            if (cap > 0_i8 .or. self%options%memory_policy == FORTSPARSE_MEMORY_LOW &
+                .or. automatic) then
+                if (self%order_request == FORTSPARSE_ORDER_ND) then
                     call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
                         'native CPU: opaque METIS workspace cannot enforce a strict cap or LOW')
                     return
@@ -410,7 +441,7 @@ contains
                     return
                 end if
                 self%bounded_amd=.true.
-                self%same_ordering_strategy=self%retained_order==self%options%ordering
+                self%same_ordering_strategy=self%retained_order==self%order_request
             end if
         end if
         if(self%options%structural_matching.or.self%previous_matching) self%same_ordering_strategy=.false.
@@ -452,7 +483,8 @@ contains
                 .false.,status,reused)
             return
         end if
-        call prepare(self,refine,cap,status,real_structured=.true.)
+        call prepare(self,refine,cap,status,real_structured=.true., &
+            ptr=A%col_ptr,rows=A%row_idx)
         if (.not. status_ok(status)) return
         if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
             .not.allocated(A%val)) then
@@ -549,7 +581,8 @@ contains
             (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
              self%options%symmetry == FORTSPARSE_SYM_HERMITIAN)) then
             reused = .false.
-            call prepare(self,refine,cap,status,real_structured=.true.)
+            call prepare(self,refine,cap,status,real_structured=.true., &
+                ptr=A%col_ptr,rows=A%row_idx)
             if (.not. status_ok(status)) return
             if (.not.self%same_ordering_strategy) then
                 call self%factor_real(A,refine,status)
@@ -621,7 +654,7 @@ contains
                 'native structured raw CSC factorization not yet supported')
             return
         end if
-        call prepare(self,refine,cap,status)
+        call prepare(self,refine,cap,status,ptr=col_ptr,rows=row_idx)
         if (.not. status_ok(status)) return
         if (nrow /= ncol .or. nz /= size(val) .or. nz /= size(row_idx)) then
             call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: raw shape mismatch')
@@ -813,7 +846,7 @@ contains
                 .false.,status,reused)
             return
         end if
-        call prepare(self,refine,cap,status)
+        call prepare(self,refine,cap,status,ptr=A%col_ptr,rows=A%row_idx)
         if (.not. status_ok(status)) return
         if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
             .not.allocated(A%val)) then
@@ -951,7 +984,7 @@ contains
             call supernodal_factor(self,ncol,col_ptr,row_idx,val,refine,.false.,status,reused)
             return
         end if
-        call prepare(self,refine,cap,status)
+        call prepare(self,refine,cap,status,ptr=col_ptr,rows=row_idx)
         if (.not. status_ok(status)) return
         if (nrow /= ncol .or. nz /= size(val) .or. nz /= size(row_idx)) then
             call status_set(status,FORTSPARSE_INVALID_MATRIX,'native LU: raw shape mismatch')
@@ -1610,6 +1643,11 @@ contains
         self%slu_peak=0_i8
         call prepare(self,refine,cap,status)
         if (.not.status_ok(status)) return
+        if (self%options%ordering==FORTSPARSE_ORDER_NATURAL) then
+            call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
+                'native supernodal LU: natural order is not supported')
+            return
+        end if
         if (size(ptr)/=n+1 .or. size(values)/=size(rows)) then
             call status_set(status,FORTSPARSE_INVALID_MATRIX,'native supernodal LU: CSC extent mismatch')
             return

@@ -5,14 +5,33 @@ existing Cholesky engine and other classes to the following new CPU references:
 
 | Value/class | Native factors | Current execution |
 |---|---|---|
-| Real general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
-| Complex general | Row-scaled threshold-pivoted sparse LU | Natural, AMD or METIS ND order, retained CSC L/U, serial factorization |
+| Real general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
+| Complex general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
 | Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Natural-order simplicial reference |
 | Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots; opt-in BLAS-3 panels/OpenMP |
 | Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
 | Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
 
 Real symmetric-indefinite CSC factors accept explicit AMD or METIS ND ordering.
+
+## Default ordering
+
+`FORTSPARSE_ORDER_DEFAULT` selects AMD when the matrix has at least 4096
+columns and an entry more than 12 positions from the diagonal, and natural
+order otherwise, for real SPD Cholesky and real and complex general LU.
+`FORTSPARSE_ORDER_NATURAL` keeps the input order; `ordering_used` reports
+natural order as 0. AMD needs no external library: without SuiteSparse AMD the
+project-owned implementation (`fsparse_native_amd_core.c`, the algorithm of
+Amestoy, Davis and Duff, 1996) is built, also by `fpm`. General LU takes the
+accounted caller-workspace AMD for the default, so exact host peaks and caps
+keep working. Exceptions keep natural order by default: the scalar real LDLT,
+whose unrestricted Bunch--Kaufman interchanges can undo a fill-reducing order
+on strongly indefinite matrices (on a 4900-unknown shifted Laplacian, AMD gave
+4x less fill when nearly definite but up to 5x more fill and 85x more time when
+strongly indefinite); real SPD under a host cap, LOW_MEMORY or refinement,
+whose exact natural memory plan backs `sparse_analyze`; NATIVE_REFERENCE; and
+the complex HPD and complex LDLT/LDLH references, which have no ordering
+support.
 
 Set `options%ldlt_blocked = .true.` to try bounded relaxed supernodes on the
 real CPU LDLT path. Each front contains up to 32 consecutive candidates and
@@ -63,8 +82,8 @@ representative performance admission. Its merge workspace costs
 in the owned payload accounting. The initial
 symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
 retained for same-pattern refactors; each refactor chooses its pivots afresh.
-Natural DEFAULT and NATIVE_REFERENCE behavior is preserved; explicit AMD is
-unavailable for NATIVE_REFERENCE. The common audited AMD 3.3.4 caller-workspace
+DEFAULT stays natural here; explicit AMD is
+unavailable for NATIVE_REFERENCE. The common caller-workspace AMD
 path supports host caps and LOW_MEMORY. Its permutation input, retained initial
 order (`4*n` bytes), graph workspace, factor growth, retained factors and optional
 original-matrix refinement storage are all charged. Opaque uncapped AMD reports
@@ -246,7 +265,7 @@ perturbs pivots.
 ## Optional general LU ordering
 
 For real and complex general matrices, production native LU accepts
-`solver%options%ordering=FORTSPARSE_ORDER_AMD` when SuiteSparse AMD is built.
+`solver%options%ordering=FORTSPARSE_ORDER_AMD` in every build.
 AMD accepts the canonical unsymmetric CSC graph and orders its structural
 `A+A^T`; numerical factorization borrows the original CSC values and applies the
 column permutation through its retained sparse factors.
@@ -254,8 +273,9 @@ column permutation through its retained sparse factors.
 undirected graph union of `A` and its transpose. Self edges and repeated mirrors
 are removed before ordering. With structural matching, either ordering consumes
 the matched `P*A` graph while numerical values stay in the original CSC.
-DEFAULT remains natural ordering. NATIVE_REFERENCE remains natural and rejects
-explicit graph orderings. Missing graph libraries return BACKEND_UNAVAILABLE.
+DEFAULT orders as described under [default ordering](#default-ordering).
+NATIVE_REFERENCE remains natural and rejects explicit graph orderings. A missing
+METIS returns BACKEND_UNAVAILABLE for ND.
 `native_ordering_available(ordering)` queries the built native graph capability
 without allocating or factoring. Matrix-class, device and memory-policy support
 are still checked by factorization; this query is not a strict-cap guarantee.
@@ -266,13 +286,13 @@ A changed pattern recomputes the order, and a changed ordering strategy invalida
 pattern-reuse reporting. Normal, transpose and adjoint solves, refinement and
 implicit solve derivatives act on the original matrix.
 
-Uncapped AUTO-memory AMD uses the existing opaque `amd_order` path: actual
+Explicit uncapped AUTO-memory AMD uses the existing opaque `amd_order` path: actual
 ordering and retained owned payload are reported, but complete host peak/factor
 memory remains unknown (`-1`) and `strict_memory_supported` is false. Positive
-host caps and LOW_MEMORY instead use the audited AMD 3.3.4 `amd_2` caller-workspace
-path, including old-factor, user-vector, refinement and permutation-input overlap
-in cap admission and phase peak statistics. An unavailable audited ABI fails
-explicitly. See [bounded AMD](native-amd-bounded.md) for exact workspace counts,
+host caps, LOW_MEMORY and the implicit default instead use the caller-workspace
+path (audited AMD 3.3.4 `amd_2` when built, otherwise the project-owned core),
+including old-factor, user-vector, refinement and permutation-input overlap
+in cap admission and phase peak statistics. See [bounded AMD](native-amd-bounded.md) for exact workspace counts,
 release trust, reuse and verification limits. Use measured process RSS for process
 memory comparisons; these changes make no performance-admission claim.
 

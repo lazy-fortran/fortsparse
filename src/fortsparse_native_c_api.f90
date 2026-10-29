@@ -94,7 +94,8 @@ contains
         integer(c_int32_t) :: code
 
         code = FORTSPARSE_INVALID_MATRIX
-        if (ordering < FORTSPARSE_ORDER_DEFAULT .or. ordering > FORTSPARSE_ORDER_ND) return
+        if (ordering < FORTSPARSE_ORDER_DEFAULT .or. &
+            ordering > FORTSPARSE_ORDER_NATURAL) return
         code = FORTSPARSE_BACKEND_UNAVAILABLE
         if (native_ordering_available(int(ordering))) code = FORTSPARSE_OK
     end function

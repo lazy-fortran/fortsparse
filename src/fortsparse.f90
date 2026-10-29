@@ -39,7 +39,8 @@ module fortsparse
         FORTSPARSE_BACKEND_NATIVE_REFERENCE, sparse_auto_backend, &
         FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN, &
-        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_NATURAL
     use fortsparse_csr, only: csr_t, csr_matvec
     use fortsparse_smoothers, only: csr_smoother_t, smoother_setup, smoother_apply, &
         smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
@@ -99,7 +100,8 @@ module fortsparse
     public :: sparse_options_t, sparse_factor_stats_t
     public :: FORTSPARSE_SYM_GENERAL, FORTSPARSE_SYM_SPD
     public :: FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_SYM_HERMITIAN
-    public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND
+    public :: FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND, &
+        FORTSPARSE_ORDER_NATURAL
     public :: native_ordering_available
 
 contains
@@ -120,7 +122,7 @@ contains
             end function
         end interface
         select case(ordering)
-        case(FORTSPARSE_ORDER_DEFAULT)
+        case(FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_NATURAL)
             available = .true.
         case(FORTSPARSE_ORDER_AMD)
             available = amd_available() == 1

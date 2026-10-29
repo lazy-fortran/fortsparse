@@ -9,7 +9,7 @@ module fortsparse_native
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
         sparse_options_t, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
-        FORTSPARSE_ORDER_DEFAULT, &
+        FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_NATURAL, &
         FORTSPARSE_ORDER_ND, FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
@@ -22,7 +22,8 @@ module fortsparse_native
         spd_symbolic_nnz, validate_spd_pattern, MEMORY_PLAN_EXACT_LAYOUT, &
         MEMORY_PLAN_BOUND
     use fortsparse_native_supernodes, only: supernodes_t
-    use fortsparse_native_amd, only: bounded_amd_size, bounded_amd_order
+    use fortsparse_native_amd, only: bounded_amd_size, bounded_amd_order, &
+        default_prefers_amd
     use fortsparse_native_symbolic, only: native_symbolic_counts, &
         native_symbolic_workspace_bytes
     use fortsparse_native_cuda, only: native_cuda_available
@@ -259,7 +260,8 @@ contains
             if (.not.status_ok(status)) return
         end if
         if (self%bounded_memory .and. .not. self%bounded_blocked .and. &
-            self%options%ordering == FORTSPARSE_ORDER_DEFAULT) then
+            (self%options%ordering == FORTSPARSE_ORDER_DEFAULT .or. &
+            self%options%ordering == FORTSPARSE_ORDER_NATURAL)) then
             self%host_budget%limit = self%options%host_memory_limit_bytes
             call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
             call update_budget_stats(self)
@@ -321,6 +323,7 @@ contains
         if (.not.refine) return
         if (self%options%device>=0 .or. &
             (self%options%ordering/=FORTSPARSE_ORDER_DEFAULT .and. &
+             self%options%ordering/=FORTSPARSE_ORDER_NATURAL .and. &
              self%options%ordering/=FORTSPARSE_ORDER_AMD)) &
             call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
             'native SPD refinement requires natural or bounded-AMD CPU factorization')
@@ -412,7 +415,7 @@ contains
         class(native_backend_t), intent(inout) :: self
         type(csc_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
-        integer :: bandwidth, j, p, ierr, code, chosen
+        integer :: ierr, code, chosen
         integer, allocatable :: cursor(:)
 
         call status_set(status, FORTSPARSE_OK, '')
@@ -422,18 +425,11 @@ contains
                 call prepare_bounded_amd(self, A, status)
             return
         end if
-        bandwidth = 0
-        do j = 1, A%ncol
-            do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
-                bandwidth = max(bandwidth, abs(A%row_idx(p) - j))
-            end do
-        end do
         chosen = self%options%ordering
-        if (chosen == FORTSPARSE_ORDER_DEFAULT) then
-            if (.not. self%reference_only .and. A%ncol >= 4096 .and. &
-                bandwidth > 12) then
-                chosen = FORTSPARSE_ORDER_AMD
-            end if
+        if (chosen == FORTSPARSE_ORDER_NATURAL) chosen = FORTSPARSE_ORDER_DEFAULT
+        if (self%options%ordering == FORTSPARSE_ORDER_DEFAULT .and. &
+            .not. self%reference_only) then
+            if (default_prefers_amd(A%col_ptr, A%row_idx)) chosen = FORTSPARSE_ORDER_AMD
         end if
         self%selected_order = FORTSPARSE_ORDER_DEFAULT
         if (chosen == FORTSPARSE_ORDER_DEFAULT) return
@@ -850,6 +846,7 @@ contains
             self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
             if (self%options%device >= 0 .or. &
                 (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+                 self%options%ordering /= FORTSPARSE_ORDER_NATURAL .and. &
                  self%options%ordering /= FORTSPARSE_ORDER_AMD)) then
                 call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                     'native SPD: strict memory requires natural or audited AMD CPU execution')
@@ -877,6 +874,7 @@ contains
             return
         end if
         if (self%options%ordering /= FORTSPARSE_ORDER_DEFAULT .and. &
+            self%options%ordering /= FORTSPARSE_ORDER_NATURAL .and. &
             self%options%ordering /= FORTSPARSE_ORDER_ND .and. &
             self%options%ordering /= FORTSPARSE_ORDER_AMD) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &

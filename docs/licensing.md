@@ -1,8 +1,10 @@
 # Licensing of fortsparse and its optional components
 
 The fortsparse library is MIT licensed (Copyright (c) 2025 lazy-fortran). It
-links only permissive code: SuperLU (BSD), the optional AMD (BSD) and the MIT C
-shims in this repository. It contains no GPL source, includes no GPL header and
+links only permissive code: SuperLU (BSD), the optional SuiteSparse AMD (BSD) and
+the MIT C shims in this repository and the built-in AMD ordering
+(`src/native/fsparse_native_amd_core.c`), which was written with reference to
+SuiteSparse AMD and carries its BSD 3-clause notice. It contains no GPL source, includes no GPL header and
 links no GPL library, so linking it statically or dynamically imposes no copyleft
 obligation.
 
