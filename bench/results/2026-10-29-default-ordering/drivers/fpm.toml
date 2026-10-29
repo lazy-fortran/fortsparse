@@ -1,0 +1,16 @@
+name = "ordering_bench"
+[build]
+auto-executables = false
+link = ["lapack", "blas"]
+[fortran]
+implicit-typing = false
+[[executable]]
+name = "ldlt_probe"
+source-dir = "app"
+main = "ldlt_probe.f90"
+[[executable]]
+name = "bench_default_ordering"
+source-dir = "app"
+main = "bench_default_ordering.f90"
+[dependencies]
+fortsparse = { path = "../fortsparse" }
