@@ -1,18 +1,21 @@
-/* MIT: owned graph construction and bounded external AMD workspace.
+/* MIT: owned graph construction and bounded AMD workspace.
  * The public amd_2 interface is unchecked and destructive. This adapter creates
  * its complete canonical symmetric off-diagonal graph before the vendor call.
  * Audit: AMD 3.3.4 amd_2 -> amd_postorder -> iterative amd_post_tree; no heap
- * calls. See docs/native-amd-bounded.md. No global SuiteSparse hooks are used. */
+ * calls. See docs/native-amd-bounded.md. No global SuiteSparse hooks are used.
+ * Without the audited vendor ABI the project-owned core takes the same arena. */
 #include "fsparse_native_amd_bounded.h"
 #include <limits.h>
 #include <stddef.h>
-#ifdef FORTSPARSE_HAVE_BOUNDED_AMD
-#include <amd.h>
 #include "fsparse_order_graph.h"
 _Static_assert(sizeof(int) == sizeof(int32_t), "AMD adapter needs 32-bit C int");
+#ifdef FORTSPARSE_HAVE_BOUNDED_AMD
+#include <amd.h>
 #if AMD_MAIN_VERSION != 3 || AMD_SUB_VERSION != 3 || AMD_SUBSUB_VERSION != 4
 #error "Bounded AMD requires the audited AMD 3.3.4 header"
 #endif
+#else
+#include "fsparse_native_amd_core.h"
 #endif
 
 enum { FS_OK=0, FS_INVALID=2, FS_UNAVAILABLE=3, FS_INTERNAL=5, FS_INDEX=7 };
@@ -22,11 +25,10 @@ int fsparse_native_amd_bounded_available(void) {
     amd_version(version);
     return version[0]==3 && version[1]==3 && version[2]==4;
 #else
-    return 0;
+    return 1;
 #endif
 }
 
-#ifdef FORTSPARSE_HAVE_BOUNDED_AMD
 struct layout { int32_t k, m, iwlen; int64_t words; };
 static int plan(int n, int nnz, const int *ptr, const int *row, int low,
                 struct layout *out) {
@@ -55,15 +57,9 @@ static int plan(int n, int nnz, const int *ptr, const int *row, int low,
     out->iwlen=(int32_t)iwlen; out->words=words;
     return FS_OK;
 }
-#endif
 
 int fsparse_native_amd_bounded_size(int n, int nnz, const int *ptr, const int *row,
     int low, int64_t *workspace_bytes, int64_t *output_bytes) {
-#ifndef FORTSPARSE_HAVE_BOUNDED_AMD
-    (void)n; (void)nnz; (void)ptr; (void)row; (void)low;
-    (void)workspace_bytes; (void)output_bytes;
-    return FS_UNAVAILABLE;
-#else
     if (!workspace_bytes || !output_bytes) return FS_INVALID;
     struct layout s;
     int code=plan(n,nnz,ptr,row,low,&s);
@@ -71,16 +67,10 @@ int fsparse_native_amd_bounded_size(int n, int nnz, const int *ptr, const int *r
     *workspace_bytes=4*s.words;
     *output_bytes=8*(int64_t)n;
     return FS_OK;
-#endif
 }
 
 int fsparse_native_amd_bounded(int n, int nnz, const int *ptr, const int *row,
     int low, int32_t *workspace, int64_t workspace_bytes, int *perm, int *inverse) {
-#ifndef FORTSPARSE_HAVE_BOUNDED_AMD
-    (void)n; (void)nnz; (void)ptr; (void)row; (void)low; (void)workspace;
-    (void)workspace_bytes; (void)perm; (void)inverse;
-    return FS_UNAVAILABLE;
-#else
     struct layout s;
     int code=plan(n,nnz,ptr,row,low,&s);
     if (code!=FS_OK) return code;
@@ -117,12 +107,16 @@ int fsparse_native_amd_bounded(int n, int nnz, const int *ptr, const int *row,
         len[j]=used-pe[j];
     }
     if (used!=s.m) return FS_INTERNAL;
+#ifdef FORTSPARSE_HAVE_BOUNDED_AMD
     amd_2((int32_t)n,pe,iw,len,s.iwlen,s.m,nv,(int32_t *)inverse,
           (int32_t *)perm,head,elen,degree,w,NULL,NULL);
+#else
+    if (fsparse_amd_core((int32_t)n,pe,iw,len,s.iwlen,s.m,nv,(int32_t *)inverse,
+                         (int32_t *)perm,head,elen,degree,w)!=0) return FS_INTERNAL;
+#endif
     for (int i=0;i<n;++i)
         if (perm[i]<0 || perm[i]>=n || inverse[i]<0 || inverse[i]>=n ||
             perm[inverse[i]]!=i) return FS_INTERNAL;
     for (int i=0;i<n;++i) { ++perm[i]; ++inverse[i]; }
     return FS_OK;
-#endif
 }
