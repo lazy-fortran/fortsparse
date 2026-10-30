@@ -181,6 +181,7 @@ program test_spd_amd_bounded
     call refinement_oracle()
     call blocked_oracle()
     call large_count_oracle()
+    call default_order_oracle()
     print '(a)', &
         'Strict AMD SPD allocation, recovery, permutation, reuse and refinement pass'
 contains
@@ -606,5 +607,104 @@ contains
             'large planning peak minus one')
     end subroutine
 
+    subroutine default_order_oracle()
+        ! DEFAULT on a row-numbered 65 x 65 grid (n = 4225, bandwidth 65)
+        ! selects AMD under LOW_MEMORY, refinement and a plain cap, and the
+        ! exact plan and ledger follow that order.
+        integer, parameter :: mx = 65, my = 65, m = mx*my
+        type(native_backend_t) :: strip
+        type(sparse_solver_t) :: request
+        type(sparse_memory_plan_t) :: natural, ordered, default
+        type(csc_t) :: lap
+        real(dp) :: b(m), truth(m), result(m)
+        integer :: p, i, j, refinement
+        lap%nrow = m; lap%ncol = m; lap%nnz = 5*m - 2*mx - 2*my
+        allocate (lap%col_ptr(m + 1), lap%row_idx(lap%nnz), lap%val(lap%nnz))
+        p = 0
+        do j = 1, m
+            lap%col_ptr(j) = p + 1
+            do i = j - mx, j + mx
+                if (i < 1 .or. i > m) cycle
+                if (abs(i - j) == 1 .and. &
+                    (min(i, j) - 1)/mx /= (max(i, j) - 1)/mx) cycle
+                if (abs(i - j) /= 0 .and. abs(i - j) /= 1 .and. abs(i - j) /= mx) cycle
+                p = p + 1; lap%row_idx(p) = i; lap%val(p) = -1.0_dp
+                if (i == j) lap%val(p) = 4.0_dp
+            end do
+            truth(j) = sin(real(j, dp))
+        end do
+        lap%col_ptr(m + 1) = p + 1
+        call expect(p == lap%nnz, 'grid Laplacian entry count')
+        b = csc_matvec(lap, truth)
+        do refinement = 0, 1
+            request%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
+            request%options%symmetry = FORTSPARSE_SYM_SPD
+            request%options%memory_policy = FORTSPARSE_MEMORY_LOW
+            request%options%ordering = FORTSPARSE_ORDER_DEFAULT
+            request%refine = refinement == 1
+            call sparse_analyze(request, lap, natural, status)
+            call checked()
+            request%backend_id = FORTSPARSE_BACKEND_NATIVE
+            request%options%ordering = FORTSPARSE_ORDER_AMD
+            call sparse_analyze(request, lap, ordered, status)
+            call checked()
+            request%options%ordering = FORTSPARSE_ORDER_DEFAULT
+            call sparse_analyze(request, lap, default, status)
+            call checked()
+            call expect(default%symbolic_nnz == ordered%symbolic_nnz .and. &
+                default%peak_host_bytes == ordered%peak_host_bytes .and. &
+                default%factor_host_bytes == ordered%factor_host_bytes .and. &
+                default%persistent_host_bytes == ordered%persistent_host_bytes, &
+                'DEFAULT plan is not the AMD plan')
+            call expect(default%symbolic_nnz < natural%symbolic_nnz/2, &
+                'DEFAULT plan fill not below natural order')
+            strip%options = request%options
+            strip%options%host_memory_limit_bytes = default%peak_host_bytes
+            before = amd_calls()
+            call begin(0_c_int64_t)
+            call strip%factor_real(lap, request%refine, status)
+            call finish(calls, live, peak)
+            call checked()
+            call strip%factor_stats(stats, status)
+            call checked()
+            call expect(stats%ordering_used == FORTSPARSE_ORDER_AMD .and. &
+                amd_calls() == before + 1, 'bounded DEFAULT did not order by AMD')
+            call expect(stats%host_peak_bytes == peak .and. &
+                default%peak_host_bytes == peak, 'DEFAULT predicted vs allocator peak')
+            call expect(stats%host_current_bytes == live .and. &
+                default%factor_host_bytes + default%persistent_host_bytes == live, &
+                'DEFAULT predicted vs allocator retained')
+            call strip%solve_real(b, result, status)
+            call checked()
+            call expect(maxval(abs(result - truth)) < 1e-12_dp, &
+                'bounded DEFAULT original-A oracle')
+            call strip%free()
+            strip%options%host_memory_limit_bytes = default%peak_host_bytes - 1_i8
+            call strip%factor_real(lap, request%refine, status)
+            call expect(status%code == FORTSPARSE_RESOURCE_LIMIT, &
+                'bounded DEFAULT peak minus one cap')
+            call strip%free()
+        end do
+        ! A plain cap keeps the blocked schedule and its exact ledger.
+        strip%options = request%options
+        strip%options%memory_policy = FORTSPARSE_MEMORY_AUTO
+        strip%options%host_memory_limit_bytes = 1000000000_i8
+        call begin(0_c_int64_t)
+        call strip%factor_real(lap, .false., status)
+        call finish(calls, live, peak)
+        call checked()
+        call strip%factor_stats(stats, status)
+        call checked()
+        call expect(stats%ordering_used == FORTSPARSE_ORDER_AMD, &
+            'capped DEFAULT did not order by AMD')
+        call expect(stats%host_current_bytes == live .and. &
+            stats%host_peak_bytes == peak, 'capped DEFAULT ledger')
+        call strip%solve_real(b, result, status)
+        call checked()
+        call expect(maxval(abs(result - truth)) < 1e-12_dp, &
+            'capped DEFAULT original-A oracle')
+        call strip%free()
+        call sparse_destroy(request)
+    end subroutine default_order_oracle
 
 end program test_spd_amd_bounded

@@ -82,14 +82,15 @@ module fortsparse_backend
         integer(i8) :: memory_budget_bytes = 0_i8
         ! Native CPU real/complex GENERAL LU method; see FORTSPARSE_LU_*.
         integer :: lu_method = FORTSPARSE_LU_SCALAR
-        ! Real symmetric indefinite: bounded dense panels, unrestricted scalar
-        ! Bunch--Kaufman recovery. Strict caps/LOW retain the scalar path.
+        ! Real symmetric indefinite: bounded dense panels, scalar Bunch--Kaufman
+        ! recovery (restricted to the order when ordered). Strict caps/LOW
+        ! retain the scalar path.
         logical :: ldlt_blocked = .false.
         ! Real symmetric indefinite, native CPU without memory caps: the
         ! supernodal SPD schedule with Bunch--Kaufman (rook) LDL^T pivots
         ! restricted to each supernode diagonal block (panels whose block is
         ! SPD keep the Cholesky). Reports exact pivot inertia. Not a robust
-        ! replacement for the unrestricted scalar Bunch--Kaufman reference.
+        ! replacement for the scalar Bunch--Kaufman reference with delays.
         logical :: ldlt_supernodal = .false.
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.

@@ -166,7 +166,12 @@ contains
         if (self%bounded_amd) call record_order_peak(self,order_bytes)
         matched = .false.
         if (self%same_ordering_strategy) then
-            if (is_complex) then
+            if (is_complex .and. self%mode == 2) then
+                call self%hpd_factor%copy_column_order(n,ptr,rows,order,matched)
+            else if (is_complex .and. (self%mode == 4 .or. self%mode == 5)) then
+                call self%complex_ldlt_factor%copy_column_order(n,ptr,rows,order, &
+                    matched)
+            else if (is_complex) then
                 call self%complex_factor%copy_column_order(n,ptr,rows,order,matched)
             else if (self%mode == 3) then
                 call self%ldlt_factor%copy_column_order(n,ptr,rows,order,matched)
@@ -362,11 +367,12 @@ contains
         self%stats%host_peak_bytes=max(self%stats%host_peak_bytes,current_bytes(self)+bytes)
     end subroutine record_order_peak
 
-    subroutine prepare(self, refine, cap, status, real_structured, ptr, rows)
+    subroutine prepare(self, refine, cap, status, structured, ptr, rows)
         ! ptr/rows: the pattern to be ordered; without it DEFAULT is natural.
+        ! structured: the caller orders symmetric/Hermitian factors as well.
         class(native_general_backend_t), intent(inout) :: self
         logical, intent(in) :: refine
-        logical, intent(in), optional :: real_structured
+        logical, intent(in), optional :: structured
         integer, intent(in), optional :: ptr(:), rows(:)
         logical :: supported_structure, automatic
         integer(i8), intent(out) :: cap
@@ -409,17 +415,13 @@ contains
             if (self%order_request /= FORTSPARSE_ORDER_AMD .and. &
                 self%order_request /= FORTSPARSE_ORDER_ND) return
             supported_structure = self%options%symmetry == FORTSPARSE_SYM_GENERAL
-            if (present(real_structured)) then
-                if (real_structured) supported_structure = supported_structure .or. &
-                    self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
-                    self%options%symmetry == FORTSPARSE_SYM_HERMITIAN
+            if (present(structured)) then
+                if (structured) supported_structure = .true.
             end if
-            ! An implicit DEFAULT never fails: those factors stay natural. The
-            ! scalar LDLT's unrestricted Bunch-Kaufman interchanges can undo a
-            ! fill-reducing order on strongly indefinite matrices (measured up
-            ! to 5x more fill than natural order), so only LU defaults to AMD.
-            if (automatic .and. (self%reference_only .or. &
-                self%options%symmetry /= FORTSPARSE_SYM_GENERAL)) &
+            ! An implicit DEFAULT never fails: reference factors stay natural.
+            ! Symmetric indefinite factors restrict their pivots to the order
+            ! (delayed pivots), so they default to AMD like LU and Cholesky.
+            if (automatic .and. self%reference_only) &
                 self%order_request = FORTSPARSE_ORDER_DEFAULT
         end if
         self%same_ordering_strategy = previous_order == self%order_request
@@ -483,7 +485,7 @@ contains
                 .false.,status,reused)
             return
         end if
-        call prepare(self,refine,cap,status,real_structured=.true., &
+        call prepare(self,refine,cap,status,structured=.true., &
             ptr=A%col_ptr,rows=A%row_idx)
         if (.not. status_ok(status)) return
         if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
@@ -581,7 +583,7 @@ contains
             (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .or. &
              self%options%symmetry == FORTSPARSE_SYM_HERMITIAN)) then
             reused = .false.
-            call prepare(self,refine,cap,status,real_structured=.true., &
+            call prepare(self,refine,cap,status,structured=.true., &
                 ptr=A%col_ptr,rows=A%row_idx)
             if (.not. status_ok(status)) return
             if (.not.self%same_ordering_strategy) then
@@ -846,7 +848,8 @@ contains
                 .false.,status,reused)
             return
         end if
-        call prepare(self,refine,cap,status,ptr=A%col_ptr,rows=A%row_idx)
+        call prepare(self,refine,cap,status,structured=.true., &
+            ptr=A%col_ptr,rows=A%row_idx)
         if (.not. status_ok(status)) return
         if (.not.allocated(A%col_ptr) .or. .not.allocated(A%row_idx) .or. &
             .not.allocated(A%val)) then
@@ -871,15 +874,25 @@ contains
             if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE) self%mode = 5
             call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
             if (.not.status_ok(status)) return
+            call column_order(self,A%ncol,A%col_ptr,A%row_idx,.true.,order,cap,status)
+            if (.not.status_ok(status)) return
+            self%factor_invoked=.true.
+            self%retained_order=-1
             call self%complex_ldlt_factor%refactor(A,status,hermitian=self%mode==4, &
-                host_limit_bytes=cap,low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW)
+                host_limit_bytes=cap, &
+                low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW, &
+                column_permutation=order)
             self%reused_special=status_ok(status)
             if (status%code==FORTSPARSE_INVALID_MATRIX) then
                 call self%complex_ldlt_factor%factor(A,status,hermitian=self%mode==4, &
-                    host_limit_bytes=cap,low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW)
+                    host_limit_bytes=cap, &
+                    low_memory=self%options%memory_policy==FORTSPARSE_MEMORY_LOW, &
+                    column_permutation=order)
             end if
+            if (allocated(order)) deallocate(order)
             self%stats%factor_s=seconds()-started
             self%ready=status_ok(status)
+            if (self%ready) self%retained_order=self%selected_order
             if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
             self%ready=status_ok(status)
             call update_stats(self)
@@ -892,11 +905,18 @@ contains
             self%mode = 2
             call reserve_original(self,A%ncol,A%nnz,refine,.true.,cap,status)
             if (.not.status_ok(status)) return
+            call column_order(self,A%ncol,A%col_ptr,A%row_idx,.true.,order,cap,status)
+            if (.not.status_ok(status)) return
+            self%factor_invoked=.true.
+            self%retained_order=-1
             call self%hpd_factor%refactor(A,status,self%reused_special, &
                 memory_limit_bytes=cap, &
-                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW)
+                low_memory=self%options%memory_policy == FORTSPARSE_MEMORY_LOW, &
+                column_permutation=order)
+            if (allocated(order)) deallocate(order)
             self%stats%factor_s = seconds()-started
             self%ready = status_ok(status)
+            if (self%ready) self%retained_order=self%selected_order
             if (self%ready) call retain_complex(self,A%ncol,A%col_ptr,A%row_idx,A%val,refine,status)
             self%ready = status_ok(status)
             call update_stats(self)

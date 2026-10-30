@@ -23,7 +23,7 @@ module fortsparse_native
         MEMORY_PLAN_BOUND
     use fortsparse_native_supernodes, only: supernodes_t
     use fortsparse_native_amd, only: bounded_amd_size, bounded_amd_order, &
-        default_prefers_amd
+        default_prefers_amd, bounded_amd_available
     use fortsparse_native_symbolic, only: native_symbolic_counts, &
         native_symbolic_workspace_bytes
     use fortsparse_native_cuda, only: native_cuda_available
@@ -33,7 +33,7 @@ module fortsparse_native
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
     implicit none
     private
-    public :: native_backend_t, native_plan_ordered_spd
+    public :: native_backend_t, native_plan_ordered_spd, bounded_default_prefers_amd
     interface
         function symbolic_alloc(bytes) result(owner) &
                 bind(C, name='fsparse_native_symbolic_alloc')
@@ -216,6 +216,21 @@ contains
 900     call temporary%free()
     end subroutine native_plan_ordered_spd
 
+    ! DEFAULT under a cap, LOW_MEMORY or refinement: the same AMD rule as the
+    ! unbounded path, through the accounted caller-arena AMD that the exact
+    ! ordered plan models. Reference factors stay natural.
+    logical function bounded_default_prefers_amd(options, reference_only, A) &
+            result(prefers)
+        type(sparse_options_t), intent(in) :: options
+        logical, intent(in) :: reference_only
+        type(csc_t), intent(in) :: A
+        prefers = .false.
+        if (options%ordering /= FORTSPARSE_ORDER_DEFAULT .or. reference_only) return
+        if (.not. allocated(A%col_ptr) .or. .not. allocated(A%row_idx)) return
+        if (bounded_amd_available() /= 1) return
+        prefers = default_prefers_amd(A%col_ptr, A%row_idx)
+    end function bounded_default_prefers_amd
+
     pure function ordered_symbolic_workspace_bytes(n) result(bytes)
         integer, intent(in) :: n
         integer(i8) :: bytes
@@ -261,7 +276,9 @@ contains
         end if
         if (self%bounded_memory .and. .not. self%bounded_blocked .and. &
             (self%options%ordering == FORTSPARSE_ORDER_DEFAULT .or. &
-            self%options%ordering == FORTSPARSE_ORDER_NATURAL)) then
+            self%options%ordering == FORTSPARSE_ORDER_NATURAL) .and. &
+            .not. bounded_default_prefers_amd(self%options, self%reference_only, &
+            A)) then
             self%host_budget%limit = self%options%host_memory_limit_bytes
             call plan_natural_spd_memory(A, self%memory_plan, status, self%host_budget)
             call update_budget_stats(self)
@@ -421,7 +438,8 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
         if (self%bounded_memory) then
             self%selected_order = FORTSPARSE_ORDER_DEFAULT
-            if (self%options%ordering == FORTSPARSE_ORDER_AMD) &
+            if (self%options%ordering == FORTSPARSE_ORDER_AMD .or. &
+                bounded_default_prefers_amd(self%options, self%reference_only, A)) &
                 call prepare_bounded_amd(self, A, status)
             return
         end if

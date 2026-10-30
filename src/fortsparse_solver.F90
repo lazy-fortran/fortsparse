@@ -38,7 +38,8 @@ module fortsparse_solver
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_native_general, only: native_general_backend_t
     use fortsparse_lu_leaves, only: lu_z_update
-    use fortsparse_native, only: native_backend_t, native_plan_ordered_spd
+    use fortsparse_native, only: native_backend_t, native_plan_ordered_spd, &
+        bounded_default_prefers_amd
     implicit none
     private
 
@@ -275,13 +276,15 @@ contains
 
     subroutine sparse_analyze(solver, A, plan, status, nrhs)
         ! Plans the bounded compact natural/AMD CPU SPD layout without
-        ! factorizing or changing retained factors. Other schedules are explicit.
+        ! factorizing or changing retained factors; DEFAULT plans the order the
+        ! factor selects. Other schedules are explicit.
         type(sparse_solver_t), intent(in) :: solver
         type(csc_t), intent(in) :: A
         type(sparse_memory_plan_t), intent(out) :: plan
         type(fortsparse_status_t), intent(out) :: status
         integer, optional, intent(in) :: nrhs
         type(memory_budget_t) :: budget
+        type(sparse_options_t) :: ordered
         plan = sparse_memory_plan_t()
         if (solver%backend_id /= FORTSPARSE_BACKEND_NATIVE .and. &
             solver%backend_id /= FORTSPARSE_BACKEND_NATIVE_REFERENCE) then
@@ -336,6 +339,13 @@ contains
         end if
         if (solver%options%ordering == FORTSPARSE_ORDER_AMD) then
             call native_plan_ordered_spd(A, solver%options, solver%refine, &
+                                         budget, plan, status, nrhs)
+        else if (bounded_default_prefers_amd(solver%options, &
+                solver%backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE, A)) then
+            ! Plan the AMD order that the production DEFAULT factor selects.
+            ordered = solver%options
+            ordered%ordering = FORTSPARSE_ORDER_AMD
+            call native_plan_ordered_spd(A, ordered, solver%refine, &
                                          budget, plan, status, nrhs)
         else
             call plan_natural_spd_memory(A, plan, status, budget, nrhs, &
