@@ -453,6 +453,12 @@ set_tests_properties(test_fortsparse_native_default_ordering PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
+fortsparse_add_test(test_fortsparse_native_symmetric_ordering
+    solver/test_fortsparse_native_symmetric_ordering.f90)
+set_tests_properties(test_fortsparse_native_symmetric_ordering PROPERTIES
+    LABELS "native;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+
 fortsparse_add_test(test_fortsparse_context_copy
     solver/test_fortsparse_context_copy.f90)
 set_tests_properties(test_fortsparse_context_copy PROPERTIES

@@ -24,7 +24,9 @@ explicit AMD under caps and LOW_MEMORY through the audited AMD 3.3.4
 refinement reservations and retained-factor overlap. General LU raw input is
 borrowed and capped. Real SPD also uses that shared AMD workspace, accounting
 permutations, reordered CSC, symbolic scratch, panels and refinement together.
-Natural DEFAULT selection is unchanged. SPD nested dissection and external
+DEFAULT selects AMD under the same rule as uncapped execution (at least 4096
+columns and an entry more than 12 positions from the diagonal), for real SPD
+too. SPD nested dissection and external
 backends remain unsupported under strict host caps. CUDA supports the separate
 device-owned payload cap described below; CUDA host caps and LOW_MEMORY
 remain unsupported.
@@ -56,6 +58,9 @@ memory or preconditioner performance admission.
 The pre-factorization planning API describes compact real-SPD layouts. Natural
 ordering supports LOW_MEMORY or NATIVE_REFERENCE. Explicit AMD planning requires
 LOW_MEMORY, including with NATIVE_REFERENCE, and the audited bounded AMD ABI.
+DEFAULT plans the order the factorization selects: the AMD layout on
+FORTSPARSE_BACKEND_NATIVE when the default rule chooses AMD, natural otherwise
+and always on NATIVE_REFERENCE.
 It uses the production permutation and independently counts its symbolic fill.
 Uncapped reference AMD without LOW_MEMORY keeps its existing execution policy;
 its opaque ordering workspace is not planned. Blocked, ND, GPU and

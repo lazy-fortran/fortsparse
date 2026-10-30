@@ -25,6 +25,8 @@ module fortsparse_native_ldlt
     integer(i8), parameter :: ib = storage_size(0)/8, rb = storage_size(0.0_dp)/8
     integer(i8), parameter :: rsb = storage_size(0.0_dp)/8
     real(dp), parameter :: alpha = (1.0_dp + sqrt(17.0_dp))/8.0_dp
+    ! Threshold u of the ordered pivot tests: every multiplier is bounded by 1/u.
+    real(dp), parameter :: delay_threshold = 0.1_dp
 
     integer, parameter :: front_limit = 512, panel_width = 32
 
@@ -50,6 +52,8 @@ module fortsparse_native_ldlt
         ! Per-vertex max |entry| of A and every Schur entry stored in its row.
         real(dp), allocatable :: row_scale(:)
         integer, allocatable :: ap(:), ai(:), perm(:), pos(:), block(:), nbr(:), initial_order(:)
+        ! Ordered factors only: elimination step at which a vertex was last delayed.
+        integer, allocatable :: delayed(:)
         real(dp), allocatable :: diagonal(:), offdiagonal(:), u(:), v(:), work(:)
         type(sparse_row_t), allocatable :: schur(:), lower(:)
     contains
@@ -263,6 +267,17 @@ contains
                 end if
                 self%initial_order = column_permutation
             end if
+        end if
+        if (allocated(self%initial_order)) then
+            call admit(self, ib*int(n, i8), status)
+            if (.not. status_ok(status)) return
+            allocate (self%delayed(n), stat=ierr)
+            if (ierr /= 0) then
+                call allocation_error(status)
+                call self%free()
+                return
+            end if
+            self%delayed = 0
         end if
         do j = 1, n
             self%perm(j) = j
@@ -622,9 +637,15 @@ contains
                     cycle
                 end if
             end if
-            call choose_pivot(self, k, pivot, step, status)
-            if (.not. status_ok(status)) return
-            call interchange(self, k + step - 1, pivot)
+            if (allocated(self%delayed)) then
+                call ordered_pivot(self, k, pivot, step, status)
+                if (.not. status_ok(status)) return
+                call rotate(self, pivot, k + step - 1)
+            else
+                call choose_pivot(self, k, pivot, step, status)
+                if (.not. status_ok(status)) return
+                call interchange(self, k + step - 1, pivot)
+            end if
             first = self%perm(k)
             second = first
             a = row_get(self%schur(first), first)
@@ -900,6 +921,105 @@ contains
         if (abs(row_get(self%schur(largest), largest)) >= alpha*rowmax) return
         step = 2
     end subroutine choose_pivot
+
+    ! Pivoting restricted to the fill-reducing order. A 1x1 pivot in order or
+    ! a 2x2 pivot with the first remaining neighbour (the elimination-tree
+    ! parent) must pass the threshold test; otherwise the vertex is delayed to
+    ! just after that parent, as a multifrontal solver passes a failed pivot
+    ! to the parent front. A vertex delayed again before any elimination takes
+    ! the unrestricted Bunch--Kaufman pivot, which always exists.
+    subroutine ordered_pivot(self, k, pivot, step, status)
+        class(native_ldlt_t), intent(inout) :: self
+        integer, intent(in) :: k
+        integer, intent(out) :: pivot, step
+        type(fortsparse_status_t), intent(out) :: status
+        real(dp) :: absakk, colmax, a, b, c, scale, det, first_max, parent_max
+        integer :: first, parent, i, p
+        do
+            first = self%perm(k)
+            absakk = abs(row_get(self%schur(first), first))
+            colmax = 0.0_dp
+            parent = 0
+            do p = 1, self%schur(first)%used
+                i = self%schur(first)%index(p)
+                if (self%pos(i) <= k) cycle
+                colmax = max(colmax, abs(self%schur(first)%value(p)))
+                if (parent == 0) then
+                    parent = i
+                else if (self%pos(i) < self%pos(parent)) then
+                    parent = i
+                end if
+            end do
+            pivot = k
+            step = 1
+            call status_set(status, FORTSPARSE_OK, '')
+            if (max(absakk, colmax) <= 0.0_dp) return
+            if (absakk >= delay_threshold*colmax) return
+            a = row_get(self%schur(first), first)
+            b = row_get(self%schur(first), parent)
+            c = row_get(self%schur(parent), parent)
+            first_max = 0.0_dp
+            do p = 1, self%schur(first)%used
+                i = self%schur(first)%index(p)
+                if (self%pos(i) <= k .or. i == parent) cycle
+                first_max = max(first_max, abs(self%schur(first)%value(p)))
+            end do
+            parent_max = 0.0_dp
+            do p = 1, self%schur(parent)%used
+                i = self%schur(parent)%index(p)
+                if (self%pos(i) <= k .or. i == parent) cycle
+                parent_max = max(parent_max, abs(self%schur(parent)%value(p)))
+            end do
+            scale = max(abs(a), abs(b), abs(c))
+            det = 0.0_dp
+            if (scale > 0.0_dp) then
+                a = spd_divide(a, scale)
+                b = spd_divide(b, scale)
+                c = spd_divide(c, scale)
+                call ldlt_det_value(a, b, c, det)
+            end if
+            ! |P^{-1}| (first_max, parent_max)^T <= 1/u with P scaled to unit size.
+            if (abs(det) > 0.0_dp) then
+                if (delay_threshold*(abs(c)*first_max + abs(b)*parent_max) <= &
+                    abs(det)*scale .and. &
+                    delay_threshold*(abs(b)*first_max + abs(a)*parent_max) <= &
+                    abs(det)*scale) then
+                    pivot = self%pos(parent)
+                    step = 2
+                    return
+                end if
+            end if
+            if (self%delayed(first) == k) then
+                call choose_pivot(self, k, pivot, step, status)
+                return
+            end if
+            self%delayed(first) = k
+            call rotate(self, k, self%pos(parent))
+        end do
+    end subroutine ordered_pivot
+
+    ! Move the vertex at position from to position to; the vertices between
+    ! keep their relative order, so the fill-reducing order is preserved.
+    subroutine rotate(self, from, to)
+        class(native_ldlt_t), intent(inout) :: self
+        ! By value: callers pass entries of self%pos, which this routine updates.
+        integer, value :: from, to
+        integer :: vertex, i
+        vertex = self%perm(from)
+        if (from > to) then
+            do i = from, to + 1, -1
+                self%perm(i) = self%perm(i - 1)
+                self%pos(self%perm(i)) = i
+            end do
+        else
+            do i = from, to - 1
+                self%perm(i) = self%perm(i + 1)
+                self%pos(self%perm(i)) = i
+            end do
+        end if
+        self%perm(to) = vertex
+        self%pos(vertex) = to
+    end subroutine rotate
 
     subroutine interchange(self, first, second)
         class(native_ldlt_t), intent(inout) :: self
@@ -1234,6 +1354,10 @@ contains
             self%bytes = self%bytes - rsb*size(self%row_scale, kind=i8)
             deallocate (self%row_scale)
         end if
+        if (allocated(self%delayed)) then
+            self%bytes = self%bytes - ib*size(self%delayed, kind=i8)
+            deallocate (self%delayed)
+        end if
     end subroutine release_scratch
 
     subroutine clear_numeric(self)
@@ -1255,6 +1379,7 @@ contains
         if (allocated(self%v)) deallocate (self%v)
         if (allocated(self%work)) deallocate (self%work)
         if (allocated(self%row_scale)) deallocate (self%row_scale)
+        if (allocated(self%delayed)) deallocate (self%delayed)
         self%bytes = 0_i8
         if (allocated(self%ap)) self%bytes = ib*size(self%ap, kind=i8)
         if (allocated(self%ai)) self%bytes = self%bytes + ib*size(self%ai, kind=i8)

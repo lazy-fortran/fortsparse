@@ -7,18 +7,16 @@ program test_fortsparse_native_default_ordering
     implicit none
     integer, parameter :: grid = 65, vertices = 46
     real(dp), parameter :: fill_ratio = 0.5_dp
-    type(csc_t) :: laplace, shifted
+    type(csc_t) :: laplace
     type(csc_z_t) :: elastic
     integer :: failures
 
     failures = 0
     call build_laplacian(grid, 0.0_dp, laplace)
-    call build_laplacian(grid, 2.0137_dp, shifted)
     call build_elasticity(vertices, elastic)
     call compare_real(laplace, FORTSPARSE_SYM_GENERAL, 'real LU')
     call compare_real(laplace, FORTSPARSE_SYM_SPD, 'real SPD')
     call compare_complex(elastic, 'complex LU')
-    call scalar_ldlt_stays_natural(shifted)
     if (failures /= 0) then
         write (error_unit, '(i0,a)') failures, ' default-ordering checks failed'
         stop 1
@@ -48,17 +46,6 @@ contains
         call check(maxval(abs(x_default - x_natural)) <= &
             1.0e-10_dp*maxval(abs(x_natural)), label//': same solution')
     end subroutine compare_real
-
-    subroutine scalar_ldlt_stays_natural(A)
-        ! Bunch-Kaufman interchanges can defeat AMD on indefinite matrices.
-        type(csc_t), intent(in) :: A
-        real(dp), allocatable :: b(:), x(:)
-        integer(i8) :: factor_nnz
-        allocate (b(A%nrow))
-        b = 1.0_dp
-        call solve_real(A, FORTSPARSE_SYM_INDEFINITE, FORTSPARSE_ORDER_DEFAULT, b, &
-            x, factor_nnz, FORTSPARSE_ORDER_DEFAULT, 'LDLT default')
-    end subroutine scalar_ldlt_stays_natural
 
     subroutine solve_real(A, symmetry, ordering, b, x, factor_nnz, used, label)
         type(csc_t), intent(in) :: A

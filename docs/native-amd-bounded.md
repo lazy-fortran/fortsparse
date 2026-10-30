@@ -1,10 +1,11 @@
 # Bounded AMD ordering for native CPU factors
 
 Explicit AMD ordering supports positive host allocation caps and `MEMORY_LOW`
-for native real/complex general LU and real SPD Cholesky. The caller-workspace
+for native real/complex general LU, real SPD and complex HPD Cholesky and the
+real/complex symmetric indefinite LDL factors. The caller-workspace
 path calls the audited AMD 3.3.4 `amd_2` when that ABI is built and the
 project-owned `fsparse_amd_core` otherwise; both take the same arena and
-elbow room, and the core allocates nothing. General-LU `DEFAULT` uses this path
+elbow room, and the core allocates nothing. `DEFAULT` uses this path
 whenever it selects AMD; `NATIVE_REFERENCE` retains its natural policy. This is CPU ordering; row
 pivoting, value scaling, sparse numerical factors and retained N/T/H solves are
 unchanged. These checks establish correctness and array-payload accounting,
@@ -89,8 +90,9 @@ SPD keeps both permutation outputs. Its existing validator still requires
 finite, full, numerically symmetric canonical CSC before the shared graph query.
 The bounded C implementation, ABI/version guards and graph construction are the
 same implementation used by LU. No allocation hooks or ordering implementation
-are copied into the Cholesky backend. Strict `ORDER_DEFAULT` remains natural;
-explicit `ORDER_ND` and CUDA remain unsupported. LOW selects compact Cholesky;
+are copied into the Cholesky backend. Strict `ORDER_DEFAULT` follows the
+default rule and then takes this path exactly like explicit AMD; explicit
+`ORDER_ND` and CUDA remain unsupported. LOW selects compact Cholesky;
 AUTO may build generated CPU panels, reduce thread scratch or use the compact
 fallback when the panel payload cannot fit. Vendor BLAS is disabled throughout
 strict numerical execution, including wide triangular panels.
@@ -132,9 +134,9 @@ values for refinement, and allocates no new arrays. Changed pattern, ordering,
 thread/device choice, cap or policy rebuilds through factorization, releasing
 old storage first. This SPD path has no old/new factor overlap during rebuild.
 
-`sparse_analyze` still returns `BACKEND_UNAVAILABLE` for AMD: the natural exact
-planner must not describe an ordered/blocked layout it has not planned. Bounded
-factorization support is independent of this planning limit. Array-payload caps
+`sparse_analyze` plans the compact LOW_MEMORY AMD layout, for explicit AMD and
+for a DEFAULT that selects AMD, by running the production ordering and an
+independent symbolic count; blocked AUTO layouts stay unplanned. Array-payload caps
 exclude fixed descriptors, heap/OS page rounding, runtime/stack storage and RSS;
 see [memory limits](memory.md) for process headroom.
 

@@ -341,13 +341,15 @@ Reuse keys cover every structural and scheduling assumption.
 
 Implemented host caps cover natural-order CPU SPD compact and blocked execution,
 and the CPU factor references. General LU and real SPD also support explicit
-AMD with audited caller-owned ordering workspace, including LOW_MEMORY. General
+AMD with audited caller-owned ordering workspace, including LOW_MEMORY, and use
+it by default under the shared DEFAULT rule. General
 LU accounts for reuse overlap; ordered SPD accounts for analysis, panels and
 original-matrix refinement.
 Bounded panels count descriptors, graph/task
 scratch and requested-team workspace, reduce teams to fit and avoid opaque BLAS
-workspace. Compact natural SPD and explicit-AMD LOW_MEMORY SPD have exact
-payload planning, including ordering and symbolic-count phase peaks. Blocked
+workspace. Compact natural SPD and AMD (explicit or DEFAULT) LOW_MEMORY SPD
+have exact payload planning, including ordering and symbolic-count phase
+peaks. Blocked
 planning, SPD ND host caps and wider production planning remain unimplemented.
 CUDA real SPD now enforces a separate explicit device-allocation payload cap,
 including plan-replacement overlap and failure diagnostics. CUDA host caps and
@@ -466,16 +468,19 @@ mathematical implementations.
   parallel factorization and separate complex consumer frontier admission remain
   open; the real panel prototype does not extend to complex factors.
 - [ ] **M6.4: complex Hermitian positive-definite Cholesky.** Generated complex
-  leaves, conjugation checks, retained operations/refinement and bounded-memory
-  natural simplicial execution are implemented. Structured complex ordering,
-  production blocking/parallel schedules, pre-factor plans and admission remain
+  leaves, conjugation checks, retained operations/refinement, bounded-memory
+  simplicial execution and AMD/ND ordering (AMD by default) are implemented.
+  Production blocking/parallel schedules, pre-factor plans and admission remain
   open.
 - [ ] **M6.5: indefinite native factors.** Sparse Bunch--Kaufman references for
   real symmetric, complex Hermitian and complex transpose-symmetric matrices
-  already implement unrestricted 1x1/2x2 pivots, retained operations/refinement
-  and growth caps. Real symmetric AMD is implemented; complex structured
-  ordering, parallel blocked schedules, pre-factor plans and representative
-  adversarial/consumer performance admission remain open. Do not substitute
+  already implement 1x1/2x2 pivots, retained operations/refinement and growth
+  caps. Real and complex AMD/ND ordering is implemented and AMD is the default;
+  under a fill-reducing order the pivots are restricted to the order with
+  delayed pivots, falling back to unrestricted Bunch--Kaufman only for a vertex
+  delayed twice. Parallel blocked schedules, pre-factor plans and
+  representative adversarial/consumer performance admission remain open.
+  Do not substitute
   unpivoted LDL for robust indefinite solves. Exact current class contracts are
   retained in [native CPU support](docs/native-cpu.md).
 - [ ] **M6.6: consumer integration and CPU independence.** Consumer-required

@@ -1,5 +1,7 @@
 module fortsparse_native_hpd
-    ! Natural-order simplicial complex Cholesky, A = L L^H.
+    ! Simplicial complex Cholesky, P^T A P = L L^H, in natural or a given order.
+    ! ap/ai hold the pattern of P^T A P; L rows (li) and the work vector use the
+    ! original labels, so solves need no permuted copy of the right-hand side.
     ! Sparse reach owns topology; retained FortSym leaves own arithmetic.
     ! Both policies use the same minimal retained workspace in this reference;
     ! LOW_MEMORY therefore changes no layout, precision or mathematical result.
@@ -27,6 +29,8 @@ module fortsparse_native_hpd
         logical :: ready = .false., low_memory = .false.
         integer, allocatable :: ap(:), ai(:), lp(:), li(:)
         integer, allocatable :: parent(:), count(:), mark(:), reach(:), path(:)
+        ! Ordered factors only: elimination order and source entry of each ai.
+        integer, allocatable :: perm(:), src(:)
         complex(dp), allocatable :: lv(:), work(:)
         type(memory_budget_t) :: budget
     contains
@@ -40,6 +44,7 @@ module fortsparse_native_hpd
         procedure :: dimension => hpd_dimension
         procedure :: is_factored => hpd_is_factored
         procedure :: factor_nnz => hpd_factor_nnz
+        procedure :: copy_column_order => hpd_copy_column_order
         procedure :: memory_current_bytes => hpd_memory_current
         procedure :: memory_peak_bytes => hpd_memory_peak
         procedure :: memory_payloads => hpd_memory_payloads
@@ -47,12 +52,14 @@ module fortsparse_native_hpd
         final :: hpd_finalize
     end type native_hpd_t
 contains
-    subroutine hpd_factor(self, A, status, memory_limit_bytes, low_memory)
+    subroutine hpd_factor(self, A, status, memory_limit_bytes, low_memory, &
+            column_permutation)
         class(native_hpd_t), intent(inout) :: self
         type(csc_z_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory
+        integer, intent(in), optional :: column_permutation(:)
         integer :: j, p, i, q, top, pos
         integer(i8) :: nz
 
@@ -72,6 +79,12 @@ contains
         if (status%code /= FORTSPARSE_OK) goto 900
         call allocate_integer(self%budget, self%ai, A%nnz, status)
         if (status%code /= FORTSPARSE_OK) goto 900
+        if (present(column_permutation)) then
+            call allocate_integer(self%budget, self%perm, self%n, status)
+            if (status%code /= FORTSPARSE_OK) goto 900
+            call allocate_integer(self%budget, self%src, A%nnz, status)
+            if (status%code /= FORTSPARSE_OK) goto 900
+        end if
         call allocate_integer(self%budget, self%lp, self%n + 1, status)
         if (status%code /= FORTSPARSE_OK) goto 900
         call allocate_integer(self%budget, self%parent, self%n, status)
@@ -84,8 +97,13 @@ contains
         if (status%code /= FORTSPARSE_OK) goto 900
         call allocate_integer(self%budget, self%path, self%n, status)
         if (status%code /= FORTSPARSE_OK) goto 900
-        self%ap = A%col_ptr
-        self%ai = A%row_idx
+        if (present(column_permutation)) then
+            call permute_pattern(self, A, column_permutation, status)
+            if (status%code /= FORTSPARSE_OK) goto 900
+        else
+            self%ap = A%col_ptr
+            self%ai = A%row_idx
+        end if
         self%parent = 0
         self%count = 0
         self%mark = 0
@@ -122,12 +140,12 @@ contains
         self%mark = 0
         self%count = 1
         do j = 1, self%n
-            self%li(self%lp(j)) = j
+            self%li(self%lp(j)) = label(self, j)
             call row_reach(self, j, top)
             do q = top, self%n
                 i = self%reach(q)
                 pos = self%lp(i) + self%count(i)
-                self%li(pos) = j
+                self%li(pos) = label(self, j)
                 self%count(i) = self%count(i) + 1
             end do
         end do
@@ -140,15 +158,16 @@ contains
 900     call self%free()
     end subroutine hpd_factor
 
-    subroutine hpd_refactor(self, A, status, reused, memory_limit_bytes, low_memory)
+    subroutine hpd_refactor(self, A, status, reused, memory_limit_bytes, low_memory, &
+            column_permutation)
         class(native_hpd_t), intent(inout) :: self
         type(csc_z_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
         logical, intent(out), optional :: reused
         integer(i8), intent(in), optional :: memory_limit_bytes
         logical, intent(in), optional :: low_memory
+        integer, intent(in), optional :: column_permutation(:)
         logical :: same, retained_low_memory
-        integer :: p
         integer(i8) :: retained_limit
 
         if (present(reused)) reused = .false.
@@ -170,20 +189,7 @@ contains
         if (status%code /= FORTSPARSE_OK) return
         call validate_hpd(A, status)
         if (status%code /= FORTSPARSE_OK) return
-        same = .false.
-        if (allocated(self%ap)) then
-            if (self%n == A%ncol .and. size(self%ai) == A%nnz) then
-                same = .true.
-                do p = 1, self%n + 1
-                    if (self%ap(p) /= A%col_ptr(p)) same = .false.
-                end do
-                if (same) then
-                    do p = 1, A%nnz
-                        if (self%ai(p) /= A%row_idx(p)) same = .false.
-                    end do
-                end if
-            end if
-        end if
+        same = same_analysis(self, A%ncol, A%col_ptr, A%row_idx, column_permutation)
         if (same) then
             if (present(reused)) reused = .true.
             call numeric_factor(self, A, status)
@@ -193,9 +199,101 @@ contains
             retained_limit = self%budget%limit
             retained_low_memory = self%low_memory
             call self%factor(A, status, memory_limit_bytes=retained_limit, &
-                             low_memory=retained_low_memory)
+                low_memory=retained_low_memory, &
+                column_permutation=column_permutation)
         end if
     end subroutine hpd_refactor
+
+    ! The retained analysis applies when A has the analyzed pattern and the
+    ! requested order is the analyzed one (natural when absent).
+    logical function same_analysis(self, n, ptr, rows, order) result(same)
+        class(native_hpd_t), intent(in) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        integer, intent(in), optional :: order(:)
+        integer :: i, j, p, q, old
+        same = .false.
+        if (.not. allocated(self%ap) .or. .not. allocated(self%ai)) return
+        if (self%n /= n .or. size(ptr) /= n + 1 .or. size(self%ai) /= size(rows)) return
+        if (present(order) .neqv. allocated(self%perm)) return
+        if (.not. present(order)) then
+            same = all(self%ap == ptr) .and. all(self%ai == rows)
+            return
+        end if
+        if (size(order) /= n) return
+        if (any(order /= self%perm)) return
+        do j = 1, n
+            old = self%perm(j)
+            if (ptr(old + 1) - ptr(old) /= self%ap(j + 1) - self%ap(j)) return
+            do q = self%ap(j), self%ap(j + 1) - 1
+                ! src points at the mirrored entry A(perm(j), perm(ai(q))).
+                i = self%perm(self%ai(q))
+                p = self%src(q)
+                if (p < ptr(i) .or. p >= ptr(i + 1)) return
+                if (rows(p) /= old) return
+            end do
+        end do
+        same = .true.
+    end function same_analysis
+
+    ! Sorted CSC of P^T A P from the full symmetric pattern of A in O(nnz + n):
+    ! original columns are visited in new row order and scattered transposed,
+    ! so src(q) of entry (i, j) is A(perm(j), perm(i)), the conjugate value.
+    ! mark holds the inverse order and count the column cursors.
+    subroutine permute_pattern(self, A, order, status)
+        class(native_hpd_t), intent(inout) :: self
+        type(csc_z_t), intent(in) :: A
+        integer, intent(in) :: order(:)
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: i, j, p, q, old
+        call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+            'native HPD: invalid ordering')
+        if (size(order) /= self%n) return
+        self%mark = 0
+        do j = 1, self%n
+            old = order(j)
+            if (old < 1 .or. old > self%n) return
+            if (self%mark(old) /= 0) return
+            self%mark(old) = j
+        end do
+        self%perm = order
+        self%ap(1) = 1
+        do j = 1, self%n
+            old = self%perm(j)
+            self%ap(j + 1) = self%ap(j) + A%col_ptr(old + 1) - A%col_ptr(old)
+        end do
+        self%count = self%ap(:self%n)
+        do i = 1, self%n
+            old = self%perm(i)
+            do p = A%col_ptr(old), A%col_ptr(old + 1) - 1
+                j = self%mark(A%row_idx(p))
+                q = self%count(j)
+                self%ai(q) = i
+                self%src(q) = p
+                self%count(j) = q + 1
+            end do
+        end do
+        call status_set(status, FORTSPARSE_OK, '')
+    end subroutine permute_pattern
+
+    pure integer function label(self, j) result(vertex)
+        class(native_hpd_t), intent(in) :: self
+        integer, intent(in) :: j
+        vertex = j
+        if (allocated(self%perm)) vertex = self%perm(j)
+    end function label
+
+    subroutine hpd_copy_column_order(self, n, ptr, rows, order, matched)
+        class(native_hpd_t), intent(in) :: self
+        integer, intent(in) :: n, ptr(:), rows(:)
+        integer, intent(out) :: order(:)
+        logical, intent(out) :: matched
+        matched = .false.
+        if (.not. self%ready .or. .not. allocated(self%perm)) return
+        if (size(order) /= n) return
+        if (.not. same_analysis(self, n, ptr, rows, self%perm)) return
+        order = self%perm
+        matched = .true.
+    end subroutine hpd_copy_column_order
 
     subroutine validate_hpd(A, status)
         type(csc_z_t), intent(in) :: A
@@ -288,7 +386,7 @@ contains
         class(native_hpd_t), intent(inout) :: self
         type(csc_z_t), intent(in) :: A
         type(fortsparse_status_t), intent(out) :: status
-        integer :: j, p, q, i, top, k
+        integer :: j, p, q, i, top, k, vj, vi
         real(dp) :: d
         complex(dp) :: v
 
@@ -298,17 +396,27 @@ contains
         self%count = 1
         do j = 1, self%n
             call row_reach(self, j, top)
-            do p = self%ap(j), self%ap(j + 1) - 1
-                i = self%ai(p)
-                if (i > j) exit
-                self%work(i) = A%val(p)
-            end do
-            d = real(self%work(j), dp)
-            self%work(j) = cmplx(0.0_dp, 0.0_dp, dp)
+            if (allocated(self%perm)) then
+                do p = self%ap(j), self%ap(j + 1) - 1
+                    i = self%ai(p)
+                    if (i > j) exit
+                    self%work(self%perm(i)) = conjg(A%val(self%src(p)))
+                end do
+            else
+                do p = self%ap(j), self%ap(j + 1) - 1
+                    i = self%ai(p)
+                    if (i > j) exit
+                    self%work(i) = A%val(p)
+                end do
+            end if
+            vj = label(self, j)
+            d = real(self%work(vj), dp)
+            self%work(vj) = cmplx(0.0_dp, 0.0_dp, dp)
             do q = top, self%n
                 i = self%reach(q)
-                v = hpd_divide(self%work(i), real(self%lv(self%lp(i)), dp))
-                self%work(i) = cmplx(0.0_dp, 0.0_dp, dp)
+                vi = label(self, i)
+                v = hpd_divide(self%work(vi), real(self%lv(self%lp(i)), dp))
+                self%work(vi) = cmplx(0.0_dp, 0.0_dp, dp)
                 !$omp simd private(k)
                 do p = self%lp(i) + 1, self%lp(i) + self%count(i) - 1
                     k = self%li(p)
@@ -444,14 +552,15 @@ contains
         class(native_hpd_t), intent(in) :: self
         complex(dp), intent(inout) :: x(:)
         integer, intent(in) :: operation
-        integer :: j, p, i
+        integer :: j, p, i, vj
         complex(dp) :: v
 
         ! A^T = conjg(A), hence x = conjg(A^{-1} conjg(b)). A^H = A.
         if (operation == 1) x = conjg(x)
         do j = 1, self%n
-            v = hpd_divide(x(j), real(self%lv(self%lp(j)), dp))
-            x(j) = v
+            vj = label(self, j)
+            v = hpd_divide(x(vj), real(self%lv(self%lp(j)), dp))
+            x(vj) = v
             !$omp simd private(i)
             do p = self%lp(j) + 1, self%lp(j + 1) - 1
                 i = self%li(p)
@@ -459,11 +568,12 @@ contains
             end do
         end do
         do j = self%n, 1, -1
-            v = x(j)
+            vj = label(self, j)
+            v = x(vj)
             do p = self%lp(j) + 1, self%lp(j + 1) - 1
                 v = hpd_conj_update(v, x(self%li(p)), self%lv(p))
             end do
-            x(j) = hpd_divide(v, real(self%lv(self%lp(j)), dp))
+            x(vj) = hpd_divide(v, real(self%lv(self%lp(j)), dp))
         end do
         if (operation == 1) x = conjg(x)
     end subroutine triangular_solve
@@ -528,6 +638,10 @@ contains
             ib*size(self%lp, kind=i8)
         if (allocated(self%parent)) persistent_bytes = persistent_bytes + &
             ib*size(self%parent, kind=i8)
+        if (allocated(self%perm)) persistent_bytes = persistent_bytes + &
+            ib*size(self%perm, kind=i8)
+        if (allocated(self%src)) persistent_bytes = persistent_bytes + &
+            ib*size(self%src, kind=i8)
         if (allocated(self%count)) workspace_bytes = workspace_bytes + &
             ib*size(self%count, kind=i8)
         if (allocated(self%mark)) workspace_bytes = workspace_bytes + &
@@ -588,6 +702,8 @@ contains
         if (allocated(self%path)) deallocate (self%path)
         if (allocated(self%lv)) deallocate (self%lv)
         if (allocated(self%work)) deallocate (self%work)
+        if (allocated(self%perm)) deallocate (self%perm)
+        if (allocated(self%src)) deallocate (self%src)
         self%n = 0
         self%ready = .false.
         self%budget%current = 0_i8
