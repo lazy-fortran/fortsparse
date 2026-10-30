@@ -7,31 +7,51 @@ existing Cholesky engine and other classes to the following new CPU references:
 |---|---|---|
 | Real general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
 | Complex general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
-| Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Natural-order simplicial reference |
-| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots; opt-in BLAS-3 panels/OpenMP |
-| Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Unrestricted 1x1/2x2 pivots, serial reference |
-| Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Unrestricted 1x1/2x2 pivots, serial reference |
+| Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Default AMD, natural or METIS ND order, simplicial reference |
+| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Default AMD; 1x1/2x2 pivots restricted to the order with delays (see below); opt-in BLAS-3 panels/OpenMP |
+| Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Default AMD; restricted 1x1/2x2 pivots with delays, serial reference |
+| Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Default AMD; restricted 1x1/2x2 pivots with delays, serial reference |
 
-Real symmetric-indefinite CSC factors accept explicit AMD or METIS ND ordering.
+The symmetric and Hermitian CSC factors, real and complex, accept explicit AMD
+or METIS ND ordering.
 
 ## Default ordering
 
 `FORTSPARSE_ORDER_DEFAULT` selects AMD when the matrix has at least 4096
 columns and an entry more than 12 positions from the diagonal, and natural
-order otherwise, for real SPD Cholesky and real and complex general LU.
+order otherwise, for real SPD and complex HPD Cholesky, real and complex
+general LU, and the real and complex symmetric indefinite LDL^T/LDL^H factors.
 `FORTSPARSE_ORDER_NATURAL` keeps the input order; `ordering_used` reports
 natural order as 0. AMD needs no external library: without SuiteSparse AMD the
 project-owned implementation (`fsparse_native_amd_core.c`, the algorithm of
 Amestoy, Davis and Duff, 1996) is built, also by `fpm`. General LU takes the
 accounted caller-workspace AMD for the default, so exact host peaks and caps
-keep working. Exceptions keep natural order by default: the scalar real LDLT,
-whose unrestricted Bunch--Kaufman interchanges can undo a fill-reducing order
-on strongly indefinite matrices (on a 4900-unknown shifted Laplacian, AMD gave
-4x less fill when nearly definite but up to 5x more fill and 85x more time when
-strongly indefinite); real SPD under a host cap, LOW_MEMORY or refinement,
-whose exact natural memory plan backs `sparse_analyze`; NATIVE_REFERENCE; and
-the complex HPD and complex LDLT/LDLH references, which have no ordering
-support.
+keep working; so do the HPD and indefinite factors and real SPD under a host
+cap, LOW_MEMORY or refinement, where `sparse_analyze` plans the AMD layout that
+the factorization will use. Only NATIVE_REFERENCE keeps natural order by default.
+
+### Pivoting within a fill-reducing order
+
+Unrestricted Bunch--Kaufman pivoting may pick its partner anywhere in the
+remaining matrix and swap positions with it, which can undo a fill-reducing
+order: on a 4900-unknown Laplacian with diagonal `4-s`, AMD with unrestricted
+pivots gave 1.9x more fill than natural order at s=3.5 (an earlier build with
+the built-in AMD gave 5x). Whenever a fill-reducing order is in use, the
+indefinite factors therefore pivot as a multifrontal solver with delayed
+pivots does (MA57, MUMPS). The next vertex `k` in the order is accepted as a
+1x1 pivot if `|a_kk| >= u max_i |a_ik|`, or else as a 2x2 pivot with its first
+remaining neighbour `p` in the order (its elimination-tree parent) if every
+multiplier stays below `1/u`, that is `u |P^-1| (max_i |a_ik|, max_i |a_ip|)^T
+<= (1, 1)^T` for the 2x2 block `P`. Otherwise `k` is delayed to the position
+right after `p`, as a failed pivot moves to the parent front, and the other
+vertices keep their relative order. A vertex that comes up again before any
+elimination took place takes the ordinary unrestricted Bunch--Kaufman pivot,
+moved into place by the same order-preserving shift, so a pivot always exists.
+The threshold is `u = 0.1`. Natural order keeps unrestricted Bunch--Kaufman
+with position swaps. Inertia is counted from the actual pivots as before. On
+the shifted Laplacian above, the restricted factors keep within 1.15x of the
+definite AMD fill over s = 0..3.5 with backward errors below 1e-14; see
+[the measurements](../bench/results/2026-10-30-symmetric-ordering/README.md).
 
 Set `options%ldlt_blocked = .true.` to try bounded relaxed supernodes on the
 real CPU LDLT path. Each front contains up to 32 consecutive candidates and
@@ -40,8 +60,8 @@ LAPACK `DLASYF` performs Bunch--Kaufman pivot tests and BLAS-3 trailing updates;
 OpenMP assembles columns and merges disjoint Schur rows. `options%nthreads` or
 `OMP_NUM_THREADS` controls that team; keep BLAS threads separately budgeted.
 A private trial needing any interchange is discarded before changing the sparse
-state, then unrestricted scalar Bunch--Kaufman eliminates a pivot. This preserves
-global 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
+state, then scalar Bunch--Kaufman (restricted to the order when one is in use)
+eliminates a pivot. This preserves 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
 elimination. Default and blocked execution merge each complete
 rank-1/2 update once per Schur row, with disjoint rows assigned to OpenMP
 workers. Both stored triangles use the same contraction order. Small fronts
@@ -82,13 +102,16 @@ representative performance admission. Its merge workspace costs
 in the owned payload accounting. The initial
 symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
 retained for same-pattern refactors; each refactor chooses its pivots afresh.
-DEFAULT stays natural here; explicit AMD is
-unavailable for NATIVE_REFERENCE. The common caller-workspace AMD
-path supports host caps and LOW_MEMORY. Its permutation input, retained initial
-order (`4*n` bytes), graph workspace, factor growth, retained factors and optional
-original-matrix refinement storage are all charged. Opaque uncapped AMD reports
-complete peak memory as unknown. Ordered pre-factor planning remains unavailable.
-Complex structured AMD remains unavailable.
+DEFAULT orders as described under [default ordering](#default-ordering);
+explicit AMD is unavailable for NATIVE_REFERENCE. The common caller-workspace
+AMD path supports host caps and LOW_MEMORY for the real and complex LDL and
+the HPD factors. Its permutation input, retained initial order (`4*n` bytes),
+delay marks (`4*n` bytes during factorization), graph workspace, factor
+growth, retained factors and optional original-matrix refinement storage are
+all charged; ordered HPD factors retain the permuted pattern plus a `4*n`
+order and a `4*nnz` source map. Opaque uncapped AMD reports complete peak
+memory as unknown. Ordered pre-factor planning remains unavailable for these
+families.
 
 These are usable native reference families, not production performance admission.
 The previous real-SPD CPU frontier results do not extend to these classes.
@@ -184,7 +207,7 @@ LOW resident-RAM/CPU tradeoff; it strengthens neither the payload cap nor any
 external-solver frontier claim. AUTO and complex LU retain ordinary free.
 HPD already uses compact exact structural storage. Separate contexts own their
 mutable work independently. Strict-budget and LOW_MEMORY execution use natural
-ordering, or the audited bounded AMD path for general LU; these matrix classes
+ordering or the audited bounded AMD path; these matrix classes
 currently execute on CPU. LU, HPD and
 real/complex LDL support `solver%refine=.true.` with
 retained original-matrix residuals, a 32-epsilon normwise backward-error target
@@ -299,7 +322,7 @@ memory comparisons; these changes make no performance-admission claim.
 METIS owns opaque internal workspace: ND always reports unknown complete peak
 (`-1`) and `strict_memory_supported=.false.`. Positive host caps or LOW_MEMORY
 with ND fail before calling METIS; use natural or bounded AMD for those contracts.
-This does not extend ND to the complex structured reference families.
+The same applies to the complex HPD and complex LDL factors.
 
 ## Opt-in supernodal real and complex LU
 
