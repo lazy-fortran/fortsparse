@@ -43,6 +43,7 @@ target_sources(fortsparse PRIVATE
     native/fsparse_native_lu_memory.c
     native/fsparse_native_symbolic.c
     native/fortsparse_native_cuda.F90
+    native/fortsparse_native_sytrf.F90
     native/fortsparse_native_supernode_schedule.F90
     native/fortsparse_native_supernodes.F90
     native/fortsparse_native_slu.F90
@@ -88,6 +89,10 @@ target_include_directories(fortsparse
 # The SuperLU target differs by provisioning: the system FindSuperLU module
 # exports SuperLU::SuperLU, the fetched in-tree build exports superlu.
 target_link_libraries(fortsparse PUBLIC Threads::Threads BLAS::BLAS)
+target_link_libraries(fortsparse PUBLIC ${_fortsparse_lapack_libraries})
+if(NOT FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+    target_compile_definitions(fortsparse PRIVATE FORTSPARSE_LAPACK_NO_DSYTRF_RK)
+endif()
 if(FORTSPARSE_ENABLE_SUPERLU)
     if(FORTSPARSE_USE_SYSTEM_DEPS)
         target_link_libraries(fortsparse PUBLIC SuperLU::SuperLU)

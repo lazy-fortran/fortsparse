@@ -11,6 +11,7 @@ module fortsparse_native_supernodes
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
         spd_divide, spd_gather_update
+    use fortsparse_native_sytrf, only: sytrf_rk_lower
     use fortsparse_native_supernode_schedule, only: supernode_t, supernode_schedule_t, &
         supernode_partition, supernode_gather_rows, supernode_charge
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -773,20 +774,13 @@ contains
 
     subroutine ldl_panel_factor(self, s)
         ! Indefinite mode: Cholesky of the diagonal block when it is SPD,
-        ! otherwise Q^T A11 Q = L D L^T (DSYTRF_RK, rook pivots inside the
-        ! block) and L21 = A21 Q L^-T D^-1. The tail rows keep their labels;
-        ! only the block columns are permuted.
+        ! otherwise Q^T A11 Q = L D L^T (DSYTRF_RK rook pivots inside the
+        ! block, or DSYTRF Bunch--Kaufman on LAPACK < 3.7) and
+        ! L21 = A21 Q L^-T D^-1. The tail rows keep their labels; only the
+        ! block columns are permuted.
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: s
         interface
-            subroutine dsytrf_rk(uplo, n, a, lda, e, ipiv, work, lwork, info)
-                import dp
-                character, intent(in) :: uplo
-                integer, intent(in) :: n, lda, lwork
-                real(dp), intent(inout) :: a(lda,*)
-                real(dp), intent(out) :: e(*), work(*)
-                integer, intent(out) :: ipiv(*), info
-            end subroutine dsytrf_rk
             subroutine dtrsm(side, uplo, trans, diag, rows, cols, alpha, factor, ldf, &
                     values, ldv)
                 import dp
@@ -835,7 +829,7 @@ contains
             end do
             self%panel_kind(s) = PANEL_LDLT
             lwork = size(self%ldl_work,1)-w*w
-            call dsytrf_rk('L', w, values, m, self%ldl_offdiag(first), &
+            call sytrf_rk_lower(w, values, m, self%ldl_offdiag(first), &
                 self%ldl_pivots(first), self%ldl_work(w*w+1,thread), lwork, info)
             if (info /= 0) then
                 self%failures(s) = LDL_SINGULAR

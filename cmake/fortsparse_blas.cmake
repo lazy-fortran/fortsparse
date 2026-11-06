@@ -32,3 +32,26 @@ if(NOT LAPACK_FOUND AND NOT TARGET LAPACK::LAPACK)
 endif()
 set(_fortsparse_blas_libraries "${BLAS_LIBRARIES}")
 set(_fortsparse_lapack_libraries "${LAPACK_LIBRARIES}")
+
+# LAPACK < 3.7 (Apple Accelerate among them) has no DSYTRF_RK. The indefinite
+# panel factor then uses DSYTRF and converts its storage. Recheck whenever the
+# selected libraries change.
+include(CheckFortranFunctionExists)
+include(CMakePushCheckState)
+if(NOT "${_fortsparse_lapack_libraries};${_fortsparse_blas_libraries}" STREQUAL
+        "${_FORTSPARSE_DSYTRF_RK_CHECKED_WITH}")
+    unset(FORTSPARSE_LAPACK_HAS_DSYTRF_RK CACHE)
+    set(_FORTSPARSE_DSYTRF_RK_CHECKED_WITH
+        "${_fortsparse_lapack_libraries};${_fortsparse_blas_libraries}"
+        CACHE INTERNAL "")
+endif()
+cmake_push_check_state(RESET)
+set(CMAKE_REQUIRED_LIBRARIES ${_fortsparse_lapack_libraries}
+    ${_fortsparse_blas_libraries})
+set(CMAKE_REQUIRED_QUIET ON)
+check_fortran_function_exists(dsytrf_rk FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+cmake_pop_check_state()
+if(NOT FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+    message(STATUS "fortsparse: LAPACK lacks DSYTRF_RK (LAPACK < 3.7); "
+        "indefinite supernodal panels use DSYTRF (Bunch-Kaufman)")
+endif()
