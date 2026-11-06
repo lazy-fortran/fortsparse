@@ -2,25 +2,22 @@ program gen_ldlt
     ! Authoritative real arithmetic for normalized symmetric 2x2 blocks.
     ! Arguments to pair solve: x1=a/s, x2=b/s, x3=c/s, x4=u/s, x5=v/s.
     ! Domain: s>0, a*c-b*b /= 0. Topology/pivot choice stays in the solver.
-    use fortsym_arena, only: arena_t
     use fortsym_expr, only: expr_t, sym, operator(+), operator(-), &
                             operator(*), operator(/)
     use fortsym_diff, only: diff
-    use fortsym_string, only: str, chars
+    use fortsym_string, only: str, chars, itoa
     use fortsym_kernel, only: kernel_spec_t, emit_kernel, TARGET_FORTRAN_CPU
     implicit none
     character(*), parameter :: revision = &
-                               '7e8ef7abdd90c49bb5f75e2c119e7d181656bcc6'
-    type(arena_t), target :: arena
+        'b9ea95c5a0475b016b1e149875a9bec9d8562533'
     type(expr_t) :: x(5), dx(5), seed(2), f(2), determinant
     integer :: unit, i
-    call arena%init()
     do i = 1, 5
-        x(i) = sym(arena, 'x'//digit(i))
-        dx(i) = sym(arena, 'd'//digit(i))
+        x(i) = sym('x'//itoa(i))
+        dx(i) = sym('d'//itoa(i))
     end do
     do i = 1, 2
-        seed(i) = sym(arena, 's'//digit(i))
+        seed(i) = sym('s'//itoa(i))
     end do
     open (newunit=unit, file='src/generated/fortsparse_ldlt_leaves.f90', &
           status='replace', action='write')
@@ -40,11 +37,6 @@ program gen_ldlt
     write (unit, '(a)') 'end module fortsparse_ldlt_leaves'
     close (unit)
 contains
-    function digit(i) result(s)
-        integer, intent(in) :: i
-        character(1) :: s
-        s = achar(iachar('0') + i)
-    end function digit
     subroutine leaf(name, n, m)
         character(*), intent(in) :: name
         integer, intent(in) :: n, m
@@ -59,29 +51,29 @@ contains
         spec%elemental_procedure = .true.
         allocate (spec%args(n), spec%outputs(m))
         do i = 1, n
-            spec%args(i) = str('x'//digit(i))
+            spec%args(i) = str('x'//itoa(i))
             do j = 1, m
                 jacobian(j, i) = diff(f(j), x(i))
             end do
         end do
         do j = 1, m
-            spec%outputs(j) = str('v'//digit(j))
+            spec%outputs(j) = str('v'//itoa(j))
         end do
         spec%name = str('ldlt_'//name//'_value')
         write (unit, '(a)') chars(emit_kernel(f(:m), spec))
         deallocate (spec%args, spec%outputs)
         allocate (spec%args(2*n), spec%outputs(2*m))
         do i = 1, n
-            spec%args(i) = str('x'//digit(i))
-            spec%args(n + i) = str('d'//digit(i))
+            spec%args(i) = str('x'//itoa(i))
+            spec%args(n + i) = str('d'//itoa(i))
         end do
         do j = 1, m
             tangent(j) = jacobian(j, 1)*dx(1)
             do i = 2, n
                 tangent(j) = tangent(j) + jacobian(j, i)*dx(i)
             end do
-            spec%outputs(j) = str('v'//digit(j))
-            spec%outputs(m + j) = str('tangent_'//digit(j))
+            spec%outputs(j) = str('v'//itoa(j))
+            spec%outputs(m + j) = str('tangent_'//itoa(j))
         end do
         spec%name = str('ldlt_'//name//'_jvp')
         write (unit, '(a)') chars(emit_kernel([f(:m), tangent], spec))
@@ -89,12 +81,12 @@ contains
         allocate (spec%args(n + m), spec%outputs(n + m))
         pullback(:m) = f(:m)
         do j = 1, m
-            spec%outputs(j) = str('v'//digit(j))
-            spec%args(n + j) = str('s'//digit(j))
+            spec%outputs(j) = str('v'//itoa(j))
+            spec%args(n + j) = str('s'//itoa(j))
         end do
         do i = 1, n
-            spec%args(i) = str('x'//digit(i))
-            spec%outputs(m + i) = str('b'//digit(i))
+            spec%args(i) = str('x'//itoa(i))
+            spec%outputs(m + i) = str('b'//itoa(i))
             pullback(m + i) = seed(1)*jacobian(1, i)
             do j = 2, m
                 pullback(m + i) = pullback(m + i) + seed(j)*jacobian(j, i)

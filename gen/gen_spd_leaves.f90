@@ -1,6 +1,5 @@
 program gen_spd_leaves
     ! Authoritative local SPD mathematics. Domain: root a>0, divide b/=0.
-    use fortsym_arena, only: arena_t
     use fortsym_expr, only: expr_t, sym, sqrt, operator(+), operator(-), &
         operator(*), operator(/)
     use fortsym_diff, only: diff
@@ -14,22 +13,20 @@ program gen_spd_leaves
     use fortsym_engine_native, only: native_engine_t, make_native_engine
     implicit none
     character(*), parameter :: revision = &
-        '7e8ef7abdd90c49bb5f75e2c119e7d181656bcc6'
-    type(arena_t), target :: arena
+        'b9ea95c5a0475b016b1e149875a9bec9d8562533'
     type(native_engine_t) :: engine
     type(expr_t) :: a, b, c, da, db, dc, seed
     integer :: unit, cuda, template, ios
     character(256) :: line
 
-    call arena%init()
-    engine = make_native_engine(arena)
-    a = sym(arena, 'a')
-    b = sym(arena, 'b')
-    c = sym(arena, 'c')
-    da = sym(arena, 'da')
-    db = sym(arena, 'db')
-    dc = sym(arena, 'dc')
-    seed = sym(arena, 'seed')
+    engine = make_native_engine()
+    a = sym('a')
+    b = sym('b')
+    c = sym('c')
+    da = sym('da')
+    db = sym('db')
+    dc = sym('dc')
+    seed = sym('seed')
     open(newunit=unit, file='src/generated/fortsparse_spd_leaves.f90', &
         status='replace', action='write')
     open(newunit=cuda, file='src/generated/fortsparse_spd_leaves.cuh', &
@@ -144,8 +141,8 @@ contains
         logical :: ok
         character(1024) :: line
         character(:), allocatable :: statement
-        bacc = sym(arena, 'bacc')
-        cacc = sym(arena, 'cacc')
+        bacc = sym('bacc')
+        cacc = sym('cacc')
         spec%target = TARGET_FORTRAN_CPU
         spec%name = str('spd_masked_panel_update')
         spec%regenerate_command = str('gen/regenerate_spd.sh /path/to/fortsym')
