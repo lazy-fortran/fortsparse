@@ -2,37 +2,34 @@ program gen_stability_oracle
     ! Unit lower L: det L=1, M=L L^T>0, A=L diag(d) L^T.
     ! det(A-sigma M)=product(d-sigma); the exact generalized eigenvalues
     ! are d. Check the polynomial identity before emitting the fixture.
-    use fortsym_arena, only: arena_t
     use fortsym_expr, only: expr_t,sym,num,operator(+),operator(-),operator(*)
     use fortsym_engine, only: engine_result_t,VERDICT_TRUE
     use fortsym_engine_native, only: native_engine_t,make_native_engine
     use fortsym_kernel, only: kernel_spec_t,emit_kernel,TARGET_FORTRAN_CPU
     use fortsym_string, only: str,chars
     implicit none
-    type(arena_t), target :: arena
     type(native_engine_t) :: engine
     type(engine_result_t) :: check
     type(expr_t) :: l(3,3),a(3,3),m(3,3),p(3,3),d(3),sigma,roots(18)
     type(kernel_spec_t) :: spec
     integer :: i,j,k,unit
     character(3) :: name
-    call arena%init()
-    engine=make_native_engine(arena)
+    engine=make_native_engine()
     do i=1,3
         do j=1,3
-            l(i,j)=num(arena,0)
+            l(i,j)=num(0)
         end do
-        l(i,i)=num(arena,1)
+        l(i,i)=num(1)
     end do
-    l(2,1)=sym(arena,'l21')
-    l(3,1)=sym(arena,'l31')
-    l(3,2)=sym(arena,'l32')
-    d=[sym(arena,'d1'),sym(arena,'d2'),sym(arena,'d3')]
-    sigma=sym(arena,'sigma')
+    l(2,1)=sym('l21')
+    l(3,1)=sym('l31')
+    l(3,2)=sym('l32')
+    d=[sym('d1'),sym('d2'),sym('d3')]
+    sigma=sym('sigma')
     do j=1,3
         do i=1,3
-            a(i,j)=num(arena,0)
-            m(i,j)=num(arena,0)
+            a(i,j)=num(0)
+            m(i,j)=num(0)
             do k=1,3
                 a(i,j)=a(i,j)+l(i,k)*d(k)*l(j,k)
                 m(i,j)=m(i,j)+l(i,k)*l(j,k)
@@ -48,7 +45,7 @@ program gen_stability_oracle
     spec%target=TARGET_FORTRAN_CPU
     spec%name=str('stability_pencil')
     spec%generator=str('gen/gen_stability_oracle.f90')
-    spec%generator_revision=str('cf7efc3864f6de26024c940bcf2ec96b3698b7af')
+    spec%generator_revision=str('a24e64dbd0b8dba0f7d7e686b1f71c0331b5c336')
     spec%regenerate_command=str('gen/regenerate_stability.sh /path/to/fortsym')
     spec%pure_procedure=.true.
     spec%args=[str('l21'),str('l31'),str('l32'),str('d1'),str('d2'),str('d3')]

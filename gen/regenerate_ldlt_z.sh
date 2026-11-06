@@ -3,7 +3,7 @@ set -euo pipefail
 fortsym_source=${1:?Usage: regenerate_ldlt_z.sh FORTSYM_SOURCE [GEN_BUILD [FORTSYM_BUILD]]}
 generator_build=${2:-build/ldlt-z-codegen}
 fortsym_build=${3:-"$fortsym_source/build"}
-expected_revision=cf7efc3864f6de26024c940bcf2ec96b3698b7af
+expected_revision=a24e64dbd0b8dba0f7d7e686b1f71c0331b5c336
 test "$(git -C "$fortsym_source" rev-parse HEAD)" = "$expected_revision"
 mkdir -p "$generator_build" src/generated
 "${FC:-gfortran}" -I "$fortsym_build/include" gen/gen_ldlt_z.f90 \

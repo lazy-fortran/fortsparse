@@ -1,24 +1,21 @@
 program gen_ldlt_z
     ! Real-component source for complex block determinants/numerators and
     ! rank-two updates. Division and power-of-two scaling reuse LU leaves.
-    use fortsym_arena, only: arena_t
     use fortsym_expr, only: expr_t, sym, operator(+), operator(-), operator(*)
     use fortsym_diff, only: diff
-    use fortsym_string, only: str, chars
+    use fortsym_string, only: str, chars, itoa
     use fortsym_kernel, only: kernel_spec_t, emit_kernel, TARGET_FORTRAN_CPU
     implicit none
     character(*), parameter :: revision = &
-                               'cf7efc3864f6de26024c940bcf2ec96b3698b7af'
-    type(arena_t), target :: arena
+        'a24e64dbd0b8dba0f7d7e686b1f71c0331b5c336'
     type(expr_t) :: x(12), dx(12), seed(4), f(4)
     integer :: unit, i
-    call arena%init()
     do i = 1, 12
-        x(i) = sym(arena, name('x', i))
-        dx(i) = sym(arena, name('d', i))
+        x(i) = sym('x'//itoa(i))
+        dx(i) = sym('d'//itoa(i))
     end do
     do i = 1, 4
-        seed(i) = sym(arena, name('s', i))
+        seed(i) = sym('s'//itoa(i))
     end do
     open (newunit=unit, file='src/generated/fortsparse_ldlt_z_leaves.f90', &
           status='replace', action='write')
@@ -48,14 +45,6 @@ program gen_ldlt_z
     call copy('gen/ldlt_z_factor.f90.inc', unit)
     close (unit)
 contains
-    function name(prefix, i) result(s)
-        character(*), intent(in) :: prefix
-        integer, intent(in) :: i
-        character(:), allocatable :: s
-        character(12) :: number
-        write (number, '(i0)') i
-        s = prefix//trim(number)
-    end function name
     function product(a, b) result(z)
         type(expr_t), intent(in) :: a(2), b(2)
         type(expr_t) :: z(2)
@@ -80,29 +69,29 @@ contains
         spec%elemental_procedure = .true.
         allocate (spec%args(n), spec%outputs(m))
         do i = 1, n
-            spec%args(i) = str(name('x', i))
+            spec%args(i) = str('x'//itoa(i))
             do j = 1, m
                 jacobian(j, i) = diff(f(j), x(i))
             end do
         end do
         do j = 1, m
-            spec%outputs(j) = str(name('v', j))
+            spec%outputs(j) = str('v'//itoa(j))
         end do
         spec%name = str('ldlt_z_'//label//'_value')
         write (unit, '(a)') chars(emit_kernel(f(:m), spec))
         deallocate (spec%args, spec%outputs)
         allocate (spec%args(2*n), spec%outputs(2*m))
         do i = 1, n
-            spec%args(i) = str(name('x', i))
-            spec%args(n + i) = str(name('d', i))
+            spec%args(i) = str('x'//itoa(i))
+            spec%args(n + i) = str('d'//itoa(i))
         end do
         do j = 1, m
             tangent(j) = jacobian(j, 1)*dx(1)
             do i = 2, n
                 tangent(j) = tangent(j) + jacobian(j, i)*dx(i)
             end do
-            spec%outputs(j) = str(name('v', j))
-            spec%outputs(m + j) = str(name('tangent_', j))
+            spec%outputs(j) = str('v'//itoa(j))
+            spec%outputs(m + j) = str('tangent_'//itoa(j))
         end do
         spec%name = str('ldlt_z_'//label//'_jvp')
         write (unit, '(a)') chars(emit_kernel([f(:m), tangent], spec))
@@ -110,12 +99,12 @@ contains
         allocate (spec%args(n + m), spec%outputs(n + m))
         pullback(:m) = f(:m)
         do j = 1, m
-            spec%outputs(j) = str(name('v', j))
-            spec%args(n + j) = str(name('s', j))
+            spec%outputs(j) = str('v'//itoa(j))
+            spec%args(n + j) = str('s'//itoa(j))
         end do
         do i = 1, n
-            spec%args(i) = str(name('x', i))
-            spec%outputs(m + i) = str(name('b', i))
+            spec%args(i) = str('x'//itoa(i))
+            spec%outputs(m + i) = str('b'//itoa(i))
             pullback(m + i) = seed(1)*jacobian(1, i)
             do j = 2, m
                 pullback(m + i) = pullback(m + i) + seed(j)*jacobian(j, i)
