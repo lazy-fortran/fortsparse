@@ -405,6 +405,17 @@ contains
         call check(plain%max_growth > 1.0e7_dp, 'restricted leaf pivots grow the root')
         call check(trim(plain%gate_reason()) == 'GROWTH', 'growth gate without delays')
         call plain%free()
+        ! A configured growth limit above that growth admits the restricted
+        ! pivots: no relayout and no GROWTH gate.
+        plain%delay_threshold = lu%delay_threshold
+        plain%growth_limit = 1.0e12_dp
+        call plain%analyze(size(a,1), ptr, rows, values, status, ordering=SLU_ORDER_AMD)
+        call plain%factor(ptr, rows, values, status)
+        call check(status%code == FORTSPARSE_OK, 'factor with a configured growth limit')
+        call check(plain%delay_rounds == 0, 'configured growth limit keeps the layout')
+        call check(len_trim(plain%gate_reason()) == 0, 'configured growth limit passes the gate')
+        call plain%free()
+        plain%growth_limit = 0.0_dp
         allocate(x(size(a,1)), b(size(a,1)))
         x = [(cos(real(i,dp)), i=1, size(a,1))]
         do s = 1, 2
