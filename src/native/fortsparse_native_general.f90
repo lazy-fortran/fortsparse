@@ -1855,7 +1855,8 @@ contains
         integer :: j,p,step,ierr
         passed=.true.
         call status_set(status,FORTSPARSE_OK,'')
-        if (self%slu_factor%perturbed_pivots==0 .and. .not.self%options%verify_factor) return
+        if ((self%slu_factor%perturbed_pivots==0 .or. .not.self%options%verify_perturbed) &
+            .and. .not.self%options%verify_factor) return
         passed=.false.
         call ledger%reserve(24_i8*int(n,i8),status,'supernodal LU validation')
         if (.not.status_ok(status)) then
@@ -1922,7 +1923,8 @@ contains
         integer :: j,p,step,ierr
         passed=.true.
         call status_set(status,FORTSPARSE_OK,'')
-        if (self%slu_factor%perturbed_pivots==0 .and. .not.self%options%verify_factor) return
+        if ((self%slu_factor%perturbed_pivots==0 .or. .not.self%options%verify_perturbed) &
+            .and. .not.self%options%verify_factor) return
         passed=.false.
         call ledger%reserve(48_i8*int(n,i8),status,'supernodal LU validation')
         if (.not.status_ok(status)) then
