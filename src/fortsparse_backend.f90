@@ -95,6 +95,10 @@ module fortsparse_backend
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.
         real(dp) :: pivot_perturbation = 1.0e-13_dp
+        ! Supernodal LU: growth gate max|U|/max|M| above which the scalar LU
+        ! is used; 0 selects 1/(64 sqrt(eps)). The refined-solve validation
+        ! applies either way.
+        real(dp) :: pivot_growth_limit = 0.0_dp
         ! Supernodal LU: validate every factor with one refined solve against
         ! the original matrix (always done when pivots were perturbed).
         logical :: verify_factor = .true.

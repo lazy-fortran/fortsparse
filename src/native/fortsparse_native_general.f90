@@ -1700,7 +1700,7 @@ contains
             if (cap==0_i8 .or. ledger%current<cap) then
                 call supernodal_numeric(self,ptr,rows,values,status)
                 if (status_ok(status)) then
-                    reason=self%slu_factor%gate_reason()
+                    reason=supernodal_gate(self)
                     if (len_trim(reason)==0) then
                         call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
                         if (.not.status_ok(status)) goto 800
@@ -1736,7 +1736,7 @@ contains
             started=seconds()
             call supernodal_numeric(self,ptr,rows,values,status)
             if (.not.status_ok(status) .and. .not.self%slu_factor%nonfinite) goto 800
-            reason=self%slu_factor%gate_reason()
+            reason=supernodal_gate(self)
             if (len_trim(reason)==0) then
                 call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
                 if (.not.status_ok(status)) goto 800
@@ -2195,4 +2195,17 @@ contains
         call system_clock(clock,rate)
         seconds = real(clock,dp)/real(rate,dp)
     end function seconds
+
+    function supernodal_gate(self) result(reason)
+        ! Factor-time gates of the supernodal attempt with the configured
+        ! growth limit (sparse_options_t%pivot_growth_limit).
+        class(native_general_backend_t), intent(in) :: self
+        character(16) :: reason
+        if (self%options%pivot_growth_limit > 0.0_dp) then
+            reason = self%slu_factor%gate_reason(growth_limit=self%options%pivot_growth_limit)
+        else
+            reason = self%slu_factor%gate_reason()
+        end if
+    end function supernodal_gate
+
 end module fortsparse_native_general

@@ -79,6 +79,16 @@ program test_fortsparse_slu_fallback
         'refused fallback keeps its reason')
     call check(stats%budget_required_bytes > stats%budget_available_bytes, &
         'fallback refusal reports required/available')
+    ! Growth gate: [1 .1; .1 1] blocks have growth max|U|/max|M| = 1, inside
+    ! the default limit and above a configured limit of 0.5.
+    call blocks(0, a)
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats)
+    call check(status_ok(status) .and. .not. stats%lu_fallback, 'default growth limit')
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats, growth=0.5_dp)
+    call check(status_ok(status) .and. stats%lu_fallback .and. &
+        stats%lu_fallback_reason == 'GROWTH', 'configured growth limit falls back')
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats, growth=2.0_dp)
+    call check(status_ok(status) .and. .not. stats%lu_fallback, 'growth within a configured limit')
     print '(a)', 'supernodal LU gates and fallback passed'
 contains
     real(dp) function uniform()
@@ -146,7 +156,7 @@ contains
         call check(status_ok(status), 'banded matrix construction')
     end subroutine banded
 
-    subroutine run(a, method, tau, limit, status, stats)
+    subroutine run(a, method, tau, limit, status, stats, growth)
         ! limit < 0: scalar fallback settings under a non-binding cap, which
         ! selects the bounded AMD so that the reported peak is exact.
         type(csc_t), intent(in) :: a
@@ -155,6 +165,7 @@ contains
         integer(i8), intent(in) :: limit
         type(fortsparse_status_t), intent(out) :: status
         type(sparse_factor_stats_t), intent(out) :: stats
+        real(dp), intent(in), optional :: growth
         type(sparse_solver_t) :: solver
         type(fortsparse_status_t) :: factor_status
         real(dp), allocatable :: exact(:), b(:), x(:), r(:)
@@ -162,6 +173,7 @@ contains
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
         solver%options%lu_method = method
         if (method == FORTSPARSE_LU_SUPERNODAL) solver%options%pivot_perturbation = tau
+        if (present(growth)) solver%options%pivot_growth_limit = growth
         solver%options%host_memory_limit_bytes = limit
         if (limit < 0_i8) then
             solver%options%structural_matching = .true.
