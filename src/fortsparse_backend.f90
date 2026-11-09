@@ -102,9 +102,11 @@ module fortsparse_backend
         ! Supernodal LU: validate every factor with one refined solve against
         ! the original matrix (always done when pivots were perturbed).
         logical :: verify_factor = .true.
-        ! Supernodal LU: also validate (and possibly replace) a factor with
-        ! perturbed pivots. False for a caller that uses the factor only as
-        ! the preconditioner of a Krylov solve on the original matrix.
+        ! Supernodal LU: validate (and possibly replace) a factor with
+        ! perturbed pivots and refine its solves against the original. False
+        ! for a caller that uses the factor only as the preconditioner of a
+        ! Krylov solve on the original matrix: no validation, no forced
+        ! refinement.
         logical :: verify_perturbed = .true.
     end type sparse_options_t
 

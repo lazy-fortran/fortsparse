@@ -46,6 +46,7 @@ program test_fortsparse_slu_fallback
     call run(a, FORTSPARSE_LU_SUPERNODAL, 2.0_dp*tight, 0_i8, status, stats, keep=.true.)
     call check(status_ok(status) .and. .not. stats%lu_fallback .and. &
         stats%native_factor_family == 'LU_SUPERNODAL', 'perturbed factor kept without validation')
+    call check(stats%refinement_steps == 0, 'kept perturbed factor solves without forced refinement')
 
     call blocks(2, a)
     call run(a, FORTSPARSE_LU_SUPERNODAL, tight, 0_i8, status, stats)
@@ -197,6 +198,13 @@ contains
             solver%options%host_memory_limit_bytes = huge(1_i8)/4
         end if
         call sparse_factor(solver, a, factor_status)
+        if (status_ok(factor_status) .and. .not. direct) then
+            allocate(b(a%ncol), x(a%ncol))
+            b = 1.0_dp
+            call sparse_solve(solver, b, x, status)
+            call check(status_ok(status), 'preconditioner solve')
+            deallocate(b, x)
+        end if
         call sparse_factor_stats(solver, stats, status)
         if (status_ok(factor_status) .and. direct) then
             allocate(exact(a%ncol), b(a%ncol), x(a%ncol), r(a%ncol))
