@@ -92,6 +92,9 @@ module fortsparse_native_slu
         ! Smallest panel work (flops) split into tiles by a team; 0 tiles every
         ! panel (test hook), set before analysis.
         real(dp) :: tile_min_flops = TILE_FLOPS
+        ! Growth max|U|/max|M| that triggers delayed pivots and the GROWTH
+        ! gate; 0 selects 1/(64 sqrt(eps)). Set before factoring.
+        real(dp) :: growth_limit = 0.0_dp
         ! Threshold u of the delayed pivots (real uncapped factors with an
         ! assembly map): a column whose multipliers exceed 1/u, i.e. whose
         ! restricted pivot is below u times an entry of a parent row, joins
@@ -1560,7 +1563,7 @@ contains
             ! factor that passes it keeps the fast restricted-pivot path.
             if (round == SLU_DELAY_ROUNDS .or. .not. self%delay_threshold > 0.0_dp &
                 .or. self%map_nnz == 0) exit
-            if (.not. round_growth(self) > default_growth_limit()) exit
+            if (.not. round_growth(self) > effective_growth_limit(self)) exit
             call mark_delays(self, delays)
             if (delays == 0) exit
             if (.not. allocated(delay)) allocate(delay(self%n))
@@ -2514,6 +2517,12 @@ contains
         end do
     end subroutine blocked_block_factor
 
+    pure real(dp) function effective_growth_limit(self) result(growth)
+        class(slu_factor_t), intent(in) :: self
+        growth = default_growth_limit()
+        if (self%growth_limit > 0.0_dp) growth = self%growth_limit
+    end function effective_growth_limit
+
     pure real(dp) function default_growth_limit() result(growth)
         ! Default growth gate 1/(64 sqrt(eps)) (design section 6).
         growth = 1.0_dp/(64.0_dp*sqrt(epsilon(1.0_dp)))
@@ -2532,7 +2541,7 @@ contains
         reason = ''
         limit = max(0, self%n/1000)
         if (present(perturb_limit)) limit = perturb_limit
-        growth = default_growth_limit()
+        growth = effective_growth_limit(self)
         if (present(growth_limit)) growth = growth_limit
         if (self%nonfinite) then
             reason = 'NONFINITE'
