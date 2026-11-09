@@ -42,6 +42,11 @@ program test_fortsparse_slu_fallback
     call check(stats%lu_fallback .and. stats%lu_fallback_reason == 'REFINEMENT', &
         'fallback reason REFINEMENT')
 
+    ! A caller that only preconditions with the factor keeps it.
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 2.0_dp*tight, 0_i8, status, stats, keep=.true.)
+    call check(status_ok(status) .and. .not. stats%lu_fallback .and. &
+        stats%native_factor_family == 'LU_SUPERNODAL', 'perturbed factor kept without validation')
+
     call blocks(2, a)
     call run(a, FORTSPARSE_LU_SUPERNODAL, tight, 0_i8, status, stats)
     call check(status_ok(status), 'perturbation fallback succeeds')
@@ -156,7 +161,7 @@ contains
         call check(status_ok(status), 'banded matrix construction')
     end subroutine banded
 
-    subroutine run(a, method, tau, limit, status, stats, growth)
+    subroutine run(a, method, tau, limit, status, stats, growth, keep)
         ! limit < 0: scalar fallback settings under a non-binding cap, which
         ! selects the bounded AMD so that the reported peak is exact.
         type(csc_t), intent(in) :: a
@@ -166,6 +171,10 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         type(sparse_factor_stats_t), intent(out) :: stats
         real(dp), intent(in), optional :: growth
+        ! keep: no validation, also not after perturbed pivots, and no
+        ! direct-solve residual check (the factor is only a preconditioner).
+        logical, intent(in), optional :: keep
+        logical :: direct
         type(sparse_solver_t) :: solver
         type(fortsparse_status_t) :: factor_status
         real(dp), allocatable :: exact(:), b(:), x(:), r(:)
@@ -174,6 +183,12 @@ contains
         solver%options%lu_method = method
         if (method == FORTSPARSE_LU_SUPERNODAL) solver%options%pivot_perturbation = tau
         if (present(growth)) solver%options%pivot_growth_limit = growth
+        direct = .true.
+        if (present(keep)) direct = .not. keep
+        if (.not. direct) then
+            solver%options%verify_factor = .false.
+            solver%options%verify_perturbed = .false.
+        end if
         solver%options%host_memory_limit_bytes = limit
         if (limit < 0_i8) then
             solver%options%structural_matching = .true.
@@ -183,7 +198,7 @@ contains
         end if
         call sparse_factor(solver, a, factor_status)
         call sparse_factor_stats(solver, stats, status)
-        if (status_ok(factor_status)) then
+        if (status_ok(factor_status) .and. direct) then
             allocate(exact(a%ncol), b(a%ncol), x(a%ncol), r(a%ncol))
             do j = 1, a%ncol
                 exact(j) = 1.0_dp+real(mod(3*j, 11), dp)
