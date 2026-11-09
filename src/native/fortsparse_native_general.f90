@@ -1755,9 +1755,12 @@ contains
         self%selected_order=FORTSPARSE_ORDER_AMD
         if (self%slu_factor%order_used==SLU_ORDER_ND) self%selected_order=FORTSPARSE_ORDER_ND
         refine_now=refine
-        if (.not.refine .and. self%slu_factor%perturbed_pivots>0) then
+        if (.not.refine .and. self%slu_factor%perturbed_pivots>0 .and. &
+            self%options%verify_perturbed) then
             ! Perturbed static pivots are accurate only with refinement:
             ! retain the original when it fits the cap, else fall back.
+            ! A preconditioning caller (verify_perturbed false) corrects
+            ! with its own Krylov solve.
             planned=0_i8
             call refinement_payload_bytes(int(n,i8),int(size(rows),i8),merge(16_i8,8_i8,is_complex),planned, &
                 status,componentwise=.true.)
