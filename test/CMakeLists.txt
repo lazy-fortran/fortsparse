@@ -150,8 +150,9 @@ if(TARGET test_fortsparse_slu_threads)
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
     add_test(NAME test_fortsparse_slu_threads_repeat
         COMMAND test_fortsparse_slu_threads repeat)
+    # One thread: 0.24 s on a workstation, above 1 s on the CPU-capped CI hosts.
     set_tests_properties(test_fortsparse_slu_threads_repeat PROPERTIES
-        LABELS "native;lu;fast" TIMEOUT 1
+        LABELS "native;lu;fast" TIMEOUT 5
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
 endif()
 fortsparse_add_test(test_fortsparse_supernode_memory
