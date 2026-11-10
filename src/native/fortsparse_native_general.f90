@@ -1652,7 +1652,7 @@ contains
         integer(i8) :: cap,planned
         character(16) :: reason
         integer :: order
-        logical :: passed,refine_now,is_complex
+        logical :: passed,refine_now,is_complex,grown
         real(dp) :: started
         is_complex=.false.
         select type(values)
@@ -1660,6 +1660,7 @@ contains
             is_complex=.true.
         end select
         reused=.false.
+        grown=.false.
         self%slu_peak=0_i8
         call prepare(self,refine,cap,status)
         if (.not.status_ok(status)) return
@@ -1702,10 +1703,12 @@ contains
                 call supernodal_numeric(self,ptr,rows,values,status)
                 if (status_ok(status)) then
                     reason=self%slu_factor%gate_reason()
-                    if (len_trim(reason)==0) then
-                        call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
+                    if (len_trim(reason)==0 .or. reason=='GROWTH') then
+                        call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status, &
+                            force=reason=='GROWTH')
                         if (.not.status_ok(status)) goto 800
                         reused=passed
+                        grown=passed .and. reason=='GROWTH'
                     end if
                 end if
             end if
@@ -1739,10 +1742,19 @@ contains
             call supernodal_numeric(self,ptr,rows,values,status)
             if (.not.status_ok(status) .and. .not.self%slu_factor%nonfinite) goto 800
             reason=self%slu_factor%gate_reason()
-            if (len_trim(reason)==0) then
-                call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
+            ! Growth above the gate bounds the unrefined error only: the factor
+            ! stays when its refined solve reaches the backward-error gate,
+            ! and its solves are then always refined.
+            if (len_trim(reason)==0 .or. reason=='GROWTH') then
+                call supernodal_validate(self,n,ptr,rows,values,ledger,passed,status, &
+                    force=reason=='GROWTH')
                 if (.not.status_ok(status)) goto 800
-                if (.not.passed) reason='REFINEMENT'
+                grown=passed .and. reason=='GROWTH'
+                if (passed) then
+                    reason=''
+                else if (reason/='GROWTH') then
+                    reason='REFINEMENT'
+                end if
             end if
             if (len_trim(reason)/=0) then
                 self%slu_peak=max(self%slu_peak,ledger%peak)
@@ -1755,10 +1767,11 @@ contains
         self%selected_order=FORTSPARSE_ORDER_AMD
         if (self%slu_factor%order_used==SLU_ORDER_ND) self%selected_order=FORTSPARSE_ORDER_ND
         refine_now=refine
-        if (.not.refine .and. self%slu_factor%perturbed_pivots>0 .and. &
-            self%options%verify_perturbed) then
-            ! Perturbed static pivots are accurate only with refinement:
-            ! retain the original when it fits the cap, else fall back.
+        if (.not.refine .and. (grown .or. (self%slu_factor%perturbed_pivots>0 .and. &
+            self%options%verify_perturbed))) then
+            ! Perturbed static pivots and growth above the gate are accurate
+            ! only with refinement: retain the original when it fits the cap,
+            ! else fall back.
             ! A preconditioning caller (verify_perturbed false) corrects
             ! with its own Krylov solve.
             planned=0_i8
@@ -1813,18 +1826,23 @@ contains
         end select
     end function supernodal_order
 
-    subroutine supernodal_validate(self,n,ptr,rows,values,ledger,passed,status)
+    subroutine supernodal_validate(self,n,ptr,rows,values,ledger,passed,status,force)
         class(native_general_backend_t), intent(inout) :: self
         integer, intent(in) :: n,ptr(:),rows(:)
         class(*), intent(in) :: values(:)
         type(memory_budget_t), intent(inout) :: ledger
         logical, intent(out) :: passed
         type(fortsparse_status_t), intent(out) :: status
+        ! Validate even when the options would skip it (tripped growth gate).
+        logical, intent(in), optional :: force
+        logical :: must
+        must=.false.
+        if (present(force)) must=force
         select type(values)
         type is(real(dp))
-            call supernodal_validate_real(self,n,ptr,rows,values,ledger,passed,status)
+            call supernodal_validate_real(self,n,ptr,rows,values,ledger,passed,status,must)
         type is(complex(dp))
-            call supernodal_validate_complex(self,n,ptr,rows,values,ledger,passed,status)
+            call supernodal_validate_complex(self,n,ptr,rows,values,ledger,passed,status,must)
         end select
     end subroutine supernodal_validate
 
@@ -1841,7 +1859,7 @@ contains
         end select
     end subroutine supernodal_numeric
 
-    subroutine supernodal_validate_real(self,n,ptr,rows,values,ledger,passed,status)
+    subroutine supernodal_validate_real(self,n,ptr,rows,values,ledger,passed,status,force)
         ! One solve of A x = A xhat for a fixed exact xhat, refined against
         ! the ORIGINAL A with at most three corrections to the existing
         ! 32*eps backward-error gate. Always run after perturbations and,
@@ -1852,6 +1870,7 @@ contains
         type(memory_budget_t), intent(inout) :: ledger
         logical, intent(out) :: passed
         type(fortsparse_status_t), intent(out) :: status
+        logical, intent(in) :: force
         real(dp), allocatable :: b(:),x(:),r(:)
         type(fortsparse_status_t) :: released
         real(dp) :: an,ant,error,xhat
@@ -1859,7 +1878,7 @@ contains
         passed=.true.
         call status_set(status,FORTSPARSE_OK,'')
         if ((self%slu_factor%perturbed_pivots==0 .or. .not.self%options%verify_perturbed) &
-            .and. .not.self%options%verify_factor) return
+            .and. .not.self%options%verify_factor .and. .not.force) return
         passed=.false.
         call ledger%reserve(24_i8*int(n,i8),status,'supernodal LU validation')
         if (.not.status_ok(status)) then
@@ -1908,7 +1927,7 @@ contains
         if (status_ok(status)) status=released
     end subroutine supernodal_validate_real
 
-    subroutine supernodal_validate_complex(self,n,ptr,rows,values,ledger,passed,status)
+    subroutine supernodal_validate_complex(self,n,ptr,rows,values,ledger,passed,status,force)
         ! One solve of A x = A xhat for a fixed exact xhat, refined against
         ! the ORIGINAL A with at most three corrections to the existing
         ! 32*eps backward-error gate. Always run after perturbations and,
@@ -1919,6 +1938,7 @@ contains
         type(memory_budget_t), intent(inout) :: ledger
         logical, intent(out) :: passed
         type(fortsparse_status_t), intent(out) :: status
+        logical, intent(in) :: force
         complex(dp), allocatable :: b(:),x(:),r(:)
         type(fortsparse_status_t) :: released
         real(dp) :: an,ant,error
@@ -1927,7 +1947,7 @@ contains
         passed=.true.
         call status_set(status,FORTSPARSE_OK,'')
         if ((self%slu_factor%perturbed_pivots==0 .or. .not.self%options%verify_perturbed) &
-            .and. .not.self%options%verify_factor) return
+            .and. .not.self%options%verify_factor .and. .not.force) return
         passed=.false.
         call ledger%reserve(48_i8*int(n,i8),status,'supernodal LU validation')
         if (.not.status_ok(status)) then

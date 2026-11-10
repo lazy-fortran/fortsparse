@@ -15,6 +15,7 @@ program test_fortsparse_slu_fallback
     type(csc_t) :: a
     integer(i8) :: supernodal_peak, scalar_peak
     integer :: seed
+    real(dp) :: berr
 
     seed = 11
     ! A non-binding cap selects the strict (capped) layout whose peak is the
@@ -86,15 +87,24 @@ program test_fortsparse_slu_fallback
     call check(stats%budget_required_bytes > stats%budget_available_bytes, &
         'fallback refusal reports required/available')
     ! Growth gate: [1 .1; .1 1] blocks have growth max|U|/max|M| = 1, inside
-    ! the default limit and above a configured limit of 0.5.
+    ! the default limit and above a configured limit of 0.5. Growth above the
+    ! limit keeps a factor whose refined solve passes validation, and its
+    ! solves are then refined; only a failed validation falls back.
     call blocks(0, a)
     call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats)
     call check(status_ok(status) .and. .not. stats%lu_fallback, 'default growth limit')
-    call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats, growth=0.5_dp)
-    call check(status_ok(status) .and. stats%lu_fallback .and. &
-        stats%lu_fallback_reason == 'GROWTH', 'configured growth limit falls back')
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats, growth=0.5_dp, &
+        berr=berr)
+    call check(status_ok(status) .and. .not. stats%lu_fallback .and. &
+        stats%native_factor_family == 'LU_SUPERNODAL', 'validated factor above the growth limit kept')
+    call check(berr >= 0.0_dp, 'solves above the growth limit are refined')
     call run(a, FORTSPARSE_LU_SUPERNODAL, 1.0e-13_dp, 0_i8, status, stats, growth=2.0_dp)
     call check(status_ok(status) .and. .not. stats%lu_fallback, 'growth within a configured limit')
+    call blocks(1, a)
+    call run(a, FORTSPARSE_LU_SUPERNODAL, 2.0_dp*tight, 0_i8, status, stats, growth=0.5_dp)
+    call check(status_ok(status) .and. stats%lu_fallback .and. &
+        stats%lu_fallback_reason == 'GROWTH', 'growth with a failed validation falls back')
+    call complex_growth()
     print '(a)', 'supernodal LU gates and fallback passed'
 contains
     real(dp) function uniform()
@@ -162,7 +172,54 @@ contains
         call check(status_ok(status), 'banded matrix construction')
     end subroutine banded
 
-    subroutine run(a, method, tau, limit, status, stats, growth, keep)
+    subroutine complex_growth()
+        ! Complex [1 .1i; .1i 1] blocks under a growth limit of 0.5: the
+        ! validated supernodal factor stays and solves to the residual gate.
+        type(csc_z_t) :: z
+        type(sparse_solver_t) :: solver
+        integer :: rows(2*n), cols(2*n), k, j
+        complex(dp) :: values(2*n), b(n), x(n), r(n), exact(n)
+        k = 0
+        do j = 1, n, 2
+            rows(k+1:k+4) = [j, j+1, j, j+1]
+            cols(k+1:k+4) = [j, j, j+1, j+1]
+            values(k+1:k+4) = [(1.0_dp, 0.0_dp), (0.0_dp, 0.1_dp), (0.0_dp, 0.1_dp), &
+                (1.0_dp, 0.0_dp)]
+            k = k+4
+        end do
+        call csc_from_triplet(n, n, rows, cols, values, z, status)
+        call check(status_ok(status), 'complex block matrix construction')
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%lu_method = FORTSPARSE_LU_SUPERNODAL
+        solver%options%pivot_growth_limit = 0.5_dp
+        call sparse_factor(solver, z, status)
+        call check(status_ok(status), 'complex factor above the growth limit')
+        call sparse_factor_stats(solver, stats, status)
+        call check(.not. stats%lu_fallback .and. stats%native_factor_family == 'LU_SUPERNODAL_Z', &
+            'complex validated factor above the growth limit kept')
+        do j = 1, n
+            exact(j) = cmplx(1.0_dp+mod(3*j, 11), mod(j, 5), dp)
+        end do
+        b = 0
+        do j = 1, n
+            do k = z%col_ptr(j), z%col_ptr(j+1)-1
+                b(z%row_idx(k)) = b(z%row_idx(k))+z%val(k)*exact(j)
+            end do
+        end do
+        call sparse_solve(solver, b, x, status)
+        call check(status_ok(status), 'complex solve')
+        r = b
+        do j = 1, n
+            do k = z%col_ptr(j), z%col_ptr(j+1)-1
+                r(z%row_idx(k)) = r(z%row_idx(k))-z%val(k)*x(j)
+            end do
+        end do
+        call check(maxval(abs(r)) <= 64.0_dp*epsilon(1.0_dp)*(maxval(abs(b)) &
+            +1.1_dp*maxval(abs(x))), 'complex original-matrix residual')
+        call sparse_destroy(solver)
+    end subroutine complex_growth
+
+    subroutine run(a, method, tau, limit, status, stats, growth, keep, berr)
         ! limit < 0: scalar fallback settings under a non-binding cap, which
         ! selects the bounded AMD so that the reported peak is exact.
         type(csc_t), intent(in) :: a
@@ -175,6 +232,9 @@ contains
         ! keep: no validation, also not after perturbed pivots, and no
         ! direct-solve residual check (the factor is only a preconditioner).
         logical, intent(in), optional :: keep
+        ! Backward error the direct solve reports (-1 when it is not refined).
+        real(dp), intent(out), optional :: berr
+        type(sparse_factor_stats_t) :: after
         logical :: direct
         type(sparse_solver_t) :: solver
         type(fortsparse_status_t) :: factor_status
@@ -219,6 +279,10 @@ contains
             end do
             call sparse_solve(solver, b, x, status)
             call check(status_ok(status), 'solve')
+            if (present(berr)) then
+                call sparse_factor_stats(solver, after, status)
+                berr = after%backward_error
+            end if
             r = b
             do j = 1, a%ncol
                 do k = a%col_ptr(j), a%col_ptr(j+1)-1
