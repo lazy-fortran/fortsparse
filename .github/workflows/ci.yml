@@ -43,7 +43,7 @@ jobs:
       - name: Run native checks on sCluster
         if: ${{ !github.event.pull_request.head.repo.fork }}
         run: |-
-          sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
+          TMPDIR="$RUNNER_TEMP" sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -94,7 +94,7 @@ jobs:
       - name: Run native checks on sCluster
         if: ${{ !github.event.pull_request.head.repo.fork }}
         run: |-
-          sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
+          TMPDIR="$RUNNER_TEMP" sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
       - name: Install system dependencies
         run: |
           set -euo pipefail
