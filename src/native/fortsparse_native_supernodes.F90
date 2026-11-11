@@ -442,30 +442,38 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine build_storage
 
-    subroutine factor(self, a, status, perm, inverse)
+    subroutine factor(self, a, status, perm, inverse, validated)
+        ! validated: the caller has already checked a (canonical CSC, finite
+        ! values) and the permutation, so the scans are not repeated.
         class(supernodes_t), target, intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer, optional, intent(in) :: perm(:), inverse(:)
+        logical, optional, intent(in) :: validated
         integer, pointer :: token(:)
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
         integer, pointer :: sources(:)
         integer :: incoming_start, incoming_end
 #endif
-        integer :: s, j, p, row, position, original_column, mapped_row
+        integer :: s
 #ifndef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR
         integer :: group, first, q, dest
 #endif
         real(dp) :: started
+        logical :: checked, compatible
 
         self%ready = .false.
         call status_set(status, FORTSPARSE_INVALID_MATRIX, 'incompatible supernode matrix')
         if (.not. allocated(self%panels)) return
-        if (.not. csc_is_valid(a)) return
         if (a%nrow /= self%n .or. a%ncol /= self%n) return
-        if (.not. all(ieee_is_finite(a%val))) return
         if (present(perm) .neqv. present(inverse)) return
-        if (present(perm)) then
+        checked = .false.
+        if (present(validated)) checked = validated
+        if (.not. checked) then
+            if (.not. csc_is_valid(a)) return
+            if (.not. all(ieee_is_finite(a%val))) return
+        end if
+        if (present(perm) .and. .not. checked) then
             if (size(perm) /= self%n .or. size(inverse) /= self%n) return
             if (any(perm < 1) .or. any(perm > self%n)) return
             if (any(inverse < 1) .or. any(inverse > self%n)) return
@@ -477,30 +485,15 @@ contains
             self%panel_kind = PANEL_CHOLESKY
         end if
         self%sched%rowmap = 0
+        compatible = .true.
+        ! Panels own disjoint storage and every thread its own row map.
+        !$omp parallel do num_threads(self%sched%active_threads) schedule(dynamic) &
+        !$omp default(shared) reduction(.and.:compatible)
         do s = 1, self%node_count
-            self%panels(s)%values = 0.0_dp
-            do p = 1, self%panels(s)%m
-                self%sched%rowmap(self%panels(s)%rows(p),1) = p
-            end do
-            do j = 1, self%panels(s)%width
-                row = self%panels(s)%first+j-1
-                original_column = row
-                if (present(perm)) original_column = perm(row)
-                if (self%indefinite) self%ldl_bound(row) = maxval(abs(a%val( &
-                    a%col_ptr(original_column):a%col_ptr(original_column+1)-1)))
-                do p = a%col_ptr(original_column), a%col_ptr(original_column+1)-1
-                    mapped_row = a%row_idx(p)
-                    if (present(inverse)) mapped_row = inverse(mapped_row)
-                    if (mapped_row < row) cycle
-                    position = self%sched%rowmap(mapped_row,1)
-                    if (position == 0) return
-                    self%panels(s)%values(position,j) = a%val(p)
-                end do
-            end do
-            do p = 1, self%panels(s)%m
-                self%sched%rowmap(self%panels(s)%rows(p),1) = 0
-            end do
+            compatible = compatible .and. assemble_panel(self, a, s, perm, inverse)
         end do
+        !$omp end parallel do
+        if (.not. compatible) return
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA
         if (self%device >= 0) then
             call factor_cuda(self, status)
@@ -574,6 +567,40 @@ contains
         self%ready = .true.
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine factor
+
+    logical function assemble_panel(self, a, s, perm, inverse) result(compatible)
+        ! Panel s := the lower part of its columns of a (of P^T a P with perm).
+        class(supernodes_t), intent(inout) :: self
+        type(csc_t), intent(in) :: a
+        integer, intent(in) :: s
+        integer, optional, intent(in) :: perm(:), inverse(:)
+        integer :: j, p, row, position, original_column, mapped_row, thread
+        compatible = .false.
+        thread = self%sched%workspace_thread()
+        self%panels(s)%values = 0.0_dp
+        do p = 1, self%panels(s)%m
+            self%sched%rowmap(self%panels(s)%rows(p),thread) = p
+        end do
+        do j = 1, self%panels(s)%width
+            row = self%panels(s)%first+j-1
+            original_column = row
+            if (present(perm)) original_column = perm(row)
+            if (self%indefinite) self%ldl_bound(row) = maxval(abs(a%val( &
+                a%col_ptr(original_column):a%col_ptr(original_column+1)-1)))
+            do p = a%col_ptr(original_column), a%col_ptr(original_column+1)-1
+                mapped_row = a%row_idx(p)
+                if (present(inverse)) mapped_row = inverse(mapped_row)
+                if (mapped_row < row) cycle
+                position = self%sched%rowmap(mapped_row,thread)
+                if (position == 0) return
+                self%panels(s)%values(position,j) = a%val(p)
+            end do
+        end do
+        do p = 1, self%panels(s)%m
+            self%sched%rowmap(self%panels(s)%rows(p),thread) = 0
+        end do
+        compatible = .true.
+    end function assemble_panel
 
     subroutine factor_serial(self)
         class(supernodes_t), intent(inout) :: self

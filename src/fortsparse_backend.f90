@@ -36,8 +36,9 @@ module fortsparse_backend
     integer, parameter, public :: FORTSPARSE_SYM_HERMITIAN = 3
 
     ! Fill-reducing ordering (sparse_options_t%ordering). Native DEFAULT is
-    ! AMD for large non-banded patterns and natural order otherwise; NATURAL
-    ! keeps the input order. stats%ordering_used reports natural order as 0.
+    ! AMD for large patterns that are neither narrow-banded nor fill their own
+    ! envelope, and natural order otherwise; NATURAL keeps the input order.
+    ! stats%ordering_used reports natural order as 0.
     integer, parameter, public :: FORTSPARSE_ORDER_DEFAULT = 0
     integer, parameter, public :: FORTSPARSE_ORDER_AMD = 1
     integer, parameter, public :: FORTSPARSE_ORDER_ND = 2
