@@ -10,8 +10,8 @@ program bench_block_tridiagonal
     !$ use omp_lib, only: omp_get_max_threads
     implicit none
     integer :: nb, w, repeats, n, nnz, negatives, threads, r, info
-    integer, allocatable :: ptr(:), rows(:)
-    real(dp), allocatable :: values(:), diag(:,:,:), lower(:,:,:), b(:), x(:)
+    real(dp), allocatable :: diag(:,:,:), lower(:,:,:), b(:), x(:)
+    type(csc_t) :: a
     real(dp) :: decades, t_factor, t_refactor, t_solve, t_block, residual
     character(len=32) :: argument, label
     type(sparse_solver_t) :: solver
@@ -30,8 +30,8 @@ program bench_block_tridiagonal
     call get_command_argument(5, argument); read (argument, *) repeats
     n = nb*w
     call build(nb, w, decades, diag, lower, negatives)
-    call to_csc(nb, w, diag, lower, ptr, rows, values)
-    nnz = size(values)
+    call to_csc(nb, w, diag, lower, a)
+    nnz = a%nnz
     threads = 1
     !$ threads = omp_get_max_threads()
     allocate (b(n), x(n))
@@ -98,9 +98,9 @@ contains
         real(dp) :: start
         start = seconds()
         if (again) then
-            call sparse_refactor(solver, n, n, nnz, ptr, rows, values, status, reused)
+            call sparse_refactor(solver, a, status, reused)
         else
-            call sparse_factor(solver, n, n, nnz, ptr, rows, values, status)
+            call sparse_factor(solver, a, status)
         end if
         elapsed = seconds() - start
     end function timed_factor
@@ -122,9 +122,10 @@ contains
         residual_vector = -b
         bound = abs(b)
         do j = 1, n
-            do p = ptr(j), ptr(j + 1) - 1
-                residual_vector(rows(p)) = residual_vector(rows(p)) + values(p)*x(j)
-                bound(rows(p)) = bound(rows(p)) + abs(values(p)*x(j))
+            do p = a%col_ptr(j), a%col_ptr(j + 1) - 1
+                residual_vector(a%row_idx(p)) = residual_vector(a%row_idx(p)) &
+                    + a%val(p)*x(j)
+                bound(a%row_idx(p)) = bound(a%row_idx(p)) + abs(a%val(p)*x(j))
             end do
         end do
         omega = maxval(abs(residual_vector)/bound)
@@ -231,11 +232,12 @@ contains
         end do
     end subroutine build
 
-    subroutine to_csc(nb, w, diag, lower, ptr, rows, values)
+    subroutine to_csc(nb, w, diag, lower, matrix)
         integer, intent(in) :: nb, w
         real(dp), intent(in) :: diag(:,:,:), lower(:,:,:)
-        integer, allocatable, intent(out) :: ptr(:), rows(:)
-        real(dp), allocatable, intent(out) :: values(:)
+        type(csc_t), intent(out) :: matrix
+        integer, allocatable :: ptr(:), rows(:)
+        real(dp), allocatable :: values(:)
         integer :: i, j, k, p
         allocate (ptr(nb*w + 1), rows(w*w*(3*nb - 2)), values(w*w*(3*nb - 2)))
         p = 1
@@ -264,5 +266,11 @@ contains
             end do
         end do
         ptr(nb*w + 1) = p
+        matrix%nrow = nb*w
+        matrix%ncol = nb*w
+        matrix%nnz = p - 1
+        call move_alloc(ptr, matrix%col_ptr)
+        call move_alloc(rows, matrix%row_idx)
+        call move_alloc(values, matrix%val)
     end subroutine to_csc
 end program bench_block_tridiagonal
