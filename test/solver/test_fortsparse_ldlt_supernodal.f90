@@ -46,6 +46,23 @@ program test_fortsparse_ldlt_supernodal
         call sparse_destroy(solver)
     end do
 
+    ! Rows scaled over ten decades, S A S with powers of two: a congruence,
+    ! so the inertia is that of the shifted Laplacian, and every pivot stays
+    ! far above the rounding threshold of its own row.
+    call laplacian(grid, 1.37_dp, a)
+    call scale_rows(grid, a)
+    call configure(solver, 1)
+    call sparse_factor(solver, a, status)
+    call expect(status_ok(status), 'factor of the row-scaled Laplacian')
+    if (status_ok(status)) then
+        call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
+        call expect(nneg == below(grid, 1.37_dp) .and. nzero == 0, &
+            'row-scaled inertia matches the spectrum')
+        call expect(reliability == FORTSPARSE_INERTIA_RELIABLE, &
+            'row-scaled inertia reliable')
+    end if
+    call sparse_destroy(solver)
+
     ! Dense indefinite matrix with zero diagonal: one supernode, 2x2 pivots.
     call dense_zero_diagonal(dense, a)
     call configure(solver, 1)
@@ -167,6 +184,19 @@ contains
         end do
         call csc_from_triplet(g*g, g*g, rows(:k), cols(:k), vals(:k), m, status)
     end subroutine laplacian
+
+    subroutine scale_rows(g, m)
+        ! m := S m S, S = 2**k with k rising from -17 to 17 over the grid rows.
+        integer, intent(in) :: g
+        type(csc_t), intent(inout) :: m
+        integer :: j, p, k(m%ncol)
+        k = [(nint(-17 + 34.0_dp*((j - 1)/g)/(g - 1)), j=1, m%ncol)]
+        do j = 1, m%ncol
+            do p = m%col_ptr(j), m%col_ptr(j + 1) - 1
+                m%val(p) = scale(m%val(p), k(m%row_idx(p)) + k(j))
+            end do
+        end do
+    end subroutine scale_rows
 
     subroutine dense_zero_diagonal(nd, m)
         integer, intent(in) :: nd
