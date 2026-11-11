@@ -1,0 +1,68 @@
+source=fortsparse 59f7ebab1b36e19ee297025c2525bd1d2cd275ce with src/ of c128826e27f8d147744018afed5ab9592ddfddc2
+compiler=GNU Fortran (Spack GCC) 12.3.0
+flags=CMAKE_C_FLAGS:STRING= CMAKE_C_FLAGS_RELEASE:STRING=-O3 -DNDEBUG CMAKE_Fortran_FLAGS:STRING= CMAKE_Fortran_FLAGS_RELEASE:STRING=-O3 -DNDEBUG -O3 
+slurm=job 2829595, 16 cpus on r334c06s11
+command=after/bench/run_block_tridiagonal.py --binary build-before/bin/bench_block_tridiagonal --output before-over-limit --timeout 120 --select blocked:1:256:104,blocked:8:256:104,supernodal:1:64:312,supernodal:2:64:312,supernodal:4:64:312,supernodal:8:64:312,supernodal:16:64:312,blocked:1:64:312,blocked:8:64:312,superlu:1:64:312,umfpack:1:64:312 --note source=fortsparse 59f7ebab1b36e19ee297025c2525bd1d2cd275ce with src/ of c128826e27f8d147744018afed5ab9592ddfddc2 --note compiler=GNU Fortran (Spack GCC) 12.3.0 --note flags=CMAKE_C_FLAGS:STRING= CMAKE_C_FLAGS_RELEASE:STRING=-O3 -DNDEBUG CMAKE_Fortran_FLAGS:STRING= CMAKE_Fortran_FLAGS_RELEASE:STRING=-O3 -DNDEBUG -O3  --note slurm=job 2829595, 16 cpus on r334c06s11
+binary_sha256=9b4aeffc8feda59c8a0018279169561836d8e7eb41d522a785a22df19e762356
+trials=5
+timeout_s=120.0
+allowed_cpus=8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23
+machine=x86_64 5.14.0-570.154.1.el9_6.x86_64
+environment=OMP_NUM_THREADS=THREADS OPENBLAS_NUM_THREADS=THREADS OMP_DYNAMIC=false OMP_PLACES=cores OMP_PROC_BIND=close
+[lscpu]
+Architecture:                            x86_64
+CPU op-mode(s):                          32-bit, 64-bit
+Address sizes:                           52 bits physical, 57 bits virtual
+Byte Order:                              Little Endian
+CPU(s):                                  256
+On-line CPU(s) list:                     0-255
+Vendor ID:                               AuthenticAMD
+Model name:                              AMD EPYC 9745 128-Core Processor
+CPU family:                              26
+Model:                                   17
+Thread(s) per core:                      1
+Core(s) per socket:                      128
+Socket(s):                               2
+Stepping:                                0
+Frequency boost:                         enabled
+CPU(s) scaling MHz:                      100%
+CPU max MHz:                             3707.0000
+CPU min MHz:                             1200.0000
+BogoMIPS:                                4800.32
+Flags:                                   fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good amd_lbr_v2 nopl xtopology nonstop_tsc cpuid extd_apicid aperfmperf rapl pni pclmulqdq monitor ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt aes xsave avx f16c rdrand lahf_lm cmp_legacy svm extapic cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw ibs skinit wdt tce topoext perfctr_core perfctr_nb bpext perfctr_llc mwaitx cpb cat_l3 cdp_l3 hw_pstate ssbd mba perfmon_v2 ibrs ibpb stibp ibrs_enhanced vmmcall fsgsbase tsc_adjust bmi1 avx2 smep bmi2 erms invpcid cqm rdt_a avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves cqm_llc cqm_occup_llc cqm_mbm_total cqm_mbm_local avx_vnni avx512_bf16 clzero irperf xsaveerptr rdpru wbnoinvd amd_ppin cppc arat npt lbrv svm_lock nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold avic v_vmsave_vmload vgif x2avic v_spec_ctrl vnmi avx512vbmi umip pku ospke avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq la57 rdpid bus_lock_detect movdiri movdir64b overflow_recov succor smca fsrm avx512_vp2intersect flush_l1d debug_swap amd_lbr_pmc_freeze
+Virtualization:                          AMD-V
+L1d cache:                               12 MiB (256 instances)
+L1i cache:                               8 MiB (256 instances)
+L2 cache:                                256 MiB (256 instances)
+L3 cache:                                512 MiB (16 instances)
+NUMA node(s):                            2
+NUMA node0 CPU(s):                       0-127
+NUMA node1 CPU(s):                       128-255
+Vulnerability Gather data sampling:      Not affected
+Vulnerability Indirect target selection: Not affected
+Vulnerability Itlb multihit:             Not affected
+Vulnerability L1tf:                      Not affected
+Vulnerability Mds:                       Not affected
+Vulnerability Meltdown:                  Not affected
+Vulnerability Mmio stale data:           Not affected
+Vulnerability Reg file data sampling:    Not affected
+Vulnerability Retbleed:                  Not affected
+Vulnerability Spec rstack overflow:      Mitigation; Reduced Speculation
+Vulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl
+Vulnerability Spectre v1:                Mitigation; usercopy/swapgs barriers and __user pointer sanitization
+Vulnerability Spectre v2:                Mitigation; Enhanced / Automatic IBRS; IBPB conditional; STIBP disabled; RSB filling; PBRSB-eIBRS Not affected; BHI Not affected
+Vulnerability Srbds:                     Not affected
+Vulnerability Tsa:                       Not affected
+Vulnerability Tsx async abort:           Not affected
+Vulnerability Vmscape:                   Mitigation; IBPB before exit to userspace
+[ldd]
+linux-vdso.so.1 (0x00007ffe6edc3000)
+	libgfortran.so.5 => /pitagora/prod/spack/6.1/install/0.22/linux-rhel9-zen4/gcc-12.3.0/gcc-runtime-12.3.0-mnvqpq3gki2us7gekwmymkrsapojd4co/lib/libgfortran.so.5 (0x0000148190750000)
+	libm.so.6 => /lib64/libm.so.6 (0x0000148190666000)
+	libmvec.so.1 => /lib64/libmvec.so.1 (0x0000148190638000)
+	libgomp.so.1 => /pitagora/prod/spack/6.1/install/0.22/linux-rhel9-zen4/gcc-12.3.0/gcc-runtime-12.3.0-mnvqpq3gki2us7gekwmymkrsapojd4co/lib/libgomp.so.1 (0x00001481905ec000)
+	libopenblas.so.0 => /pitagora/prod/spack/6.1/install/0.22/linux-rhel9-zen4/gcc-12.3.0/openblas-0.3.26-4fhg6jm2sxhuns3pgfdemf72js3i3bau/lib/libopenblas.so.0 (0x000014818e6f2000)
+	libgcc_s.so.1 => /pitagora/prod/spack/6.1/install/0.22/linux-rhel9-zen4/gcc-12.3.0/gcc-runtime-12.3.0-mnvqpq3gki2us7gekwmymkrsapojd4co/lib/libgcc_s.so.1 (0x000014818e6d1000)
+	libquadmath.so.0 => /pitagora/prod/spack/6.1/install/0.22/linux-rhel9-zen4/gcc-12.3.0/gcc-runtime-12.3.0-mnvqpq3gki2us7gekwmymkrsapojd4co/lib/libquadmath.so.0 (0x000014818e68a000)
+	libc.so.6 => /lib64/libc.so.6 (0x000014818e47f000)
+	/lib64/ld-linux-x86-64.so.2 (0x0000148190a24000)

@@ -18,8 +18,11 @@ or METIS ND ordering.
 ## Default ordering
 
 `FORTSPARSE_ORDER_DEFAULT` selects AMD when the matrix has at least 4096
-columns and an entry more than 12 positions from the diagonal, and natural
-order otherwise, for real SPD and complex HPD Cholesky, real and complex
+columns and an entry more than 12 positions from the diagonal, unless the
+pattern fills its own envelope (every column is one run of rows around the
+diagonal and the runs never move back up, as in dense bands and
+block-tridiagonal matrices with dense blocks), where natural order creates no
+fill. Otherwise it keeps natural order. This holds for real SPD and complex HPD Cholesky, real and complex
 general LU, and the real and complex symmetric indefinite LDL^T/LDL^H factors.
 `FORTSPARSE_ORDER_NATURAL` keeps the input order; `ordering_used` reports
 natural order as 0. AMD needs no external library: without SuiteSparse AMD the
@@ -87,7 +90,10 @@ reliability threshold of a pivot is `n*eps*g_k` with a row-local `g_k`: the
 largest input entry of the pivot row plus `sum_j l_kj^2 |d_j|` over the pivots
 of earlier supernodes, or the largest entry of its assembled Schur row if
 larger, plus the same sum over the earlier pivots of its own block. The sums
-bound the Schur entries that block updates never form one by one. Intended for
+bound the Schur entries that block updates never form one by one.
+When every task group depends on the previous one (banded and block-tridiagonal
+factors), the panels are factored in sequence outside the OpenMP team, which
+only assembles them, so a threaded BLAS is free to use the cores. Intended for
 nearly positive definite matrices such as damped Newton Hessians, where the
 Cholesky attempt and the indefinite fallback otherwise cost two factorizations.
 

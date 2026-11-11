@@ -34,12 +34,36 @@ contains
     pure logical function default_prefers_amd(ptr, rows) result(prefers)
         ! DEFAULT ordering policy shared by all native CPU factorizations.
         ! Natural order is already near-optimal for small or narrow-band
-        ! patterns, so AMD is skipped there. Tolerates malformed CSC; the
-        ! factorization validates it.
+        ! patterns, and creates no fill when the pattern fills its own
+        ! envelope (dense bands, block-tridiagonal dense blocks), so AMD is
+        ! skipped there. Tolerates malformed CSC; the factorization
+        ! validates it.
         integer, intent(in) :: ptr(:), rows(:)
-        integer :: j, p
+        integer :: j, p, first, last, lo, hi
+        logical :: full
         prefers = .false.
         if (size(ptr) - 1 < 4096) return
+        ! Every column is one run of rows around the diagonal, and the runs
+        ! never move back up: elimination stays inside the stored pattern.
+        full = .true.
+        first = 0
+        last = 0
+        do j = 1, size(ptr) - 1
+            lo = max(ptr(j), 1)
+            hi = min(ptr(j + 1) - 1, size(rows))
+            if (hi < lo) then
+                full = .false.
+                exit
+            end if
+            if (rows(hi) - rows(lo) /= hi - lo .or. rows(lo) > j .or. &
+                rows(hi) < j .or. rows(lo) < first .or. rows(hi) < last) then
+                full = .false.
+                exit
+            end if
+            first = rows(lo)
+            last = rows(hi)
+        end do
+        if (full) return
         do j = 1, size(ptr) - 1
             do p = max(ptr(j), 1), min(ptr(j + 1) - 1, size(rows))
                 if (abs(rows(p) - j) > 12) then

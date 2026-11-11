@@ -805,6 +805,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable, intent(inout), optional :: transpose(:)
         integer :: j, p, i, lo, hi, mid, previous, ierr
+        integer, allocatable :: cursor(:)
         logical :: record
 
         call status_set(status, FORTSPARSE_INVALID_MATRIX, &
@@ -819,13 +820,33 @@ contains
         record = present(transpose)
         if (record) then
             if (allocated(transpose)) deallocate (transpose)
-            allocate (transpose(A%nnz), stat=ierr)
+            allocate (transpose(A%nnz), cursor(A%ncol), stat=ierr)
             if (ierr /= 0) then
                 call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
                     'native SPD: workspace allocation failed')
                 return
             end if
+            ! Columns ascend and rows ascend within a column, so the
+            ! transposed entries of column i are met in its storage order.
+            cursor = A%col_ptr(:A%ncol)
+            do j = 1, A%ncol
+                previous = 0
+                do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
+                    i = A%row_idx(p)
+                    if (i <= previous) return
+                    previous = i
+                    mid = cursor(i)
+                    if (mid >= A%col_ptr(i + 1)) return
+                    if (A%row_idx(mid) /= j) return
+                    if (A%val(p) /= A%val(mid)) return
+                    cursor(i) = mid + 1
+                    transpose(p) = mid
+                end do
+            end do
+            call status_set(status, FORTSPARSE_OK, '')
+            return
         end if
+        ! Strict memory budgets: no workspace, a search per entry.
         do j = 1, A%ncol
             previous = 0
             do p = A%col_ptr(j), A%col_ptr(j + 1) - 1
@@ -846,7 +867,6 @@ contains
                 end do
                 if (lo > hi) return
                 if (A%val(p) /= A%val(mid)) return
-                if (record) transpose(p) = mid
             end do
         end do
         call status_set(status, FORTSPARSE_OK, '')
@@ -983,9 +1003,10 @@ contains
             self%stats%native_factor_family = 'CHOLESKY_BLOCK'
             if (self%indefinite) self%stats%native_factor_family = 'LDLT_SUPERNODAL'
             if (allocated(self%perm)) then
-                call self%panels%factor(A, status, self%perm, self%inverse)
+                call self%panels%factor(A, status, self%perm, self%inverse, &
+                    validated=.true.)
             else
-                call self%panels%factor(A, status)
+                call self%panels%factor(A, status, validated=.true.)
             end if
             self%stats%factor_s = self%panels%numeric_s
             self%stats%flops = self%panels%flops

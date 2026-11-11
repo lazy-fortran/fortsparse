@@ -1,13 +1,16 @@
 program test_fortsparse_native_default_ordering
     ! Default native ordering is fill-reducing on large row-numbered 2D meshes,
     ! leaves the solution unchanged within roundoff, and NATURAL keeps the
-    ! input order. Oracles: explicit natural factors and original residuals.
+    ! input order. A pattern that fills its own envelope (block-tridiagonal
+    ! dense blocks) has no fill in natural order and keeps it by default.
+    ! Oracles: explicit natural factors and original residuals.
     use, intrinsic :: iso_fortran_env, only: error_unit
     use fortsparse
     implicit none
     integer, parameter :: grid = 65, vertices = 46
     real(dp), parameter :: fill_ratio = 0.5_dp
-    type(csc_t) :: laplace
+    integer, parameter :: blocks = 128, width = 32
+    type(csc_t) :: laplace, tridiagonal
     type(csc_z_t) :: elastic
     integer :: failures
 
@@ -17,6 +20,9 @@ program test_fortsparse_native_default_ordering
     call compare_real(laplace, FORTSPARSE_SYM_GENERAL, 'real LU')
     call compare_real(laplace, FORTSPARSE_SYM_SPD, 'real SPD')
     call compare_complex(elastic, 'complex LU')
+    call build_block_tridiagonal(blocks, width, tridiagonal)
+    call keeps_natural(tridiagonal, FORTSPARSE_SYM_GENERAL, 'block-tridiagonal LU')
+    call keeps_natural(tridiagonal, FORTSPARSE_SYM_SPD, 'block-tridiagonal SPD')
     if (failures /= 0) then
         write (error_unit, '(i0,a)') failures, ' default-ordering checks failed'
         stop 1
@@ -46,6 +52,20 @@ contains
         call check(maxval(abs(x_default - x_natural)) <= &
             1.0e-10_dp*maxval(abs(x_natural)), label//': same solution')
     end subroutine compare_real
+
+    subroutine keeps_natural(A, symmetry, label)
+        type(csc_t), intent(in) :: A
+        integer, intent(in) :: symmetry
+        character(*), intent(in) :: label
+        real(dp), allocatable :: b(:), x(:)
+        integer(i8) :: factor_nnz
+        integer :: i
+
+        allocate (b(A%nrow))
+        b = [(sin(0.37_dp*real(i, dp)) + 1.0_dp, i=1, A%nrow)]
+        call solve_real(A, symmetry, FORTSPARSE_ORDER_DEFAULT, b, x, factor_nnz, &
+            FORTSPARSE_ORDER_DEFAULT, label//' default')
+    end subroutine keeps_natural
 
     subroutine solve_real(A, symmetry, ordering, b, x, factor_nnz, used, label)
         type(csc_t), intent(in) :: A
@@ -155,6 +175,32 @@ contains
         call csc_from_triplet(m*m, m*m, rows(:k), cols(:k), vals(:k), A, status)
         call check(status_ok(status), 'Laplacian construction')
     end subroutine build_laplacian
+
+    subroutine build_block_tridiagonal(nb, w, A)
+        ! Dense w by w blocks on the three block diagonals, strictly
+        ! diagonally dominant: SPD with row sums below 3.
+        integer, intent(in) :: nb, w
+        type(csc_t), intent(out) :: A
+        integer, allocatable :: rows(:), cols(:)
+        real(dp), allocatable :: vals(:)
+        type(fortsparse_status_t) :: status
+        integer :: i, j, k
+
+        allocate (rows(3*w*w*nb), cols(3*w*w*nb), vals(3*w*w*nb))
+        k = 0
+        do j = 1, nb*w
+            do i = max(1, ((j - 1)/w - 1)*w + 1), min(nb*w, ((j - 1)/w + 2)*w)
+                if (i == j) then
+                    call push(rows, cols, vals, k, i, j, 2.0_dp)
+                else
+                    call push(rows, cols, vals, k, i, j, &
+                        -cos(0.1_dp*real(i + j, dp))**2/real(3*w, dp))
+                end if
+            end do
+        end do
+        call csc_from_triplet(nb*w, nb*w, rows(:k), cols(:k), vals(:k), A, status)
+        call check(status_ok(status), 'block-tridiagonal construction')
+    end subroutine build_block_tridiagonal
 
     subroutine push(rows, cols, vals, k, i, j, v)
         integer, intent(inout) :: rows(:), cols(:), k

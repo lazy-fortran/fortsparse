@@ -113,6 +113,37 @@ program test_fortsparse_ldlt_supernodal
     end if
     call sparse_destroy(solver)
 
+    ! Block-tridiagonal dense blocks: the panels form one dependency chain,
+    ! factored in sequence also when a team is requested.
+    call block_tridiagonal(12, 76, a)
+    reference%backend_id = FORTSPARSE_BACKEND_NATIVE
+    reference%options%symmetry = FORTSPARSE_SYM_INDEFINITE
+    call sparse_factor(reference, a, status)
+    call expect(status_ok(status), 'scalar reference of the block-tridiagonal matrix')
+    do threads = 1, 2
+        call configure(solver, threads)
+        solver%options%ordering = FORTSPARSE_ORDER_DEFAULT
+        call sparse_factor(solver, a, status)
+        call expect(status_ok(status), 'factor of the block-tridiagonal matrix')
+        if (.not. status_ok(status)) cycle
+        call sparse_factor_stats(solver, stats, status)
+        call expect(stats%ordering_used == FORTSPARSE_ORDER_DEFAULT, &
+            'block-tridiagonal factor keeps natural order')
+        call residual_check(solver, a, 1.0e-12_dp)
+        call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
+        block
+            integer(i8) :: rneg, rzero, rpos
+            integer :: rrel
+            call sparse_inertia(reference, rneg, rzero, rpos, rrel, status)
+            call expect(rneg == nneg .and. rzero == nzero .and. rpos == npos, &
+                'block-tridiagonal inertia agrees with the scalar reference')
+        end block
+        call expect(reliability == FORTSPARSE_INERTIA_RELIABLE, &
+            'block-tridiagonal inertia reliable')
+        call sparse_destroy(solver)
+    end do
+    call sparse_destroy(reference)
+
     ! Explicitly unsupported: a strict host cap.
     call laplacian(grid, 1.37_dp, a)
     call configure(solver, 1)
@@ -262,6 +293,25 @@ contains
             end do
         end do
     end subroutine scale_last
+
+    subroutine block_tridiagonal(nb, w, m)
+        ! Dense w by w blocks on the three block diagonals; indefinite.
+        integer, intent(in) :: nb, w
+        type(csc_t), intent(out) :: m
+        integer, allocatable :: rows(:), cols(:)
+        real(dp), allocatable :: vals(:)
+        integer :: i, j, k
+        allocate (rows(3*w*w*nb), cols(3*w*w*nb), vals(3*w*w*nb))
+        k = 0
+        do j = 1, nb*w
+            do i = max(1, ((j - 1)/w - 1)*w + 1), min(nb*w, ((j - 1)/w + 2)*w)
+                k = k + 1; rows(k) = i; cols(k) = j
+                vals(k) = cos(0.3_dp*(i + j)) + 1.0_dp/(1 + abs(i - j))
+                if (i == j) vals(k) = vals(k) + 3*cos(0.7_dp*i)
+            end do
+        end do
+        call csc_from_triplet(nb*w, nb*w, rows(:k), cols(:k), vals(:k), m, status)
+    end subroutine block_tridiagonal
 
     subroutine dense_zero_diagonal(nd, m)
         integer, intent(in) :: nd
