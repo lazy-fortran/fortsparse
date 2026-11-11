@@ -501,7 +501,7 @@ contains
             return
         end if
 #endif
-        if (self%sched%active_threads == 1) then
+        if (self%sched%active_threads == 1 .or. self%sched%chain) then
             call factor_serial(self)
         else
 #ifdef FORTSPARSE_HAVE_OMP_DEPEND_ITERATOR

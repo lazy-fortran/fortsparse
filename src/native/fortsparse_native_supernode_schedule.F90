@@ -35,6 +35,10 @@ module fortsparse_native_supernode_schedule
     ! Components are public for panel-granularity use by the numeric owners.
     type :: supernode_schedule_t
         integer :: n = 0, node_count = 0, active_threads = 1, task_groups = 0
+        ! Every task group waits for the one before it (block-tridiagonal and
+        ! banded factors): no two tasks can run at once, so the panels are
+        ! factored outside a team and a threaded BLAS keeps its threads.
+        logical :: chain = .false.
         logical :: budget_reduced_threads = .false.
         real(dp) :: group_target_flops = 0.0_dp
         integer, allocatable :: colnode(:), tokens(:), rowmap(:,:)
@@ -530,6 +534,12 @@ contains
         call ledger%release(20_i8*self%node_count+8_i8*self%task_groups, status)
         if (status%code /= FORTSPARSE_OK) return
         self%active_threads = min(self%active_threads, max(1,self%task_groups/4))
+        self%chain = self%task_groups > 1
+        do g = 2, self%task_groups
+            if (any(self%group_sources(self%group_ptr(g):self%group_ptr(g+1)-1) == g-1)) cycle
+            self%chain = .false.
+            exit
+        end do
     end subroutine setup_groups
 
     integer(i8) function memory_bytes(self) result(bytes)
@@ -570,6 +580,7 @@ contains
         self%node_count = 0
         self%active_threads = 1
         self%task_groups = 0
+        self%chain = .false.
         self%group_target_flops = 0.0_dp
         self%budget_reduced_threads = .false.
     end subroutine schedule_free
