@@ -825,7 +825,8 @@ contains
             self%panel_kind(s) = PANEL_CHOLESKY
             do j = 1, w
                 call inertia_add_pivot(count, 1, values(j,j)**2, 0.0_dp, 0.0_dp, &
-                    inertia_tolerance(self%n, self%ldl_bound(first-1+j)))
+                    inertia_tolerance(self%n, self%ldl_bound(first-1+j) &
+                    +ldl_row_history(self, s, j, j-1)))
             end do
             if (m > w) call spd_panel_solve(values, w, m, &
                 self%host_values(self%panels(s)%offset+w+1:), m-w, m, .true.)
