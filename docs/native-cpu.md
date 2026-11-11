@@ -82,7 +82,12 @@ perturbations, an exactly zero block pivot fails with `FORTSPARSE_SINGULAR`
 (saddle-point matrices with zero-diagonal leaves can fail where the scalar
 reference succeeds), and element growth is bounded only within each block.
 Inertia counts the signs of the actual block pivots (Cholesky blocks count
-positive) and reports `native_factor_family = 'LDLT_SUPERNODAL'`. Intended for
+positive) and reports `native_factor_family = 'LDLT_SUPERNODAL'`. The
+reliability threshold of a pivot is `n*eps*g_k` with a row-local `g_k`: the
+largest input entry of the pivot row plus `sum_j l_kj^2 |d_j|` over the pivots
+of earlier supernodes, or the largest entry of its assembled Schur row if
+larger, plus the same sum over the earlier pivots of its own block. The sums
+bound the Schur entries that block updates never form one by one. Intended for
 nearly positive definite matrices such as damped Newton Hessians, where the
 Cholesky attempt and the indefinite fallback otherwise cost two factorizations.
 
