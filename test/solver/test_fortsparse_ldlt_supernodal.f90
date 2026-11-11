@@ -3,8 +3,9 @@ program test_fortsparse_ldlt_supernodal
     ! Oracles: the analytic spectrum of the shifted 5-point Dirichlet
     ! Laplacian (inertia), backward errors of solves against the input matrix, the
     ! unrestricted scalar Bunch--Kaufman reference on a dense indefinite
-    ! matrix with zero diagonal (2x2 pivots inside one supernode), and team
-    ! sizes 1 and 4 (same inertia, small residuals).
+    ! matrix with zero diagonal (2x2 pivots inside one supernode), team
+    ! sizes 1 and 4 (same inertia, small residuals), and an exactly singular
+    ! bordered matrix whose count must stay uncertified under row scaling.
     use fortsparse
     implicit none
     integer, parameter :: grid = 24, n = grid*grid, dense = 72
@@ -15,6 +16,7 @@ program test_fortsparse_ldlt_supernodal
     type(sparse_factor_stats_t) :: stats
     real(dp) :: shift
     real(dp), parameter :: shifts(3) = [0.0_dp, 1.37_dp, 4.11_dp]
+    integer, parameter :: powers(4) = [0, 0, -30, 30]
     integer(i8) :: nneg, nzero, npos
     integer :: failures, reliability, threads, k
     logical :: reused
@@ -62,6 +64,31 @@ program test_fortsparse_ldlt_supernodal
             'row-scaled inertia reliable')
     end if
     call sparse_destroy(solver)
+
+    ! Negative control: the dyadic shift 11/8 and an extra row and column
+    ! c = A w, d = w^T A w with integer w, all exact, then the same power-of-
+    ! two scalings. The matrix is exactly singular, so one pivot is rounding
+    ! of its own row, whether that row is tiny or huge against the rest. The
+    ! count must not be certified.
+    do k = 1, size(powers)
+        do threads = 1, 4, 3
+            call laplacian(grid, 1.375_dp, a)
+            call add_dependent_row(a)
+            if (k > 1) call scale_rows(grid, a)
+            call scale_last(a, powers(k))
+            call configure(solver, threads)
+            call sparse_factor(solver, a, status)
+            if (status_ok(status)) then
+                call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
+                call expect(reliability /= FORTSPARSE_INERTIA_RELIABLE, &
+                    'rounding-level pivot is not certified')
+            else
+                call expect(status%code == FORTSPARSE_SINGULAR, &
+                    'rounding-level pivot fails as singular only')
+            end if
+            call sparse_destroy(solver)
+        end do
+    end do
 
     ! Dense indefinite matrix with zero diagonal: one supernode, 2x2 pivots.
     call dense_zero_diagonal(dense, a)
@@ -197,6 +224,44 @@ contains
             end do
         end do
     end subroutine scale_rows
+
+    subroutine add_dependent_row(m)
+        ! m := [m, c; c^T, d] with c = m w and d = w^T m w for the integer
+        ! vector w = 1 + mod(i, 3): exact for dyadic entries of m.
+        type(csc_t), intent(inout) :: m
+        integer :: rows(m%nnz + 2*m%nrow + 1), cols(m%nnz + 2*m%nrow + 1), i, j, p, k, extra
+        real(dp) :: vals(m%nnz + 2*m%nrow + 1), c(m%nrow), d
+        extra = m%ncol + 1
+        k = 0
+        c = 0
+        do j = 1, m%ncol
+            do p = m%col_ptr(j), m%col_ptr(j + 1) - 1
+                k = k + 1; rows(k) = m%row_idx(p); cols(k) = j; vals(k) = m%val(p)
+                c(m%row_idx(p)) = c(m%row_idx(p)) + m%val(p)*(1 + mod(j, 3))
+            end do
+        end do
+        d = 0
+        do i = 1, m%nrow
+            d = d + c(i)*(1 + mod(i, 3))
+            k = k + 1; rows(k) = i; cols(k) = extra; vals(k) = c(i)
+            k = k + 1; rows(k) = extra; cols(k) = i; vals(k) = c(i)
+        end do
+        k = k + 1; rows(k) = extra; cols(k) = extra; vals(k) = d
+        call csc_from_triplet(extra, extra, rows(:k), cols(:k), vals(:k), m, status)
+    end subroutine add_dependent_row
+
+    subroutine scale_last(m, power)
+        ! Last row and column of m times 2**power.
+        type(csc_t), intent(inout) :: m
+        integer, intent(in) :: power
+        integer :: j, p
+        do j = 1, m%ncol
+            do p = m%col_ptr(j), m%col_ptr(j + 1) - 1
+                if (m%row_idx(p) == m%nrow) m%val(p) = scale(m%val(p), power)
+                if (j == m%ncol) m%val(p) = scale(m%val(p), power)
+            end do
+        end do
+    end subroutine scale_last
 
     subroutine dense_zero_diagonal(nd, m)
         integer, intent(in) :: nd
