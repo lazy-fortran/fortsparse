@@ -849,7 +849,9 @@ contains
             ! and gain the block's own elimination history.
             do k = 1, w
                 ip = abs(self%ldl_pivots(first+k-1))
-                saved = self%ldl_bound(first-1+k); self%ldl_bound(first-1+k) = self%ldl_bound(first-1+ip); self%ldl_bound(first-1+ip) = saved
+                saved = self%ldl_bound(first-1+k)
+                self%ldl_bound(first-1+k) = self%ldl_bound(first-1+ip)
+                self%ldl_bound(first-1+ip) = saved
             end do
             k = 1
             do while (k <= w)
