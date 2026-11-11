@@ -71,7 +71,7 @@ def write_summary(rows, path):
     for row in rows:
         groups.setdefault(tuple(row[name] for name in KEY), []).append(row)
     with open(path, "w", newline="") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         header = KEY + ["trials", "ok", "timeout", "failed"]
         for name in MEASURED:
             header += [f"{name}_median", f"{name}_min", f"{name}_max"]
@@ -138,7 +138,8 @@ def main():
     for row in rows:
         fields += [name for name in row if name not in fields]
     with open(os.path.join(args.output, "raw.csv"), "w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, restval="")
+        writer = csv.DictWriter(handle, fieldnames=fields, restval="",
+                                lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     write_summary(rows, os.path.join(args.output, "summary.csv"))
