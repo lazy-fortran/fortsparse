@@ -877,3 +877,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         LABELS "native;preconditioner;memory;fast" TIMEOUT 1
         ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 endif()
+fortsparse_add_test(test_fortsparse_hermitian_embedding
+    solver/test_fortsparse_hermitian_embedding.f90)
+set_tests_properties(test_fortsparse_hermitian_embedding PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)

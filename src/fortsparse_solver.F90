@@ -37,6 +37,7 @@ module fortsparse_solver
         plan_natural_spd_memory
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_native_general, only: native_general_backend_t
+    use fortsparse_native_hermitian_embedding, only: native_hermitian_embedding_t
     use fortsparse_lu_leaves, only: lu_z_update
     use fortsparse_native, only: native_backend_t, native_plan_ordered_spd, &
         bounded_default_prefers_amd
@@ -615,7 +616,7 @@ contains
         if (primal) then
             call sparse_solve_real_op(transpose_solver, x_bar, b_bar, FORTSPARSE_OP_TRANSPOSE, status)
         else
-        call sparse_solve_real(transpose_solver, x_bar, b_bar, status)
+            call sparse_solve_real(transpose_solver, x_bar, b_bar, status)
         end if
         if (.not. status_ok(status)) return
         do column = 1, A%ncol
@@ -715,7 +716,7 @@ contains
         if (primal) then
             call sparse_solve_complex_op(adjoint_solver, x_bar, b_bar, FORTSPARSE_OP_ADJOINT, status)
         else
-        call sparse_solve_complex(adjoint_solver, x_bar, b_bar, status)
+            call sparse_solve_complex(adjoint_solver, x_bar, b_bar, status)
         end if
         if (.not. status_ok(status)) return
         do column = 1, A%ncol
@@ -1084,8 +1085,10 @@ contains
         end if
         select case (id)
         case (FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE)
-            if (.not. native_cholesky_family(is_complex, solver%options%symmetry, &
-                solver%options%ldlt_supernodal)) then
+            if (hermitian_embedding(id, is_complex, solver%options)) then
+                allocate(native_hermitian_embedding_t :: solver%backend)
+            else if (.not. native_cholesky_family(is_complex, solver%options%symmetry, &
+                    solver%options%ldlt_supernodal)) then
                 allocate(native_general_backend_t :: solver%backend)
             else
                 allocate(native_backend_t :: solver%backend)
@@ -1132,6 +1135,18 @@ contains
 #endif
     end function has_approximate_factors
 
+    ! Complex Hermitian (or positive definite) factors that request the
+    ! supernodal path go through the real embedding of
+    ! fortsparse_native_hermitian_embedding.
+    pure logical function hermitian_embedding(id, is_complex, options) result(use)
+        integer, intent(in) :: id
+        logical, intent(in) :: is_complex
+        type(sparse_options_t), intent(in) :: options
+        use = id == FORTSPARSE_BACKEND_NATIVE .and. is_complex .and. &
+            (options%symmetry == FORTSPARSE_SYM_HERMITIAN .or. &
+            options%symmetry == FORTSPARSE_SYM_SPD) .and. options%ldlt_supernodal
+    end function hermitian_embedding
+
     ! True when an allocated backend is the concrete kind for backend_id.
     ! The native Cholesky backend owns real SPD and, on request, the real
     ! symmetric indefinite supernodal LDL^T.
@@ -1151,13 +1166,18 @@ contains
 
         backend_is = .false.
         select type (backend)
-            type is (native_general_backend_t)
+        type is (native_hermitian_embedding_t)
+            backend_is = hermitian_embedding(backend_id, is_complex, &
+                sparse_options_t(symmetry=symmetry, ldlt_supernodal=ldlt_supernodal))
+        type is (native_general_backend_t)
+            if (hermitian_embedding(backend_id, is_complex, sparse_options_t( &
+                symmetry=symmetry, ldlt_supernodal=ldlt_supernodal))) return
             if (backend%reference_only .neqv. &
                 (backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE)) return
             backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE .or. &
                 backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE) .and. &
                 .not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)
-            type is (native_backend_t)
+        type is (native_backend_t)
             if (.not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)) return
             if (backend%reference_only) then
                 backend_is = backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
@@ -1165,17 +1185,17 @@ contains
                 backend_is = backend_id == FORTSPARSE_BACKEND_NATIVE
             end if
 #ifdef FORTSPARSE_HAVE_SUPERLU
-            type is (superlu_backend_t)
+        type is (superlu_backend_t)
             if (backend%incomplete) then
                 backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU_ILU
             else
                 backend_is = backend_id == FORTSPARSE_BACKEND_SUPERLU
             end if
 #endif
-            type is (umfpack_ipc_backend_t)
+        type is (umfpack_ipc_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_UMFPACK_IPC)
 #ifdef FORTSPARSE_HAVE_MUMPS
-            type is (mumps_backend_t)
+        type is (mumps_backend_t)
             backend_is = (backend_id == FORTSPARSE_BACKEND_MUMPS)
 #endif
         end select

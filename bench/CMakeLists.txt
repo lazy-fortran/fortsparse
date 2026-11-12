@@ -8,6 +8,8 @@ target_include_directories(fortsparse_spd_fixtures PUBLIC
 add_executable(bench_spd bench_spd.f90)
 target_link_libraries(bench_spd PRIVATE fortsparse fortsparse_spd_fixtures)
 fortsparse_colocate_helper(bench_spd)
+add_executable(bench_block_tridiagonal_z bench_block_tridiagonal_z.f90)
+target_link_libraries(bench_block_tridiagonal_z PRIVATE fortsparse)
 add_executable(bench_block_tridiagonal bench_block_tridiagonal.f90)
 target_link_libraries(bench_block_tridiagonal PRIVATE fortsparse fortsparse_spd_fixtures)
 fortsparse_colocate_helper(bench_block_tridiagonal)
