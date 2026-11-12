@@ -1,0 +1,36 @@
+#!/bin/sh
+# Landing check on fortyard: the two tiers of ci/run.sh, ci-native-analysis
+# and ci-cmake, through CMake. The fpm build does not cover the solver back
+# ends, and the runner image has no SuperLU or SuiteSparse packages, so CMake
+# fetches and builds them (FORTSPARSE_USE_SYSTEM_DEPS stays off). Build trees
+# stay under build/, which the runner keeps between checks.
+set -eu
+jobs=${FY_CHECK_JOBS:-4}
+export OPENBLAS_NUM_THREADS=1 OMP_DYNAMIC=FALSE OMP_WAIT_POLICY=passive
+
+OMP_NUM_THREADS=8
+export OMP_NUM_THREADS
+cmake -S . -B build/fortyard-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF \
+    -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
+cmake --build build/fortyard-native -j "$jobs" --target test_fortsparse_slu_factor \
+    test_fortsparse_slu_z_api test_fortsparse_slu_threads test_fortsparse_amg \
+    test_fortsparse_csr_smoothers test_amg_allocations
+ctest --test-dir build/fortyard-native -j1 --output-on-failure --no-tests=error \
+    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers)$|^test_amg_allocations$'
+
+OMP_NUM_THREADS=1
+cmake -S . -B build/fortyard-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+    -DFORTSPARSE_BUILD_TESTING=ON
+cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \
+    test_fortsparse_solve_real test_fortsparse_solve_complex \
+    test_fortsparse_solve_derivatives test_fortsparse_complex_solve_derivatives \
+    test_fortsparse_superlu_symmetric test_fortsparse_errors \
+    test_fortsparse_superlu_status test_fortsparse_umfpack_ipc \
+    test_fortsparse_umfpack_controls fortsparse_umfpack_helper \
+    test_fortsparse_precision test_fortsparse_mixed_lu test_fortsparse_stability \
+    test_mixed_allocations test_fortsparse_native_general_api \
+    test_fortsparse_slu_z_api test_fortsparse_ldlt_blocked \
+    test_fortsparse_native_ldlt test_fortsparse_native_ldlt_z test_fortsparse_inertia
+ctest --test-dir build/fortyard-cmake -j "$jobs" --output-on-failure --no-tests=error \
+    -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_blocked|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
