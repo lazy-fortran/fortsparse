@@ -1,6 +1,6 @@
     ! Full L spans have distinct original row IDs. Active lane bits are graph
     ! reach, independent of numerical cancellation. No allocation or dispatch.
-    pure subroutine spd_panel_scatter(x, masks, indices, values, n, coeff, lanes, active)
+    subroutine spd_panel_scatter(x, masks, indices, values, n, coeff, lanes, active)
         real(dp), intent(inout) :: x(8,*)
         integer, intent(inout) :: masks(*)
         integer, intent(in) :: indices(*), n, lanes, active
@@ -65,7 +65,7 @@
         end if
     end subroutine spd_panel_scatter
 
-    pure subroutine spd_panel_scatter_jvp(x, dx, masks, indices, values, &
+    subroutine spd_panel_scatter_jvp(x, dx, masks, indices, values, &
             dvalues, n, coeff, dcoeff, lanes, active)
         real(dp), intent(inout) :: x(8,*), dx(8,*)
         integer, intent(inout) :: masks(*)

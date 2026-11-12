@@ -177,7 +177,7 @@ end subroutine spd_update_vjp
 
     ! Full L spans have distinct original row IDs. Active lane bits are graph
     ! reach, independent of numerical cancellation. No allocation or dispatch.
-    pure subroutine spd_panel_scatter(x, masks, indices, values, n, coeff, lanes, active)
+    subroutine spd_panel_scatter(x, masks, indices, values, n, coeff, lanes, active)
         real(dp), intent(inout) :: x(8,*)
         integer, intent(inout) :: masks(*)
         integer, intent(in) :: indices(*), n, lanes, active
@@ -260,7 +260,7 @@ end subroutine spd_update_vjp
         end if
     end subroutine spd_panel_scatter
 
-    pure subroutine spd_panel_scatter_jvp(x, dx, masks, indices, values, &
+    subroutine spd_panel_scatter_jvp(x, dx, masks, indices, values, &
             dvalues, n, coeff, dcoeff, lanes, active)
         real(dp), intent(inout) :: x(8,*), dx(8,*)
         integer, intent(inout) :: masks(*)
@@ -483,7 +483,7 @@ end subroutine spd_update_vjp
     ! Unique, valid indices are owned and checked by sparse symbolic analysis.
     ! Keep scalar leaves inside one compiled loop rather than cross-module
     ! calls per sparse entry. These kernels allocate no scratch.
-    pure subroutine spd_scatter_update(x, indices, values, n, v)
+    subroutine spd_scatter_update(x, indices, values, n, v)
         integer, intent(in) :: n, indices(*)
         real(dp), intent(inout) :: x(*)
         real(dp), intent(in) :: values(*), v
@@ -494,7 +494,7 @@ end subroutine spd_update_vjp
         end do
     end subroutine spd_scatter_update
 
-    pure subroutine spd_gather_update(value, indices, values, x, n)
+    subroutine spd_gather_update(value, indices, values, x, n)
         integer, intent(in) :: n, indices(*)
         real(dp), intent(inout) :: value
         real(dp), intent(in) :: values(*), x(*)
@@ -507,7 +507,7 @@ end subroutine spd_update_vjp
 
     ! The row map encodes zero for structurally absent destination entries.
     ! Source rows are distinct; mapped nonzero destination indices are unique.
-    pure subroutine spd_scatter_mapped_update(x, rows, rowmap, values, n, v)
+    subroutine spd_scatter_mapped_update(x, rows, rowmap, values, n, v)
         integer, intent(in) :: n, rows(*), rowmap(*)
         real(dp), intent(inout) :: x(*)
         real(dp), intent(in) :: values(*), v

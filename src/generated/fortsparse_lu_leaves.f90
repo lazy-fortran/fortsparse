@@ -72,7 +72,7 @@ pure elemental subroutine lu_z_update_vjp(x1, x2, x3, x4, x5, x6, s1, s2, vr, vi
 end subroutine lu_z_update_vjp
 
     ! Scatter rows must be valid and unique; no operand aliases x.
-    pure subroutine lu_z_scatter_update(x,indices,values,n,v)
+    subroutine lu_z_scatter_update(x,indices,values,n,v)
         integer, intent(in) :: n,indices(*)
         complex(dp), intent(inout) :: x(*)
         complex(dp), intent(in) :: values(*),v

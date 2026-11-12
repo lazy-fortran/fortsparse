@@ -12,7 +12,7 @@
     ! sign(p)*tau_abs with sign(0) = + and is counted; swaps counts exchanges.
     ! min_pivot and max_u accumulate min |u_kk| and max |u_ij| of the block.
     ! Rows below the block are not read or changed.
-    pure subroutine slu_block_factor(a, lda, w, tau_abs, ipiv, perturbed, &
+    subroutine slu_block_factor(a, lda, w, tau_abs, ipiv, perturbed, &
             swaps, min_pivot, max_u)
         integer, intent(in) :: lda, w
         real(dp), intent(inout) :: a(lda,*)
@@ -73,7 +73,7 @@
     ! slu_block_factor over block rows k..w and exchanges whole block rows
     ! 1..w; only columns k+1..k0+kb-1 are updated, so the caller finishes
     ! the trailing columns with U12 := L11^-1 A12 and A22 -= A21 U12.
-    pure subroutine slu_panel_factor(a, lda, w, k0, kb, tau_abs, ipiv, &
+    subroutine slu_panel_factor(a, lda, w, k0, kb, tau_abs, ipiv, &
             perturbed, swaps, min_pivot)
         integer, intent(in) :: lda, w, k0, kb
         real(dp), intent(inout) :: a(lda,*)
@@ -125,7 +125,7 @@
 
     ! B := B U^(-1) for the rows-by-w block b; U is upper, non-unit, in
     ! u(1:w,1:w).
-    pure subroutine slu_trsm_upper(u, ldu, w, b, ldb, rows)
+    subroutine slu_trsm_upper(u, ldu, w, b, ldb, rows)
         integer, intent(in) :: ldu, w, ldb, rows
         real(dp), intent(in) :: u(ldu,*)
         real(dp), intent(inout) :: b(ldb,*)
@@ -145,7 +145,7 @@
     end subroutine slu_trsm_upper
 
     ! B := B L^(-T) for the rows-by-w block b; L is unit lower in l(1:w,1:w).
-    pure subroutine slu_trsm_unit_lower_t(l, ldl, w, b, ldb, rows)
+    subroutine slu_trsm_unit_lower_t(l, ldl, w, b, ldb, rows)
         integer, intent(in) :: ldl, w, ldb, rows
         real(dp), intent(in) :: l(ldl,*)
         real(dp), intent(inout) :: b(ldb,*)
@@ -162,7 +162,7 @@
 
     ! General rectangular Schur update C(1:m,1:n) -= left(1:m,1:k) right(1:n,1:k)^T.
     ! The caller owns task parallelism; SIMD avoids nested thread teams.
-    pure subroutine slu_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
+    subroutine slu_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
         integer, intent(in) :: ldc, ldl, ldr, m, n, k
         real(dp), intent(inout) :: c(ldc,*)
         real(dp), intent(in) :: left(ldl,*), right(ldr,*)
@@ -202,7 +202,7 @@
     end subroutine slu_apply_swaps
 
     ! t := L^(-1) t with the unit lower triangle of the packed block.
-    pure subroutine slu_block_lower(a, lda, w, t)
+    subroutine slu_block_lower(a, lda, w, t)
         integer, intent(in) :: lda, w
         real(dp), intent(in) :: a(lda,*)
         real(dp), intent(inout) :: t(*)
@@ -216,7 +216,7 @@
     end subroutine slu_block_lower
 
     ! t := U^(-1) t with the non-unit upper triangle of the packed block.
-    pure subroutine slu_block_upper(a, lda, w, t)
+    subroutine slu_block_upper(a, lda, w, t)
         integer, intent(in) :: lda, w
         real(dp), intent(in) :: a(lda,*)
         real(dp), intent(inout) :: t(*)

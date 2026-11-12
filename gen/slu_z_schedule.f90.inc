@@ -47,7 +47,7 @@
     ! Restricted-pivot LU of the w-by-w diagonal block (see the real
     ! slu_block_factor). A pivot with |p| < tau_abs becomes tau_abs*p/|p|,
     ! or +tau_abs for p = 0, and is counted.
-    pure subroutine slu_z_block_factor(a, lda, w, tau_abs, ipiv, perturbed, &
+    subroutine slu_z_block_factor(a, lda, w, tau_abs, ipiv, perturbed, &
             swaps, min_pivot, max_u)
         integer, intent(in) :: lda, w
         complex(dp), intent(inout) :: a(lda,*)
@@ -104,7 +104,7 @@
     end subroutine slu_z_block_factor
 
     ! B := B U^(-1); U upper non-unit in u(1:w,1:w).
-    pure subroutine slu_z_trsm_upper(u, ldu, w, b, ldb, rows)
+    subroutine slu_z_trsm_upper(u, ldu, w, b, ldb, rows)
         integer, intent(in) :: ldu, w, ldb, rows
         complex(dp), intent(in) :: u(ldu,*)
         complex(dp), intent(inout) :: b(ldb,*)
@@ -123,7 +123,7 @@
     end subroutine slu_z_trsm_upper
 
     ! B := B L^(-T) (plain transpose, no conjugation); L unit lower.
-    pure subroutine slu_z_trsm_unit_lower_t(l, ldl, w, b, ldb, rows)
+    subroutine slu_z_trsm_unit_lower_t(l, ldl, w, b, ldb, rows)
         integer, intent(in) :: ldl, w, ldb, rows
         complex(dp), intent(in) :: l(ldl,*)
         complex(dp), intent(inout) :: b(ldb,*)
@@ -139,7 +139,7 @@
     end subroutine slu_z_trsm_unit_lower_t
 
     ! C(1:m,1:n) -= left(1:m,1:k) right(1:n,1:k)^T (plain transpose).
-    pure subroutine slu_z_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
+    subroutine slu_z_schur_update(c, ldc, left, ldl, right, ldr, m, n, k)
         integer, intent(in) :: ldc, ldl, ldr, m, n, k
         complex(dp), intent(inout) :: c(ldc,*)
         complex(dp), intent(in) :: left(ldl,*), right(ldr,*)
@@ -178,7 +178,7 @@
     end subroutine slu_z_apply_swaps
 
     ! t := L^(-1) t, unit lower triangle of the packed block.
-    pure subroutine slu_z_block_lower(a, lda, w, t)
+    subroutine slu_z_block_lower(a, lda, w, t)
         integer, intent(in) :: lda, w
         complex(dp), intent(in) :: a(lda,*)
         complex(dp), intent(inout) :: t(*)
@@ -192,7 +192,7 @@
     end subroutine slu_z_block_lower
 
     ! t := U^(-1) t.
-    pure subroutine slu_z_block_upper(a, lda, w, t)
+    subroutine slu_z_block_upper(a, lda, w, t)
         integer, intent(in) :: lda, w
         complex(dp), intent(in) :: a(lda,*)
         complex(dp), intent(inout) :: t(*)
