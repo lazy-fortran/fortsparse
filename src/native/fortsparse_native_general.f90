@@ -39,21 +39,21 @@ module fortsparse_native_general
     integer(i8), parameter :: matching_integer_bytes=int(storage_size(0)/8,i8)
     interface
         integer(c_int) function order_amd_general(n,nnz,ptr,row,perm,inverse) &
-            bind(C,name='fsparse_native_order_amd_general')
+                bind(C,name='fsparse_native_order_amd_general')
             import :: c_int
             integer(c_int), value :: n,nnz
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_amd_general
         integer(c_int) function order_nd_general(n,nnz,ptr,row,perm,inverse) &
-            bind(C,name='fsparse_native_order_general')
+                bind(C,name='fsparse_native_order_general')
             import :: c_int
             integer(c_int), value :: n,nnz
             integer(c_int), intent(in) :: ptr(*),row(*)
             integer(c_int), intent(out) :: perm(*),inverse(*)
         end function order_nd_general
         integer(c_int) function nd_available() &
-            bind(C,name='fsparse_native_order_available')
+                bind(C,name='fsparse_native_order_available')
             import :: c_int
         end function nd_available
     end interface
@@ -212,6 +212,8 @@ contains
                 code=bounded_amd_order(n,size(rows),ptr,rows,low,arena,arena_bytes,order,inverse)
             else if (self%order_request == FORTSPARSE_ORDER_ND) then
                 code=order_nd_general(n,size(rows),ptr,rows,order,inverse)
+                ! METIS indices are 32-bit; AMD switches to 64-bit counts.
+                if (code==6) code=order_amd_general(n,size(rows),ptr,rows,order,inverse)
             else
                 code=order_amd_general(n,size(rows),ptr,rows,order,inverse)
             end if
@@ -234,7 +236,7 @@ contains
         end if
         self%selected_order=self%order_request
         call status_set(status,FORTSPARSE_OK,'')
-900     continue
+        900     continue
         if (allocated(arena)) deallocate(arena)
         if (allocated(inverse)) deallocate(inverse)
         if (.not.status_ok(status)) then
@@ -298,7 +300,7 @@ contains
         else
             call column_order(self,n,ptr,rows,is_complex,order,cap,status)
         end if
-900     continue
+        900     continue
         call record_order_peak(self,0_i8)
         if(allocated(self%matching_inverse)) deallocate(self%matching_inverse)
         if(allocated(self%matching_work)) deallocate(self%matching_work)
@@ -1797,7 +1799,7 @@ contains
         self%ready=status_ok(status)
         call update_stats(self)
         return
-800     continue
+        800     continue
         if (status%code==FORTSPARSE_RESOURCE_LIMIT .and. self%failed_required==0_i8) then
             self%failed_required=self%slu_factor%failed_required_bytes
             self%failed_available=self%slu_factor%failed_available_bytes

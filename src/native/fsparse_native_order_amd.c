@@ -14,6 +14,48 @@ int fsparse_native_order_amd_available(void) {
     return 1;
 }
 
+#ifdef FORTSPARSE_HAVE_AMD
+/* amd_l_order: the same algorithm with 64-bit indices, for graphs whose
+ * internal A+A^T pattern exceeds the 32-bit range of amd_order. */
+static int order_amd_wide(int n, int nnz, const int *ptr, const int *row,
+                          int *perm, int *inverse) {
+    int64_t *ap = NULL, *ai = NULL, *p = NULL, *ip = NULL;
+    int result = 0;
+    if ((size_t)n + 1 > SIZE_MAX / sizeof(int64_t) ||
+        (size_t)nnz > SIZE_MAX / sizeof(int64_t)) return 6;
+    ap = malloc(((size_t)n + 1) * sizeof(*ap));
+    ai = malloc((nnz ? (size_t)nnz : 1) * sizeof(*ai));
+    p = malloc((size_t)n * sizeof(*p));
+    ip = calloc((size_t)n, sizeof(*ip));
+    if (!ap || !ai || !p || !ip) {
+        result = 6;
+        goto done;
+    }
+    for (int col = 0; col <= n; ++col) ap[col] = (int64_t)ptr[col] - 1;
+    for (int entry = 0; entry < nnz; ++entry) ai[entry] = (int64_t)row[entry] - 1;
+    int status = amd_l_order((int64_t)n, ap, ai, p, NULL, NULL);
+    if (status != AMD_OK && status != AMD_OK_BUT_JUMBLED) {
+        result = status == AMD_OUT_OF_MEMORY ? 6 :
+                 status == AMD_INVALID ? 2 : 5;
+        goto done;
+    }
+    for (int i = 0; i < n; ++i) {
+        if (p[i] < 0 || p[i] >= n || ip[p[i]] != 0) {
+            result = 5;
+            goto done;
+        }
+        ip[p[i]] = (int64_t)i + 1;
+    }
+    for (int i = 0; i < n; ++i) {
+        perm[i] = (int)p[i] + 1;
+        inverse[i] = (int)ip[i];
+    }
+done:
+    free(ap); free(ai); free(p); free(ip);
+    return result;
+}
+#endif
+
 /* Same public index/status conventions as fsparse_native_order (METIS).
  * perm[new] = old; inverse[old] = new; all are one-based. */
 static int order_amd(int n, int nnz, const int *ptr, const int *row,
@@ -38,6 +80,9 @@ static int order_amd(int n, int nnz, const int *ptr, const int *row,
     if (!perm || !inverse) return 2;
     if (symmetric ? !fsparse_graph_valid(n, nnz, ptr, row) :
                     !fsparse_csc_graph_valid(n, nnz, ptr, row)) return 2;
+    /* amd_order forms A+A^T with 32-bit counts. */
+    if (2 * (uint64_t)nnz + (uint64_t)n > (uint64_t)INT32_MAX)
+        return order_amd_wide(n, nnz, ptr, row, perm, inverse);
     if ((size_t)n + 1 > SIZE_MAX / sizeof(int32_t) ||
         (size_t)nnz > SIZE_MAX / sizeof(int32_t)) return 6;
     ap = malloc(((size_t)n + 1) * sizeof(*ap));
@@ -85,4 +130,18 @@ int fsparse_native_order_amd(int n, int nnz, const int *ptr, const int *row,
 int fsparse_native_order_amd_general(int n, int nnz, const int *ptr, const int *row,
                                     int *perm, int *inverse) {
     return order_amd(n, nnz, ptr, row, perm, inverse, 0);
+}
+
+/* The 64-bit path on any size, for tests: it must order like amd_order.
+ * Returns 3 when the external AMD is not built in. */
+int fsparse_native_order_amd_general_wide(int n, int nnz, const int *ptr,
+                                         const int *row, int *perm, int *inverse) {
+#ifdef FORTSPARSE_HAVE_AMD
+    if (!perm || !inverse) return 2;
+    if (!fsparse_csc_graph_valid(n, nnz, ptr, row)) return 2;
+    return order_amd_wide(n, nnz, ptr, row, perm, inverse);
+#else
+    (void)n; (void)nnz; (void)ptr; (void)row; (void)perm; (void)inverse;
+    return 3;
+#endif
 }

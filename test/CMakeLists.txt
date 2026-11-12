@@ -720,6 +720,9 @@ fortsparse_add_test(test_fortsparse_matching_api solver/test_fortsparse_matching
 set_tests_properties(test_fortsparse_structural_matching test_fortsparse_matching_api
     PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+fortsparse_add_test(test_fortsparse_order_wide solver/test_fortsparse_order_wide.f90)
+set_tests_properties(test_fortsparse_order_wide PROPERTIES LABELS "native;lu;fast" TIMEOUT 1
+    ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_mpm solver/test_fortsparse_mpm.f90)
 set_tests_properties(test_fortsparse_mpm PROPERTIES LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")

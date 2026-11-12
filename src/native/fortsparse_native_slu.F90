@@ -183,14 +183,14 @@ module fortsparse_native_slu
 
     interface
         integer(c_int) function order_amd_general(n, nnz, ptr, row, perm, inverse) &
-            bind(C, name='fsparse_native_order_amd_general')
+                bind(C, name='fsparse_native_order_amd_general')
             import :: c_int
             integer(c_int), value :: n, nnz
             integer(c_int), intent(in) :: ptr(*), row(*)
             integer(c_int), intent(out) :: perm(*), inverse(*)
         end function order_amd_general
         integer(c_int) function order_nd_general(n, nnz, ptr, row, perm, inverse) &
-            bind(C, name='fsparse_native_order_general')
+                bind(C, name='fsparse_native_order_general')
             import :: c_int
             integer(c_int), value :: n, nnz
             integer(c_int), intent(in) :: ptr(*), row(*)
@@ -519,6 +519,8 @@ contains
             end if
             self%opaque_ordering = .true.
             code = order_nd_general(n, nnz, ptr, graph, order, finv)
+            ! METIS indices are 32-bit; AMD switches to 64-bit counts.
+            if (code == 6) code = order_amd_general(n, nnz, ptr, graph, order, finv)
         else if (bounded_amd_available() == 1 .and. &
                 n < huge(0_c_int)/4 .and. nnz < huge(0_c_int)/4) then
             lowflag = 0
@@ -622,8 +624,8 @@ contains
         if (self%map_nnz > 0) call build_assembly_map(self, ptr, rows)
         call status_set(status, FORTSPARSE_OK, '')
         return
-910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-            'supernodal LU: analysis allocation failed')
+        910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                    'supernodal LU: analysis allocation failed')
     end subroutine analyze_phases
 
     subroutine match_values(self, n, ptr, rows, values, u, v, iwork, rwork, &
@@ -941,8 +943,8 @@ contains
         deallocate(rowlist, chead, cnext)
         call release(ledger, 4_i8*(int(n,i8)+2_i8*ns), status)
         return
-910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-            'supernodal LU: analysis allocation failed')
+        910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                    'supernodal LU: analysis allocation failed')
     end subroutine build_nodes
 
     function destination_work(self, dest) result(work)
@@ -1182,8 +1184,8 @@ contains
             if (ierr /= 0) goto 910
         end if
         return
-910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-            'supernodal LU: panel allocation failed')
+        910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                    'supernodal LU: panel allocation failed')
     end subroutine allocate_numeric
 
     subroutine finalize_labels(self)
@@ -1737,8 +1739,8 @@ contains
         self%delayed_columns = self%delayed_columns+moved
         call status_set(status, FORTSPARSE_OK, '')
         return
-910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-            'supernodal LU: delayed-pivot relayout allocation failed')
+        910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                    'supernodal LU: delayed-pivot relayout allocation failed')
     end subroutine relayout_delays
 
     subroutine reset_thread_stats(self)
@@ -1874,7 +1876,7 @@ contains
         self%solve_work(1:self%n) = 0.0_dp
         call status_set(status, FORTSPARSE_OK, '')
         return
-900     self%solve_work(1:self%n) = 0.0_dp
+        900     self%solve_work(1:self%n) = 0.0_dp
     end subroutine assemble
 
 
