@@ -1,0 +1,38 @@
+function(checked_run)
+    execute_process(COMMAND ${ARGV} RESULT_VARIABLE _result
+        OUTPUT_VARIABLE _output ERROR_VARIABLE _error TIMEOUT 30)
+    if(NOT _result STREQUAL "0")
+        message(FATAL_ERROR "${ARGV} failed: ${_result}\n${_output}\n${_error}")
+    endif()
+    set(RUN_OUTPUT "${_output}" PARENT_SCOPE)
+endfunction()
+
+file(REMOVE_RECURSE "${WORK}")
+file(MAKE_DIRECTORY "${WORK}")
+set(_wrapper "${WORK}/compiler")
+file(WRITE "${_wrapper}" [=[#!/bin/sh
+exec "$FORTSPARSE_TEST_COMPILER" "$@"
+]=])
+file(CHMOD "${_wrapper}" PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE)
+set(ENV{FC} "\"${_wrapper}\"")
+set(_platform_args)
+if(CMAKE_HOST_APPLE)
+    checked_run(xcrun --show-sdk-path)
+    string(STRIP "${RUN_OUTPUT}" _sdk)
+    list(APPEND _platform_args "-DCMAKE_OSX_SYSROOT=${_sdk}")
+endif()
+foreach(_compiler IN ITEMS "${OLD_COMPILER}" "${NEW_COMPILER}")
+    set(ENV{FORTSPARSE_TEST_COMPILER} "${_compiler}")
+    checked_run("${CMAKE_COMMAND}" "-DFORTSPARSE_CHECK_BUILD_DIR=${WORK}/build"
+        -P "${HELPER}")
+    checked_run("${CMAKE_COMMAND}" -S "${FIXTURE}" -B "${WORK}/build"
+        -G Ninja -DCMAKE_BUILD_TYPE=Release ${_platform_args})
+    checked_run("${CMAKE_COMMAND}" --build "${WORK}/build" --target compiler_version_probe)
+    checked_run("${WORK}/build/compiler_version_probe")
+    string(STRIP "${RUN_OUTPUT}" _built_version)
+    if(DEFINED _previous AND _built_version STREQUAL _previous)
+        message(FATAL_ERROR "Same wrapper retained the executable built by the old compiler")
+    endif()
+    set(_previous "${_built_version}")
+    message(STATUS "Built with ${_built_version}")
+endforeach()

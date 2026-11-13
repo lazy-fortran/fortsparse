@@ -18,6 +18,42 @@ fortsparse_add_native_symbolic_test(fortsparse)
 fortsparse_add_test(test_fortsparse_smoke test_fortsparse_smoke.f90)
 fortsparse_add_test(test_fortsparse_kinds test_fortsparse_kinds.f90)
 fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
+fortsparse_add_test(test_fortsparse_compiler_self_assignment
+    solver/test_fortsparse_compiler_self_assignment.f90)
+set_tests_properties(test_fortsparse_compiler_self_assignment PROPERTIES
+    LABELS "native;fast" TIMEOUT 1)
+
+if(UNIX AND NOT CMAKE_CROSSCOMPILING AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set(_reference_compiler)
+    foreach(_name IN ITEMS gfortran gfortran-16 gfortran-15 gfortran-14 gfortran-13 gfortran-12 gfortran-11)
+        unset(_other_compiler)
+        find_program(_other_compiler NAMES "${_name}" NO_CACHE)
+        if(NOT _other_compiler)
+            continue()
+        endif()
+        execute_process(COMMAND "${_other_compiler}" --version
+            OUTPUT_VARIABLE _other_version RESULT_VARIABLE _other_result TIMEOUT 10)
+        string(REGEX MATCH "[0-9]+[.][0-9]+[.][0-9]+" _other_version "${_other_version}")
+        if(NOT _other_result STREQUAL "0" OR NOT _other_version)
+            continue()
+        endif()
+        if(NOT _reference_compiler)
+            set(_reference_compiler "${_other_compiler}")
+            set(_reference_version "${_other_version}")
+        elseif(NOT _reference_version STREQUAL _other_version)
+            add_test(NAME test_fortsparse_check_compiler_cache COMMAND "${CMAKE_COMMAND}"
+                "-DOLD_COMPILER=${_other_compiler}"
+                "-DNEW_COMPILER=${_reference_compiler}"
+                "-DHELPER=${PROJECT_SOURCE_DIR}/cmake/fortsparse_check_compiler.cmake"
+                "-DFIXTURE=${PROJECT_SOURCE_DIR}/test-cmake/compiler_selection"
+                "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/compiler_selection"
+                -P "${PROJECT_SOURCE_DIR}/test-cmake/compiler_selection/run.cmake")
+            set_tests_properties(test_fortsparse_check_compiler_cache PROPERTIES
+                LABELS "native;build" TIMEOUT 90)
+            break()
+        endif()
+    endforeach()
+endif()
 fortsparse_add_test(test_fortsparse_memory solver/test_fortsparse_memory.f90)
 set_tests_properties(test_fortsparse_memory PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_spd_leaves

@@ -1,3 +1,6 @@
+#ifndef FORTSPARSE_LAPACK_HAS_DSYTRF_RK
+#define FORTSPARSE_LAPACK_NO_DSYTRF_RK
+#endif
 module fortsparse_native_sytrf
     ! Dense symmetric indefinite block factor Q^T A Q = L D L^T (lower) in the
     ! DSYTRF_RK storage: unit L in the strict lower triangle of A with zero

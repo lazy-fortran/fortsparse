@@ -1,0 +1,3 @@
+cmake_minimum_required(VERSION 3.22)
+project(fortsparse_compiler_selection LANGUAGES Fortran)
+add_executable(compiler_version_probe compiler_version_probe.f90)

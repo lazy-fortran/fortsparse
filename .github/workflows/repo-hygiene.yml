@@ -1,16 +1,7 @@
 name: Repository hygiene
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
   merge_group:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+  pull_request:
 permissions:
   contents: read
 jobs:

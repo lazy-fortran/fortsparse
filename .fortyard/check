@@ -6,20 +6,28 @@
 # stay under build/, which the runner keeps between checks.
 set -eu
 jobs=${FY_CHECK_JOBS:-4}
+FC=${FC:-gfortran}
+export FC
 export OPENBLAS_NUM_THREADS=1 OMP_DYNAMIC=FALSE OMP_WAIT_POLICY=passive
 
 OMP_NUM_THREADS=8
 export OMP_NUM_THREADS
+cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-native \
+    -P cmake/fortsparse_check_compiler.cmake
 cmake -S . -B build/fortyard-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF \
     -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
 cmake --build build/fortyard-native -j "$jobs" --target test_fortsparse_slu_factor \
     test_fortsparse_slu_z_api test_fortsparse_slu_threads test_fortsparse_amg \
-    test_fortsparse_csr_smoothers test_amg_allocations
+    test_fortsparse_csr_smoothers test_amg_allocations \
+    test_fortsparse_compiler_self_assignment test_fortsparse_context_copy \
+    test_fortsparse_native_spd_refactor test_fortsparse_sytrf_rk
 ctest --test-dir build/fortyard-native -j1 --output-on-failure --no-tests=error \
-    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers)$|^test_amg_allocations$'
+    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers|compiler_self_assignment|check_compiler_cache|context_copy|native_spd_refactor|sytrf_rk)$|^test_amg_allocations$'
 
 OMP_NUM_THREADS=1
+cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-cmake \
+    -P cmake/fortsparse_check_compiler.cmake
 cmake -S . -B build/fortyard-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DFORTSPARSE_BUILD_TESTING=ON
 cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \

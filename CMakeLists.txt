@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.22)
 
 project(fortsparse LANGUAGES Fortran C)
 
+include(cmake/fortsparse_compiler.cmake)
+
 # gfortran < 13 mis-optimizes an allocatable left-hand side of `x = matmul(...)`
 # at -O1 and above: the inlined matmul does not reallocate x and writes past
 # the heap block (minimal reproducer: gfortran 12.2 -O2, valgrind). Calling the

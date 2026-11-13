@@ -4,12 +4,29 @@ program test_fortsparse_native_spd_refactor
     ! rejected, a non-positive-definite matrix keeps the analysis (the next
     ! refactor reuses it) and a changed pattern is analysed again.
     use, intrinsic :: ieee_arithmetic, only: ieee_value, ieee_quiet_nan
+    use, intrinsic :: iso_c_binding, only: c_int
     use fortsparse
     implicit none
     integer, parameter :: n = 24
     integer :: ordering
-    do ordering = FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_ND
-        call refactor_checks(ordering)
+    interface
+        integer(c_int) function amd_available() &
+                bind(C, name='fsparse_native_order_amd_available')
+            import :: c_int
+        end function amd_available
+        integer(c_int) function nd_available() &
+                bind(C, name='fsparse_native_order_available')
+            import :: c_int
+        end function nd_available
+    end interface
+    do ordering = FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_NATURAL
+        if (ordering == FORTSPARSE_ORDER_AMD .and. amd_available() == 0) then
+            call unavailable_checks(ordering)
+        else if (ordering == FORTSPARSE_ORDER_ND .and. nd_available() == 0) then
+            call unavailable_checks(ordering)
+        else
+            call refactor_checks(ordering)
+        end if
     end do
     print '(a)', 'Native SPD same-pattern refactor checks pass'
 contains
@@ -46,6 +63,27 @@ contains
         call csc_from_triplet(n, n, rows(:count), cols(:count), vals(:count), a, status)
         call check(status_ok(status), 'fixture')
     end subroutine
+
+    subroutine unavailable_checks(ordering)
+        integer, intent(in) :: ordering
+        type(sparse_solver_t) :: solver
+        type(csc_t) :: a
+        type(fortsparse_status_t) :: status
+        real(dp) :: x(n), rhs(n)
+
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%symmetry = FORTSPARSE_SYM_SPD
+        solver%options%ordering = ordering
+        call laplacian(0.0_dp, a)
+        call sparse_factor(solver, a, status)
+        call check(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'unbuilt ordering is unavailable')
+        call check(.not. solver%factored, 'unbuilt ordering leaves no factors')
+        rhs = 1.0_dp
+        call sparse_solve(solver, rhs, x, status)
+        call check(status%code == FORTSPARSE_NOT_FACTORED, &
+            'solve rejects unbuilt ordering')
+    end subroutine unavailable_checks
 
     subroutine refactor_checks(ordering)
         integer, intent(in) :: ordering

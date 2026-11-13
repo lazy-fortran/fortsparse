@@ -180,8 +180,16 @@ and options with null handles, is unfactored, and the status is
 FORTSPARSE_NOT_FACTORED. Assignment cannot return a status, so a failed
 assignment leaves `dst` a valid unfactored context; use `sparse_copy` when the
 outcome matters. Elemental array assignment is supported. Self-assignment is
-a no-op without aliasing or double release, but gfortran's self-assignment
-temporary deep-copies backend arrays that it does not release; avoid `a = a`.
+a no-op when the compiler passes `test_fortsparse_compiler_self_assignment`.
+The live-backend finalization defect was reproduced with GNU Fortran 11 and
+reported for GNU Fortran 12.3; GNU Fortran 16.2 passed the probe.
+CMake rejects an affected compiler during
+configuration. The fpm build provides the same test, and defined assignment
+checks the compiler before returning from an assignment with aliased factors,
+stopping before the compiler can release the user's factors. An explicit
+`call sparse_copy(a, a, status)` avoids the assignment temporary.
+The lifetime probe does not check leaks from temporary backend-array copies;
+prefer the explicit copy when copying an object onto itself.
 Assigning a derived type that merely contains a `sparse_solver_t` component is
 not supported: gfortran implements that through intrinsic component copies,
 which can alias backend storage. Copy such components explicitly.

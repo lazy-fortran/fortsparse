@@ -202,7 +202,7 @@ contains
         ! nthreads: 0 = OpenMP default, >0 explicit. Small factors and
         ! serial (device) executions keep one team member. The OpenMP
         ! default is capped at one member per FLOP_GRAIN factor flops:
-        ! measured in KIN6D Newton solves (sCluster node13, job 3370335),
+        ! measured in KIN6D Newton solves,
         ! 1.5e7-flop Cholesky/LDL^T factors were fastest serial, 9.3e7-flop
         ! ones at 2 to 4 threads and 1.4e8-flop supernodal LUs at 4.
         class(supernode_schedule_t), intent(inout) :: self

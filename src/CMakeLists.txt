@@ -12,6 +12,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_precision_csr.f90
     fortsparse.f90
     fortsparse_backend.f90
+    fortsparse_compiler.f90
     fortsparse_csc.f90
     fortsparse_inertia.f90
     fortsparse_kinds.f90
@@ -91,7 +92,9 @@ target_include_directories(fortsparse
 # exports SuperLU::SuperLU, the fetched in-tree build exports superlu.
 target_link_libraries(fortsparse PUBLIC Threads::Threads BLAS::BLAS)
 target_link_libraries(fortsparse PUBLIC ${_fortsparse_lapack_libraries})
-if(NOT FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+if(FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+    target_compile_definitions(fortsparse PRIVATE FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
+else()
     target_compile_definitions(fortsparse PRIVATE FORTSPARSE_LAPACK_NO_DSYTRF_RK)
 endif()
 if(FORTSPARSE_ENABLE_SUPERLU)

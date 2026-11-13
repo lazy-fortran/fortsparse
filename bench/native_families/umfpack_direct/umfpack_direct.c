@@ -2,7 +2,15 @@
  * Benchmark-only UMFPACK client. Never compiled or linked into libfortsparse.
  * Uses the official I4 di/zi API; optional IRSTEP=0 keeps other defaults.
  */
+#if defined(__has_include)
+#if __has_include(<suitesparse/umfpack.h>)
+#include <suitesparse/umfpack.h>
+#else
 #include <umfpack.h>
+#endif
+#else
+#include <suitesparse/umfpack.h>
+#endif
 #include <complex.h>
 #include <limits.h>
 #include <math.h>

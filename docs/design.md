@@ -1,17 +1,18 @@
 # fortsparse design
 
-This document covers the backend abstraction, the CSC storage format, the
-shared-memory IPC protocol behind the UMFPACK helper, the MIT/GPL process
-boundary, and the roadmap.
+This document covers the backend abstraction, compressed sparse column (CSC)
+storage, the shared-memory interprocess communication (IPC) protocol behind the
+UMFPACK helper, and the MIT/GPL process boundary.
 
 ## Backend abstraction
 
 One public API, many factorization backends. The solver type holds the backend
-polymorphically and dispatches through deferred bindings, so adding a backend
-touches neither client code nor the dispatch logic.
+polymorphically and dispatches through deferred bindings. Adding a backend
+requires a factory entry; client calls remain the same.
 
-`sparse_backend_t` (in `fortsparse_backend`) is an abstract type with five
-deferred bindings:
+`sparse_backend_t` (in `fortsparse_backend`) is an abstract type with deferred
+bindings for real and complex factorization, solves and in-place solves,
+access to a backend-owned work vector, and factor release. Its core calls are:
 
 - `factor_real(self, A, refine, status)` for a real CSC matrix,
 - `factor_complex(self, A, refine, status)` for a complex CSC matrix,
@@ -19,34 +20,33 @@ deferred bindings:
   for one right-hand side, reusing the retained factorization,
 - `free(self)` to release the factors.
 
+Concrete backends can also override refactorization, block and transpose solves,
+copying and factor statistics; default bindings provide the supported fallbacks.
+
 A concrete backend retains its factorization across solves and maps its native
-error codes onto the `fortsparse_status` codes. The status carrier reports
+error codes onto the `fortsparse_status` codes. The status codes include
 `FORTSPARSE_OK`, `FORTSPARSE_SINGULAR`, `FORTSPARSE_INVALID_MATRIX`,
 `FORTSPARSE_BACKEND_UNAVAILABLE`, `FORTSPARSE_NOT_FACTORED`, or
 `FORTSPARSE_INTERNAL_ERROR`, each with a human-readable message.
 
-`sparse_solver_t` (in `fortsparse_solver`) carries the selection and the
-handle:
-
-```fortran
-type, public :: sparse_solver_t
-    integer :: backend_id = FORTSPARSE_BACKEND_DEFAULT
-    logical :: refine = .false.
-    logical :: factored = .false.
-    class(sparse_backend_t), allocatable :: backend
-end type sparse_solver_t
-```
+`sparse_solver_t` (in `fortsparse_solver`) carries the `backend_id` selection,
+the `refine` and `factored` flags, a `sparse_options_t` options object and the
+allocated concrete backend. The [native matrix-class guide](native-cpu.md)
+describes supported copy operations and factor ownership.
 
 The default is `FORTSPARSE_BACKEND_DEFAULT = FORTSPARSE_BACKEND_AUTO = 0`, which
 resolves at every factor to `FORTSPARSE_BACKEND_MUMPS = 3` for matrices with at
-least 40000 stored entries when the library is built with a sequential MUMPS
-(and ZMUMPS for complex matrices), otherwise to `FORTSPARSE_BACKEND_SUPERLU = 1`
-(`sparse_auto_backend`; README, "Backend selection").
+least 40000 stored entries when MUMPS is configured and its runtime is ready
+(with ZMUMPS for complex matrices). It otherwise uses
+`FORTSPARSE_BACKEND_SUPERLU = 1` when available. Without SuperLU it uses ready
+MUMPS, or `FORTSPARSE_BACKEND_NATIVE = 4` when neither external backend is
+available. See [backend selection](backends.md) for the configured-build and
+runtime requirements.
 `FORTSPARSE_BACKEND_UMFPACK_IPC = 2` selects the out-of-process helper. KLU and PARDISO ids are reserved.
 
-`sparse_factor` allocates the concrete backend for `backend_id` through a
-`select case` factory, releasing any prior factorization first, then dispatches
-to `backend%factor_*`. An unknown id sets `FORTSPARSE_BACKEND_UNAVAILABLE` and
+`sparse_factor` selects the concrete backend for `backend_id` through a
+`select case` factory, applies its options and dispatches to
+`backend%factor_*`. An unknown id sets `FORTSPARSE_BACKEND_UNAVAILABLE` and
 leaves the handle deallocated. `sparse_solve` returns `FORTSPARSE_NOT_FACTORED`
 before a factor, otherwise dispatches to `backend%solve_*`. `sparse_free` calls
 `backend%free`, deallocates, and clears `factored`. `sparse_solve_once` chains
@@ -55,7 +55,7 @@ factor, solve, free for a single right-hand side.
 ### Adding a backend
 
 1. Write a module under `src/<name>/` with a type that extends
-   `sparse_backend_t` and implements the five bindings. Hold the retained
+   `sparse_backend_t` and implements its deferred bindings. Hold the retained
    factorization in the type; map the library's native status onto the
    `fortsparse_status` codes.
 2. Add a public `FORTSPARSE_BACKEND_<NAME>` id in `fortsparse_solver`.
@@ -64,9 +64,9 @@ factor, solve, free for a single right-hand side.
    Fortran plus permissive C, into `fpm.toml`.
 5. Add solver tests under `test/solver/` that select the new id.
 
-A backend that links a permissive library (BSD, MIT) belongs in-process, like
-SuperLU. A backend that would link a copyleft library belongs out-of-process,
-behind the IPC boundary, like UMFPACK.
+SuperLU runs in-process; UMFPACK stays out-of-process behind the IPC boundary.
+Optional MUMPS has separate licensing requirements; see the
+[licensing guide](licensing.md).
 
 ## CSC format
 
@@ -177,9 +177,9 @@ unlinks, closes, and reaps.
 
 ### Helper discovery
 
-`fortsparse_umfpack_ipc` finds the helper from the `FORTSPARSE_UMFPACK_HELPER`
-environment variable, or by scanning `PATH` for an executable named
-`fortsparse_umfpack_helper`. When no helper is found, it returns
+`fortsparse_umfpack_ipc` checks the `FORTSPARSE_UMFPACK_HELPER` environment
+variable first, then looks for `fortsparse_umfpack_helper` beside the running
+executable and in `PATH`, in that order. When no helper is found, it returns
 `FORTSPARSE_BACKEND_UNAVAILABLE` with a clear message. That is the expected,
 testable state under the fpm/fo build, which builds no helper. It is real
 behavior, not a stub: a client that selects the UMFPACK backend without a
@@ -189,9 +189,9 @@ helper gets a clean status, never a crash.
 
 The split is structural, enforced by what each build sees, not by convention.
 
-- The MIT library, `libfortsparse`, links only SuperLU (BSD) and the MIT C
-  shims. It contains no UMFPACK source, includes no `umfpack.h`, and links no
-  `-lumfpack`.
+- The library target, `libfortsparse`, contains no UMFPACK source, includes no
+  `umfpack.h`, and links no `-lumfpack`. Its in-process dependencies are
+  described in the [licensing guide](licensing.md).
 - UMFPACK is used only from `fortsparse_umfpack_helper`, a separate standalone
   executable that links UMFPACK. It is the only file that includes `umfpack.h`.
 - The two sides communicate only across the process boundary, over shared
@@ -220,15 +220,10 @@ binary is the user's explicit choice.
 symbol; the helper binary must show UMFPACK. If `libfortsparse` links UMFPACK,
 the build is wrong.
 
-## Roadmap
+## Scope
 
-The authoritative plan is [ROADMAP.md](../ROADMAP.md). It defines the
-single-node native solver track, generated numerical mathematics, OpenMP/CUDA
-execution and per-case admission against retained backends. This design
-document describes the existing interfaces and implementation; unchecked
-roadmap milestones do not imply implemented capabilities.
-
-Solve derivatives follow the implicit equation contract already implemented
-in the public API. Enzyme is optional tooling, not a production dependency.
-The dormant Enzyme/device build switches and reserved backend ids are not
-evidence of implemented capabilities.
+The [implementation status](status.md) distinguishes tested numerical paths
+from experimental options. Solve derivatives follow the implicit equation
+contract in the public API. Enzyme is optional tooling, not a production
+dependency. Reserved backend identifiers and dormant build switches do not
+imply implemented capabilities.

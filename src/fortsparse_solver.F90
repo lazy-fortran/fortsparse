@@ -12,6 +12,7 @@ module fortsparse_solver
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
     use, intrinsic :: iso_c_binding, only: c_loc, c_associated
     use fortsparse_kinds, only: dp, i8
+    use fortsparse_compiler, only: require_safe_self_assignment
     use fortsparse_status, only: fortsparse_status_t, status_set, status_ok, &
         FORTSPARSE_OK, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INVALID_MATRIX
@@ -906,6 +907,11 @@ contains
         type(sparse_solver_t), target, intent(in) :: src
         type(fortsparse_status_t) :: status
 
+        if (allocated(dst%backend) .and. allocated(src%backend)) then
+            if (c_associated(c_loc(dst%backend%options), &
+                             c_loc(src%backend%options))) &
+                call require_safe_self_assignment()
+        end if
         call copy_context(dst, src, status)
     end subroutine assign_solver
 

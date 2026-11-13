@@ -2,15 +2,15 @@
 
 ## CMake
 
-CMake is the primary build, with CTest. By default it fetches and builds the
-solver libraries it needs (SuperLU and the SuiteSparse/UMFPACK chain) and
-[fortnum](https://github.com/lazy-fortran/fortnum) from source, so the only
-system requirement is BLAS/LAPACK. OpenBLAS and MKL both work; on a cluster,
-load the module first.
+CMake is the primary build, with CTest. It needs Fortran 2018 and C compilers,
+CMake 3.22 or newer, BLAS/LAPACK, and Ninja for the commands below. By default
+it fetches and builds SuperLU and the SuiteSparse/UMFPACK chain and fetches
+[fortnum](https://github.com/lazy-fortran/fortnum) from source. OpenBLAS and
+MKL both work; on a cluster, load the module first.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j
+cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
@@ -65,6 +65,25 @@ ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-fai
 
 AMD/METIS ordering and CUDA can be enabled on top of this when available.
 
+## Compiler limitations
+
+Use a compiler that passes the retained-factor ownership and self-assignment
+probe. CMake runs it during configuration; fpm users run
+`fpm test --target test_fortsparse_compiler_self_assignment`.
+Support depends on this behavioral check, rather than a compiler version floor.
+On an unsafe compiler, a runtime guard stops defined self-assignment.
+
+Select GNU Fortran explicitly on macOS if CMake otherwise chooses LLVM Flang;
+the UMFPACK interprocess tests are not supported by that Flang configuration.
+Homebrew GNU Fortran 16.1 on Apple arm64 has miscompiled bounds-checked
+supernodal updates; use a Linux build for those runtime-check tests. See
+[native CPU matrix classes](native-cpu.md) for factor-ownership restrictions
+and any additional compiler-specific exclusions.
+
+The first execution after linking can include macOS executable scanning. A
+timeout there needs a repeated run before it is attributed to solver cost.
+Linux-only tests and reference benchmarks are not built on macOS.
+
 ## fpm
 
 `fpm.toml` builds the native CPU library with system BLAS/LAPACK and fetches
@@ -75,7 +94,8 @@ backend that is not configured returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
 
 ```sh
 fpm build
-fpm test
+fpm test --target test_fortsparse_compiler_self_assignment
+fpm test --target test_fortsparse_native_only
 ```
 
 The SuperLU test programs report a skip when SuperLU is absent. Standalone C
