@@ -446,7 +446,7 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer, allocatable :: iwork(:), graph(:), order(:), finv(:)
         integer, allocatable :: sptr(:), sidx(:), parent(:), count(:), post(:)
-        integer, allocatable :: head(:), next(:), stack(:)
+        integer, allocatable :: head(:), next(:), stack(:), tptr(:), tidx(:)
         integer(c_int), allocatable :: arena(:)
         real(dp), allocatable :: rwork(:), u(:), v(:)
         type(mpm_stats_t) :: mstats
@@ -553,21 +553,33 @@ contains
             'supernodal LU: column ordering failed or unavailable')
         if (.not. status_ok(status)) return
 
-        ! Phase counts: symmetrized pattern, etree/counts and postorder.
-        sym_entries = 2_i8*int(nnz,i8)+int(n,i8)
+        ! Phase counts: symmetrized pattern, etree/counts and postorder. The
+        ! pattern is sized exactly from the transpose of the graph, so its
+        ! indices stay 32-bit while the symmetrized pattern itself does.
+        call charge_count(self, ledger, int(n,i8)+1_i8+6_i8*n, 4_i8, &
+            SLU_PHASE_COUNTS, status)
+        if (.not. status_ok(status)) return
+        allocate(sptr(n+1), parent(n), count(n), post(n), head(n), next(n), &
+            stack(n), stat=ierr)
+        if (ierr /= 0) goto 910
+        call charge_count(self, ledger, int(nnz,i8)+int(n,i8)+1_i8, 4_i8, &
+            SLU_PHASE_COUNTS, status)
+        if (.not. status_ok(status)) return
+        allocate(tptr(n+1), tidx(nnz), stat=ierr)
+        if (ierr /= 0) goto 910
+        call pattern_transpose(n, ptr, graph, tptr, tidx)
+        sym_entries = symmetric_entries(n, ptr, graph, tptr, tidx, stack)
         if (sym_entries >= int(huge(0),i8)) then
             call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
                 'supernodal LU: symmetrized pattern index range')
             return
         end if
-        call charge_count(self, ledger, sym_entries+int(n,i8)+1_i8+6_i8*n, 4_i8, &
-            SLU_PHASE_COUNTS, status)
+        call charge_count(self, ledger, sym_entries, 4_i8, SLU_PHASE_COUNTS, status)
         if (.not. status_ok(status)) return
-        allocate(sptr(n+1), sidx(int(sym_entries)), parent(n), count(n), post(n), &
-            head(n), next(n), stack(n), stat=ierr)
+        allocate(sidx(int(sym_entries)), stat=ierr)
         if (ierr /= 0) goto 910
-        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len, &
-            self%requested_threads)
+        call build_symmetric(n, ptr, graph, tptr, tidx, finv, sptr, sidx, stack, &
+            len, self%requested_threads)
         symbolic_bytes = native_symbolic_workspace_bytes(n)
         call charge(self, ledger, symbolic_bytes, SLU_PHASE_COUNTS, status)
         if (.not. status_ok(status)) return
@@ -592,10 +604,10 @@ contains
         do k = 1, n
             finv(self%col_old(k)) = k
         end do
-        call build_symmetric(n, ptr, graph, finv, sptr, sidx, stack, len, &
-            self%requested_threads)
-        deallocate(graph, order)
-        call release(ledger, 4_i8*int(nnz,i8)+4_i8*int(n,i8), status)
+        call build_symmetric(n, ptr, graph, tptr, tidx, finv, sptr, sidx, stack, &
+            len, self%requested_threads)
+        deallocate(graph, order, tptr, tidx)
+        call release(ledger, 8_i8*int(nnz,i8)+8_i8*int(n,i8)+4_i8, status)
         if (.not. status_ok(status)) return
         ! The postorder is checked here; a violation is an internal error.
         do k = 1, n
@@ -703,47 +715,110 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine validate_csc
 
-    subroutine build_symmetric(n, ptr, graph, inverse, sptr, sidx, fill, len, &
-            nthreads)
+    subroutine pattern_transpose(n, ptr, graph, tptr, tidx)
+        ! Pattern of B^T in CSC: column r lists the columns c with r in B(:, c).
+        integer, intent(in) :: n, ptr(:), graph(:)
+        integer, intent(out) :: tptr(:), tidx(:)
+        integer :: c, e, r
+        tptr = 0
+        do e = 1, ptr(n+1)-1
+            tptr(graph(e)+1) = tptr(graph(e)+1)+1
+        end do
+        tptr(1) = 1
+        do r = 1, n
+            tptr(r+1) = tptr(r+1)+tptr(r)
+        end do
+        do c = 1, n
+            do e = ptr(c), ptr(c+1)-1
+                r = graph(e)
+                tidx(tptr(r)) = c
+                tptr(r) = tptr(r)+1
+            end do
+        end do
+        do r = n, 1, -1
+            tptr(r+1) = tptr(r)
+        end do
+        tptr(1) = 1
+    end subroutine pattern_transpose
+
+    integer(i8) function symmetric_entries(n, ptr, graph, tptr, tidx, mark) result(len)
+        ! Entries of B + B^T + I without duplicates.
+        integer, intent(in) :: n, ptr(:), graph(:), tptr(:), tidx(:)
+        integer, intent(out) :: mark(:)
+        integer :: c, e
+        mark(1:n) = 0
+        len = 0
+        do c = 1, n
+            mark(c) = c
+            len = len+1
+            do e = ptr(c), ptr(c+1)-1
+                if (mark(graph(e)) == c) cycle
+                mark(graph(e)) = c
+                len = len+1
+            end do
+            do e = tptr(c), tptr(c+1)-1
+                if (mark(tidx(e)) == c) cycle
+                mark(tidx(e)) = c
+                len = len+1
+            end do
+        end do
+    end function symmetric_entries
+
+    subroutine build_symmetric(n, ptr, graph, tptr, tidx, inverse, sptr, sidx, &
+            mark, len, nthreads)
         ! Sorted, duplicate-free full CSC of S = P (B + B^T + I) P^T, where B
-        ! is the pattern (ptr, graph) and inverse maps its labels to the new
-        ! ones. Capacity 2*nnz(B)+n; len returns the used entries.
-        integer, intent(in) :: n, ptr(:), graph(:), inverse(:), nthreads
-        integer, intent(out) :: sptr(:), sidx(:), fill(:), len
-        integer :: c, e, k, l, q, start, finish, last
+        ! is the pattern (ptr, graph), (tptr, tidx) its transpose and inverse
+        ! maps its labels to the new ones. sidx needs symmetric_entries
+        ! entries; len returns them.
+        integer, intent(in) :: n, ptr(:), graph(:), tptr(:), tidx(:), inverse(:)
+        integer, intent(in) :: nthreads
+        integer, intent(out) :: sptr(:), sidx(:), mark(:), len
+        integer :: c, e, l, q
         logical :: parallel_sort
+        ! Column l of S lists the labels of B(:, c), B(c, :) and c for
+        ! c = inverse^-1(l); count each column, then fill in column order.
+        mark(1:n) = 0
         sptr = 0
         do c = 1, n
             l = inverse(c)
-            sptr(l+1) = sptr(l+1)+1
+            mark(c) = c
+            sptr(l+1) = 1
             do e = ptr(c), ptr(c+1)-1
-                k = inverse(graph(e))
-                if (k == l) cycle
+                if (mark(graph(e)) == c) cycle
+                mark(graph(e)) = c
                 sptr(l+1) = sptr(l+1)+1
-                sptr(k+1) = sptr(k+1)+1
+            end do
+            do e = tptr(c), tptr(c+1)-1
+                if (mark(tidx(e)) == c) cycle
+                mark(tidx(e)) = c
+                sptr(l+1) = sptr(l+1)+1
             end do
         end do
         sptr(1) = 1
         do l = 1, n
             sptr(l+1) = sptr(l+1)+sptr(l)
         end do
-        fill(1:n) = sptr(1:n)
+        mark(1:n) = 0
         do c = 1, n
             l = inverse(c)
-            sidx(fill(l)) = l
-            fill(l) = fill(l)+1
+            q = sptr(l)
+            mark(c) = c
+            sidx(q) = l
+            q = q+1
             do e = ptr(c), ptr(c+1)-1
-                k = inverse(graph(e))
-                if (k == l) cycle
-                sidx(fill(l)) = k
-                fill(l) = fill(l)+1
-                sidx(fill(k)) = l
-                fill(k) = fill(k)+1
+                if (mark(graph(e)) == c) cycle
+                mark(graph(e)) = c
+                sidx(q) = inverse(graph(e))
+                q = q+1
+            end do
+            do e = tptr(c), tptr(c+1)-1
+                if (mark(tidx(e)) == c) cycle
+                mark(tidx(e)) = c
+                sidx(q) = inverse(tidx(e))
+                q = q+1
             end do
         end do
-        ! Sort disjoint column slices before compacting them in place. The
-        ! compaction writes earlier columns and must remain serial; separating
-        ! it from sorting needs no additional workspace and preserves labels.
+        len = sptr(n+1)-1
         parallel_sort = nthreads > 1 .and. n >= 1024
         if (parallel_sort) then
             !$omp parallel do num_threads(nthreads) default(shared) private(l) &
@@ -752,24 +827,11 @@ contains
                 call supernode_sort_rows(sidx, sptr(l), sptr(l+1)-1)
             end do
             !$omp end parallel do
-        end if
-        q = 0
-        start = 1
-        do l = 1, n
-            finish = sptr(l+1)-1
-            if (.not. parallel_sort) call supernode_sort_rows(sidx, start, finish)
-            sptr(l) = q+1
-            last = 0
-            do e = start, finish
-                if (sidx(e) == last) cycle
-                q = q+1
-                sidx(q) = sidx(e)
-                last = sidx(e)
+        else
+            do l = 1, n
+                call supernode_sort_rows(sidx, sptr(l), sptr(l+1)-1)
             end do
-            start = finish+1
-        end do
-        sptr(n+1) = q+1
-        len = q
+        end if
     end subroutine build_symmetric
 
     subroutine etree_postorder(n, parent, count, post, head, next, stack)
@@ -1636,6 +1698,8 @@ contains
         integer, allocatable :: up(:), dhead(:), dtail(:), dnext(:)
         integer, allocatable :: apt(:), arows(:), graph(:), finv(:), sptr(:)
         integer, allocatable :: sidx(:), parent(:), count(:), col_old(:), row_old(:)
+        integer, allocatable :: tptr(:), tidx(:)
+        integer(i8) :: sym
         real(dp), allocatable :: drp(:), dcp(:)
         integer :: n, ns, nodes, s, t, c, j, k, first, nnz, len, moved, ierr
         integer :: override
@@ -1712,10 +1776,18 @@ contains
             self%row_new(self%row_old(k)) = k
             finv(self%col_old(k)) = k
         end do
-        allocate(sptr(n+1), sidx(2*nnz+n), parent(n), count(n), stat=ierr)
+        allocate(sptr(n+1), parent(n), count(n), tptr(n+1), tidx(nnz), stat=ierr)
         if (ierr /= 0) goto 910
-        call build_symmetric(n, apt, graph, finv, sptr, sidx, mark, len, &
-            self%requested_threads)
+        call pattern_transpose(n, apt, graph, tptr, tidx)
+        sym = symmetric_entries(n, apt, graph, tptr, tidx, mark)
+        call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+            'supernodal LU: symmetrized pattern index range')
+        if (sym >= int(huge(0),i8)) return
+        allocate(sidx(int(sym)), stat=ierr)
+        if (ierr /= 0) goto 910
+        call build_symmetric(n, apt, graph, tptr, tidx, finv, sptr, sidx, mark, &
+            len, self%requested_threads)
+        deallocate(tptr, tidx)
         call native_symbolic_counts(n, sptr, sidx(1:len), parent, count, status)
         if (.not. status_ok(status)) return
         self%symbolic_nnz = 2_i8*sum(int(count,i8))+int(n,i8)
