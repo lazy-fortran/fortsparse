@@ -1,10 +1,10 @@
 # Static symmetrized-structure LU diagnostic for the KIN6D Jacobians
 
-Scope: correctness and structure only. This run was on faepmac1, an Apple M3 Ultra running macOS 26.6.2, which is not the timing reference, and the host was shared with my concurrent runs.
+Scope: correctness and structure only. This run was on an Apple M3 Ultra workstation running macOS 26.6.2, which is not the timing reference, and the host was shared with my concurrent runs.
 
 - Every time below is labelled "unqualified". None of them is performance or Pareto evidence.
 - Drivers are retained in `drivers/`. Raw outputs, the scratch build and the
-  matrices stay outside Git: outputs in mailuefterl
+  matrices stay outside Git: outputs on the workstation
   `~/code/sparse-dev/benchmarks/2026-10-16-lu-static-structure/`, matrices at the
   hashed source paths below.
 
@@ -12,9 +12,9 @@ Scope: correctness and structure only. This run was on faepmac1, an Apple M3 Ult
 
 | File | SHA256 | Source |
 |---|---|---|
-| data/kin6d-5525.mtx | 707d5e280ed1f345f12581a1086be4bfe42ff00e5a1291e87b3176b4b5288078 | mailuefterl `…/nonnested-csc-probe/lu-source-structure/` |
+| data/kin6d-5525.mtx | 707d5e280ed1f345f12581a1086be4bfe42ff00e5a1291e87b3176b4b5288078 | workstation `…/nonnested-csc-probe/lu-source-structure/` |
 | data/kin6d-5525-nd-order.bin | dc1e09b22da053d16bcc79698bd178282dfb7f14d453d28b83d232a3612aa25d | same directory (retained; not used, see note) |
-| data/kin6d-nonnested-csc-19989.mtx | 13ffe01f42f89dcefd7a692a9d0a725e0983b84fbe7f2d4445f3ab5cb447b1e5 | mailuefterl `/var/tmp/` (path recorded in `nonnested-csc-probe/matrices.json` and `19989-diagnostic/receipt.json`) |
+| data/kin6d-nonnested-csc-19989.mtx | 13ffe01f42f89dcefd7a692a9d0a725e0983b84fbe7f2d4445f3ab5cb447b1e5 | workstation `/var/tmp/` (path recorded in `nonnested-csc-probe/matrices.json` and `19989-diagnostic/receipt.json`) |
 
 - Both hashes match `matrices.json` / the manifest.
 - n=5,525 has 203,054 entries, 7 of them explicit zeros. n=19,989 has 801,006 entries, 6 explicit zeros.
@@ -134,7 +134,7 @@ The "none" rows have structurally zero diagonals (737 and 2,849). Static pivotin
 | 19,989 | weighted (MPM pref) | ND | 20,567,718 | 8,775,032 / 11,772,697 | 327 | 8.5e-16 / 5.3e-15 | 3.1e-9 | 2.09 | 435,528,024 |
 
 - Nothing was censored: every run finished inside the 60 s cap.
-- Earlier mailuefterl diagnostics measured these on other revisions and METIS builds: 5,525 unmatched ND 3,334,519; 19,989 unmatched ND 31,749,631; matched ND 49,039,912; matched AMD timed out at 15 s. Their factor_nnz differences are attributed to a different METIS build/revision and not investigated here. The structural conclusion does not depend on them.
+- Earlier workstation diagnostics measured these on other revisions and METIS builds: 5,525 unmatched ND 3,334,519; 19,989 unmatched ND 31,749,631; matched ND 49,039,912; matched AMD timed out at 15 s. Their factor_nnz differences are attributed to a different METIS build/revision and not investigated here. The structural conclusion does not depend on them.
 - `departures` counts all steps whose pivot row differs from the preferred row, structural singletons included.
 - The weighted "MPM pref" rows feed the MPM matching as a row preference into the unchanged scalar LU, which keeps its own row max-abs scaling. This is a side observation, not the proposed method.
 
@@ -193,7 +193,7 @@ How to read the table:
    - Without scaling, τ=1e-8 perturbs about 180 pivots and fails. The perturbation must be relative to the scaled norm, and τ=1e-13 (the PARDISO default) is right.
 3. **Most of the arithmetic is dense.** With the existing SPD relaxed-amalgamation rule, supernodes of width ≥8 carry 96.8–98.1% of the LU flops (≥16: 86–93%). External Schur GEMMs are 77–83% of the flops (74–81% with k≥8), TRSM 16–20%, and diagonal blocks 1.2–2.2%. Relaxed padding costs only 2.3–3.4% entries under ND.
 
-   The largest fronts are small: 266 and 531 rows. Total LU flops are 1.3e8 and 1.07e9. For comparison, the n=19,989 pivoted LU performs over 1e10 scalar scatter entries in the earlier mailuefterl counts.
+   The largest fronts are small: 266 and 531 rows. Total LU flops are 1.3e8 and 1.07e9. For comparison, the n=19,989 pivoted LU performs over 1e10 scalar scatter entries in the earlier workstation counts.
 
    So supernodal BLAS-3 is justified, but the case is modest in size. The win comes from fill and memory first, and only then from BLAS-3 throughput.
 4. **ND beats AMD** on the matched symmetrized structure, in fill, flops and growth. Postordering changes almost nothing for AMD or METIS output; keep it as a cheap safety step.
