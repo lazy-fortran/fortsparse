@@ -1,5 +1,7 @@
 # fortsparse
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24223525.svg)](https://doi.org/10.5281/zenodo.24223525)
+
 A sparse direct solver library for Fortran with interchangeable backends. It
 solves square real or complex double-precision systems `A x = b` through one API:
 factor a matrix once, solve any number of right-hand sides, then free it. The
@@ -114,6 +116,11 @@ explains status handling, factor ownership and derivative calls.
   Krylov methods and precision policies.
 
 ## Citation
+
+Cite fortsparse through its Zenodo record,
+[doi:10.5281/zenodo.24223525](https://doi.org/10.5281/zenodo.24223525), which
+always resolves to the latest release; release 0.1.0 is
+[doi:10.5281/zenodo.24223526](https://doi.org/10.5281/zenodo.24223526).
 
 Use [CITATION.cff](CITATION.cff) to cite the software version used in your work.
 

@@ -9,5 +9,6 @@ repository-code: "https://github.com/lazy-fortran/fortsparse"
 url: "https://github.com/lazy-fortran/fortsparse"
 license: MIT
 abstract: "Fortran sparse linear solvers with interchangeable backends and implicit solve derivatives."
+doi: "10.5281/zenodo.24223525"
 version: "0.1.0"
 date-released: "2026-11-14"
