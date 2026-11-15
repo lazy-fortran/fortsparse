@@ -472,6 +472,8 @@ set_tests_properties(test_fortsparse_ldlt_blocked PROPERTIES LABELS "native;fast
 fortsparse_add_test(test_fortsparse_sytrf_rk solver/test_fortsparse_sytrf_rk.f90)
 set_tests_properties(test_fortsparse_sytrf_rk PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_ldlt_supernodal solver/test_fortsparse_ldlt_supernodal.f90)
+target_sources(test_fortsparse_ldlt_supernodal PRIVATE solver/ldlt_amd_core_order.c)
+target_include_directories(test_fortsparse_ldlt_supernodal PRIVATE ${PROJECT_SOURCE_DIR}/src/native)
 set_tests_properties(test_fortsparse_ldlt_supernodal PROPERTIES
     LABELS "native;fast" TIMEOUT 1 PROCESSORS 4
     ENVIRONMENT "OMP_NUM_THREADS=4;OPENBLAS_NUM_THREADS=1")
@@ -718,7 +720,7 @@ endif()
 add_executable(test_native_lu_spline ../test-cmake/native/test_native_lu_spline.f90)
 target_link_libraries(test_native_lu_spline PRIVATE fortsparse)
 add_test(NAME test_native_lu_spline COMMAND test_native_lu_spline
-    "${CMAKE_CURRENT_SOURCE_DIR}/../test-cmake/native/data")
+    "${PROJECT_SOURCE_DIR}/test-cmake/native/data")
 set_tests_properties(test_native_lu_spline PROPERTIES
     LABELS "native;lu;fast" TIMEOUT 1
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")

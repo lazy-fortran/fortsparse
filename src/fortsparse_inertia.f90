@@ -32,27 +32,74 @@ module fortsparse_inertia
         real(dp) :: tolerance = -1.0_dp ! threshold of that smallest pivot
     end type inertia_count_t
 
-    public :: inertia_add_pivot, inertia_status_of, inertia_tolerance
+    public :: inertia_add_pivot, inertia_add_scaled_block, inertia_status_of, inertia_tolerance
 contains
     ! Add one 1x1 pivot a (step 1) or 2x2 pivot [[a, b], [conj(b), c]] with
-    ! real a, c and |b| = babs (step 2). Eigenvalues are formed after scaling
-    ! by the largest entry: the larger-magnitude one is m + sign(m) r, the
-    ! smaller one det/larger, so neither suffers cancellation.
+    ! real a, c and |b| = babs (step 2), both eigenvalues against tolerance.
     pure subroutine inertia_add_pivot(count, step, a, babs, c, tolerance)
         type(inertia_count_t), intent(inout) :: count
         integer, intent(in) :: step
         real(dp), intent(in) :: a, babs, c, tolerance
-        real(dp) :: s, as, bs, cs, m, r, large, small
+        real(dp) :: lambda(2)
         if (step == 1) then
             call add_eigenvalue(count, a, tolerance)
             return
         end if
-        s = max(abs(a), babs, abs(c))
-        if (s <= 0.0_dp) then
-            call add_eigenvalue(count, 0.0_dp, tolerance)
-            call add_eigenvalue(count, 0.0_dp, tolerance)
+        call block_eigenvalues(a, babs, c, lambda)
+        call add_eigenvalue(count, lambda(1), tolerance)
+        call add_eigenvalue(count, lambda(2), tolerance)
+    end subroutine inertia_add_pivot
+
+    ! Add a 2x2 pivot B = [[a, b], [conj(b), c]] of the rows i, j whose
+    ! computed entries carry rounding errors |F_ii| <= gamma g_i,
+    ! |F_jj| <= gamma g_j and |F_ij| <= gamma sqrt(g_i g_j), g = scale_i,
+    ! scale_j, gamma ~ n u = t/2 with t = n eps (inertia_tolerance per unit
+    ! scale). With G = diag(g_i, g_j), the congruence G^-1/2 B G^-1/2 has the
+    ! inertia of B (Sylvester), and its error G^-1/2 F G^-1/2 has entries at
+    ! most t/2, so 2-norm at most t. By Weyl, an eigenvalue mu of the scaled
+    ! block with |mu| > t keeps its sign: the margin of inertia_add_pivot
+    ! with tolerance t max(g_i, g_j), whose bound |F| <= gamma max(g_i, g_j)
+    ! the scaled one implies. Each eigenvalue lambda of B (ascending, paired
+    ! with the ascending mu by Ostrowski's theorem) is counted against
+    ! t |lambda/mu|, so that it is uncertain exactly when |mu| <= t. Rows of
+    ! equal scale give the absolute rule. Nonpositive scales fall back to
+    ! it; a zero mu or a sign that the scaling changed counts uncertain.
+    pure subroutine inertia_add_scaled_block(count, n, a, babs, c, scale_i, scale_j)
+        type(inertia_count_t), intent(inout) :: count
+        integer, intent(in) :: n
+        real(dp), intent(in) :: a, babs, c, scale_i, scale_j
+        real(dp) :: lambda(2), mu(2), ri, rj, t, tolerance
+        integer :: k
+        if (.not. (scale_i > 0.0_dp .and. scale_j > 0.0_dp)) then
+            call inertia_add_pivot(count, 2, a, babs, c, &
+                inertia_tolerance(n, max(scale_i, scale_j)))
             return
         end if
+        t = inertia_tolerance(n, 1.0_dp)
+        ri = sqrt(scale_i)
+        rj = sqrt(scale_j)
+        call block_eigenvalues(a, babs, c, lambda)
+        call block_eigenvalues((a/ri)/ri, (babs/ri)/rj, (c/rj)/rj, mu)
+        do k = 1, 2
+            tolerance = huge(1.0_dp)
+            if (lambda(k) > 0.0_dp .eqv. mu(k) > 0.0_dp) then
+                if (mu(k) /= 0.0_dp) tolerance = min(huge(1.0_dp), t*abs(lambda(k)/mu(k)))
+            end if
+            call add_eigenvalue(count, lambda(k), tolerance)
+        end do
+    end subroutine inertia_add_scaled_block
+
+    ! Eigenvalues of [[a, b], [conj(b), c]], |b| = babs, in ascending order.
+    ! They are formed after scaling by the largest entry: the larger-magnitude
+    ! one is m + sign(m) r, the smaller one det/larger, so neither suffers
+    ! cancellation.
+    pure subroutine block_eigenvalues(a, babs, c, lambda)
+        real(dp), intent(in) :: a, babs, c
+        real(dp), intent(out) :: lambda(2)
+        real(dp) :: s, as, bs, cs, m, r, large, small
+        lambda = 0.0_dp
+        s = max(abs(a), babs, abs(c))
+        if (s <= 0.0_dp) return
         as = a/s
         bs = babs/s
         cs = c/s
@@ -60,9 +107,8 @@ contains
         r = hypot(0.5_dp*(as - cs), bs)
         large = m + sign(r, m)
         small = (as*cs - bs*bs)/large
-        call add_eigenvalue(count, s*large, tolerance)
-        call add_eigenvalue(count, s*small, tolerance)
-    end subroutine inertia_add_pivot
+        lambda = [min(s*large, s*small), max(s*large, s*small)]
+    end subroutine block_eigenvalues
 
     pure subroutine add_eigenvalue(count, lambda, tolerance)
         type(inertia_count_t), intent(inout) :: count

@@ -13,7 +13,7 @@ program test_fortsparse_slu_fallback
     type(sparse_factor_stats_t) :: stats
     type(fortsparse_status_t) :: status
     type(csc_t) :: a
-    integer(i8) :: supernodal_peak, scalar_peak
+    integer(i8) :: supernodal_peak, scalar_peak, retained
     integer :: seed
     real(dp) :: berr
 
@@ -30,9 +30,25 @@ program test_fortsparse_slu_fallback
     call check(supernodal_peak > 0, 'exact supernodal peak')
     ! Without refine, a perturbed factor retains the original A for its
     ! refinement; when that no longer fits the cap the scalar LU is used.
-    call run(a, FORTSPARSE_LU_SUPERNODAL, tight, supernodal_peak-1, status, stats)
-    call check(status_ok(status) .and. stats%lu_fallback_reason == 'PERTURBATION', &
+    ! The kept factor's live bytes end with that copy, so one byte less
+    ! than them can only be exceeded by retaining it, once a same-pattern
+    ! refactor has kept the analysis: a fresh analysis can need more than
+    ! the kept factor (in WebAssembly, whose dense workspace is smaller).
+    retained = stats%host_current_bytes
+    call check(retained > 0 .and. retained <= supernodal_peak, 'live bytes of the kept factor')
+    call refactor_capped(a, tight, retained-1, status, stats)
+    call check(status_ok(status) .and. stats%lu_fallback .and. &
+        stats%lu_fallback_reason == 'PERTURBATION', &
         'refinement retention beyond the cap falls back')
+    call refactor_capped(a, tight, retained, status, stats)
+    call check(status_ok(status) .and. .not. stats%lu_fallback, &
+        'refactor retains the copy of A within the cap')
+    if (retained == supernodal_peak) then
+        ! The retention is also the peak of a fresh factorization.
+        call run(a, FORTSPARSE_LU_SUPERNODAL, tight, supernodal_peak-1, status, stats)
+        call check(status_ok(status) .and. stats%lu_fallback_reason == 'PERTURBATION', &
+            'fresh factor: refinement retention beyond the cap falls back')
+    end if
     call run(a, FORTSPARSE_LU_SUPERNODAL, tight, supernodal_peak, status, stats)
     call check(status_ok(status) .and. .not. stats%lu_fallback, &
         'supernodal fits its own measured peak')
@@ -296,6 +312,30 @@ contains
         status = factor_status
         call sparse_destroy(solver)
     end subroutine run
+
+    subroutine refactor_capped(a, tau, limit, status, stats)
+        ! Factor without a binding cap, then refactor the same pattern under
+        ! limit, reusing the retained analysis.
+        type(csc_t), intent(in) :: a
+        real(dp), intent(in) :: tau
+        integer(i8), intent(in) :: limit
+        type(fortsparse_status_t), intent(out) :: status
+        type(sparse_factor_stats_t), intent(out) :: stats
+        type(sparse_solver_t) :: solver
+        type(fortsparse_status_t) :: stats_status
+        logical :: reused
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
+        solver%options%lu_method = FORTSPARSE_LU_SUPERNODAL
+        solver%options%pivot_perturbation = tau
+        solver%options%host_memory_limit_bytes = huge(1_i8)/4
+        call sparse_factor(solver, a, status)
+        call check(status_ok(status), 'factor before the capped refactor')
+        solver%options%host_memory_limit_bytes = limit
+        call sparse_refactor(solver, a, status, reused)
+        call sparse_factor_stats(solver, stats, stats_status)
+        call check(status_ok(stats_status), 'refactor statistics')
+        call sparse_destroy(solver)
+    end subroutine refactor_capped
 
     real(dp) function norm_inf(a)
         type(csc_t), intent(in) :: a

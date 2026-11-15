@@ -7,7 +7,25 @@ program test_fortsparse_ldlt_supernodal
     ! sizes 1 and 4 (same inertia, small residuals), and an exactly singular
     ! bordered matrix whose count must stay uncertified under row scaling.
     use fortsparse
+    use, intrinsic :: iso_c_binding, only: c_int
     implicit none
+    interface
+        integer(c_int) function amd_core_order(n, ptr, row, perm) &
+                bind(C, name='test_amd_core_order')
+            import :: c_int
+            integer(c_int), value :: n
+            integer(c_int), intent(in) :: ptr(*), row(*)
+            integer(c_int), intent(out) :: perm(*)
+        end function amd_core_order
+        ! SuiteSparse amd_l_order; 3 when SuiteSparse AMD is not built in.
+        integer(c_int) function suitesparse_amd_order(n, nnz, ptr, row, perm, inverse) &
+                bind(C, name='fsparse_native_order_amd_general_wide')
+            import :: c_int
+            integer(c_int), value :: n, nnz
+            integer(c_int), intent(in) :: ptr(*), row(*)
+            integer(c_int), intent(out) :: perm(*), inverse(*)
+        end function suitesparse_amd_order
+    end interface
     integer, parameter :: grid = 24, n = grid*grid, dense = 72
     real(dp), parameter :: pi = acos(-1.0_dp)
     type(csc_t) :: a
@@ -19,6 +37,8 @@ program test_fortsparse_ldlt_supernodal
     integer, parameter :: powers(4) = [0, 0, -30, 30]
     integer(i8) :: nneg, nzero, npos
     integer :: failures, reliability, threads, k
+    integer :: order(n), inverse(n), code
+    integer(i8) :: core_fill, suitesparse_fill
     logical :: reused
     failures = 0
 
@@ -64,6 +84,27 @@ program test_fortsparse_ldlt_supernodal
             'row-scaled inertia reliable')
     end if
     call sparse_destroy(solver)
+
+    ! The same with each AMD ordering applied explicitly (natural order of
+    ! P^T A P): the built-in core, which orders when SuiteSparse AMD is not
+    ! built in, and SuiteSparse AMD where it is. Inertia and its reliability
+    ! must not depend on the ordering, and the built-in fill must stay
+    ! within 5 % of SuiteSparse's.
+    call laplacian(grid, 1.37_dp, a)
+    call scale_rows(grid, a)
+    code = amd_core_order(n, a%col_ptr, a%row_idx, order)
+    call expect(code == 0, 'built-in AMD order')
+    if (code == 0) core_fill = ordered_inertia(a, order, 'built-in AMD')
+    code = suitesparse_amd_order(n, int(a%nnz), a%col_ptr, a%row_idx, order, inverse)
+    if (code == 0) then
+        suitesparse_fill = ordered_inertia(a, order, 'SuiteSparse AMD')
+        print '(a,i0,a,i0)', 'factor entries: built-in AMD ', core_fill, &
+            ', SuiteSparse AMD ', suitesparse_fill
+        call expect(real(core_fill, dp) <= 1.05_dp*real(suitesparse_fill, dp), &
+            'built-in AMD fill within 5 % of SuiteSparse AMD')
+    else
+        call expect(code == 3, 'SuiteSparse AMD order')
+    end if
 
     ! Negative control: the dyadic shift 11/8 and an extra row and column
     ! c = A w, d = w^T A w with integer w, all exact, then the same power-of-
@@ -158,6 +199,42 @@ program test_fortsparse_ldlt_supernodal
     end if
     print '(a)', 'supernodal LDL^T: ok'
 contains
+    integer(i8) function ordered_inertia(m, perm, what) result(fill)
+        ! Factor P^T m P (perm(new) = old) in its natural order and check its
+        ! inertia; returns the factor entries.
+        type(csc_t), intent(in) :: m
+        integer, intent(in) :: perm(:)
+        character(*), intent(in) :: what
+        type(csc_t) :: b
+        type(sparse_solver_t) :: s
+        integer :: rows(m%nnz), cols(m%nnz), position(m%ncol), j, p
+        real(dp) :: vals(m%nnz)
+        position(perm) = [(j, j=1, m%ncol)]
+        do j = 1, m%ncol
+            do p = m%col_ptr(j), m%col_ptr(j + 1) - 1
+                rows(p) = position(m%row_idx(p))
+                cols(p) = position(j)
+                vals(p) = m%val(p)
+            end do
+        end do
+        call csc_from_triplet(m%nrow, m%ncol, rows, cols, vals, b, status)
+        call configure(s, 1)
+        s%options%ordering = FORTSPARSE_ORDER_NATURAL
+        fill = -1
+        call sparse_factor(s, b, status)
+        call expect(status_ok(status), 'factor in the '//what//' order')
+        if (status_ok(status)) then
+            call sparse_factor_stats(s, stats, status)
+            fill = stats%factor_nnz
+            call sparse_inertia(s, nneg, nzero, npos, reliability, status)
+            call expect(nneg == below(grid, 1.37_dp) .and. nzero == 0, &
+                what//': row-scaled inertia matches the spectrum')
+            call expect(reliability == FORTSPARSE_INERTIA_RELIABLE, &
+                what//': row-scaled inertia reliable')
+        end if
+        call sparse_destroy(s)
+    end function ordered_inertia
+
     subroutine configure(s, threads)
         type(sparse_solver_t), intent(inout) :: s
         integer, intent(in) :: threads

@@ -7,7 +7,8 @@
 # FORTSPARSE_WASM_ENVIRONMENT selects how the test programs run: node
 # (default, under ctest, with the host file system and environment), shell (a
 # JavaScript shell such as JavaScriptCore's jsc) or web (a browser page); the
-# latter two are single files with the fixtures of bench/fixtures embedded.
+# latter two are single files with the fixtures of bench/fixtures and the
+# data of test-cmake/native/data embedded.
 set(CMAKE_SYSTEM_NAME Emscripten)
 set(CMAKE_SYSTEM_PROCESSOR wasm32)
 
@@ -36,9 +37,11 @@ set(_link "-sALLOW_MEMORY_GROWTH -sSTACK_SIZE=8mb -sEXIT_RUNTIME --pre-js ${CMAK
 if(FORTSPARSE_WASM_ENVIRONMENT STREQUAL "node")
     string(APPEND _link " -sENVIRONMENT=node -sNODERAWFS")
 else()
-    # the test fixtures a test opens relative to the source directory
+    # the test fixtures a test opens relative to the source directory, and
+    # the data directory a test receives as an absolute path
     get_filename_component(_fixtures "${CMAKE_CURRENT_LIST_DIR}/../../bench/fixtures" ABSOLUTE)
-    string(APPEND _link " -sENVIRONMENT=${FORTSPARSE_WASM_ENVIRONMENT} -sSINGLE_FILE --embed-file ${_fixtures}@bench/fixtures")
+    get_filename_component(_data "${CMAKE_CURRENT_LIST_DIR}/../../test-cmake/native/data" ABSOLUTE)
+    string(APPEND _link " -sENVIRONMENT=${FORTSPARSE_WASM_ENVIRONMENT} -sSINGLE_FILE --embed-file ${_fixtures}@bench/fixtures --embed-file ${_data}@${_data}")
 endif()
 # emcc links the Fortran objects with LFortran's runtime.
 set(CMAKE_Fortran_LINK_EXECUTABLE

@@ -13,6 +13,7 @@ program test_fortsparse_componentwise_refinement
 
     call row_scaled()
     call stagnation()
+    call perturbed_stagnation()
     call step_cap()
     print '(a)', 'native componentwise refinement passed'
 contains
@@ -216,7 +217,8 @@ contains
     subroutine stagnation()
         ! Dense rows put the rounding floor of the computed componentwise
         ! error near or above eps. A solve that returns with that error above
-        ! eps before the cap stopped because the error did not halve.
+        ! eps before the cap stopped because the error did not halve; whether
+        ! one does depends on rounding, so perturbed_stagnation tests the rule.
         type(sparse_solver_t) :: solver
         type(sparse_factor_stats_t) :: stats
         type(fortsparse_status_t) :: status
@@ -247,8 +249,87 @@ contains
             end do
         end do
         print '(a,i0,a)', 'stagnation stops: ', stagnated, ' of 12 solves'
-        call check(stagnated >= 1, 'a stagnating componentwise error stops early')
     end subroutine stagnation
+
+    subroutine perturbed_stagnation()
+        ! Refinement that contracts by a known factor rho > 1/2 per step.
+        ! 2x2 blocks [1 .1; .1 1], except s*[1 c; c 1] (c = .9, s = 2**-50)
+        ! in front, n = 1000 so that one perturbed pivot passes the gate.
+        ! Matching scaling makes the special block [1 c t; c/t 1] (t > 0,
+        ! scaled entries at most 1), whose second pivot p = 1-c**2 = .19 is
+        ! below tau*||M||_inf with tau = .4 and .76 <= tau*||M||_inf <= .8;
+        ! the unit blocks' pivots .99 are not. The factor is that of A+E,
+        ! with E nonzero only in that pivot, raised by delta to
+        ! p' = tau*||M||_inf. The refinement error e_k+1 = (A+E)^-1 E e_k:
+        ! (A+E)^-1 E has rank one with the eigenvalue rho = delta/p' in
+        ! [.75, .7625], and e_0 = -(A+E)^-1 E x is its eigenvector, so every
+        ! correction multiplies the residual by exactly rho. It lies in the
+        ! block's second row, whose |A||x|+|b| changes by a relative O(eta)
+        ! with x = (1, eta) there: the componentwise error contracts by
+        ! rho*(1+O(eta)) and cannot halve. The normwise error stays below
+        ! s*eta, so the rule stops after one correction with the error far
+        ! above eps, and so would every later correction.
+        integer, parameter :: n = 1000
+        real(dp), parameter :: c = 0.9_dp, s = 2.0_dp**(-50), eta = 2.0_dp**(-10)
+        type(sparse_solver_t) :: refined, plain
+        type(sparse_factor_stats_t) :: stats
+        type(fortsparse_status_t) :: status
+        type(csc_t) :: m
+        real(dp) :: y(n), x0(n), x2(n), r(n), dx(n), nw, cw0, cw1, cw2
+        integer :: j
+        if (allocated(a)) deallocate(a, x, b)
+        allocate(a(n,n), x(n), b(n))
+        a = 0.0_dp
+        do j = 1, n, 2
+            a(j:j+1,j:j+1) = reshape([1.0_dp, 0.1_dp, 0.1_dp, 1.0_dp], [2,2])
+        end do
+        a(1:2,1:2) = s*reshape([1.0_dp, c, c, 1.0_dp], [2,2])
+        x = 1.0_dp
+        x(2) = eta
+        b = real(matmul(real(a,qp), real(x,qp)), dp)
+        call to_csc(a, m)
+        refined%backend_id = FORTSPARSE_BACKEND_NATIVE
+        refined%refine = .true.
+        refined%options%lu_method = FORTSPARSE_LU_SUPERNODAL
+        refined%options%pivot_perturbation = 0.4_dp
+        call sparse_factor(refined, m, status)
+        call checked(status)
+        call sparse_factor_stats(refined, stats, status)
+        call check(stats%native_factor_family == 'LU_SUPERNODAL' .and. &
+            stats%perturbed_pivots == 1, 'one perturbed pivot in the special block')
+        call sparse_solve(refined, b, y, status)
+        call checked(status)
+        call sparse_factor_stats(refined, stats, status)
+        call errors(a, b, y, nw, cw1)
+        call check(stats%refinement_steps == 1, 'componentwise stagnation stops after one correction')
+        call check(stats%backward_error <= 32.0_dp*eps .and. nw <= 32.0_dp*eps, &
+            'normwise gate passes before refinement')
+        call check(stats%componentwise_backward_error > 1.0e6_dp*eps .and. &
+            abs(stats%componentwise_backward_error-cw1) <= 1.0e-3_dp*cw1, &
+            'stagnated componentwise error matches the real128 oracle')
+        ! The contraction itself, with the same factor unrefined: x0 is the
+        ! unrefined solution, y = x1 and x2 one further correction.
+        plain%backend_id = FORTSPARSE_BACKEND_NATIVE
+        plain%options%lu_method = FORTSPARSE_LU_SUPERNODAL
+        plain%options%pivot_perturbation = 0.4_dp
+        plain%options%verify_factor = .false.
+        plain%options%verify_perturbed = .false.
+        call sparse_factor(plain, m, status)
+        call checked(status)
+        call sparse_solve(plain, b, x0, status)
+        call checked(status)
+        r = real(real(b,qp)-matmul(real(a,qp), real(y,qp)), dp)
+        call sparse_solve(plain, r, dx, status)
+        call checked(status)
+        x2 = y+dx
+        call errors(a, b, x0, nw, cw0)
+        call errors(a, b, x2, nw, cw2)
+        call check(cw1 >= 0.74_dp*cw0 .and. cw1 <= 0.77_dp*cw0 .and. &
+            cw2 >= 0.74_dp*cw1 .and. cw2 <= 0.77_dp*cw1, &
+            'each correction contracts the componentwise error by rho')
+        call sparse_destroy(plain)
+        call sparse_destroy(refined)
+    end subroutine perturbed_stagnation
 
     subroutine step_cap()
         ! A 20x20 block with diagonals near 1e-5, rows times 1e-12, next to a

@@ -10,7 +10,8 @@ module fortsparse_native_supernodes
     use fortnum_blas, only: dgemm => fortnum_dgemm
     use fortnum_blas12, only: dgemv => fortnum_dgemv, dtrsv => fortnum_dtrsv
     use fortnum_blas3, only: dsyrk => fortnum_dsyrk
-    use fortsparse_inertia, only: inertia_count_t, inertia_add_pivot, inertia_tolerance
+    use fortsparse_inertia, only: inertia_count_t, inertia_add_pivot, inertia_add_scaled_block, &
+        inertia_tolerance
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
         spd_divide, spd_gather_update
@@ -853,11 +854,20 @@ contains
                         inertia_tolerance(self%n, history))
                     k = k+1
                 else
-                    history = max(self%ldl_bound(first-1+k)+ldl_row_history(self, s, k, k-1), &
-                        self%ldl_bound(first-1+k+1)+ldl_row_history(self, s, k+1, k-1))
-                    call inertia_add_pivot(count, 2, values(k,k), &
+                    ! The computed pivot block is A_BB - sum_p L_Bp D_p L_Bp^T
+                    ! + F with |F_ij| <= gamma (|A_ij| + (|L||D||L^T|)_ij)
+                    ! (inner products in any order, gamma ~ n u). Its rows
+                    ! have g_i = b_i + h_i: b_i >= max_j |A_ij| (full
+                    ! symmetric A), and h_i the history of ldl_row_history
+                    ! over all earlier pivots (those of earlier panels are
+                    ! added to ldl_bound). |A_ij| <= sqrt(b_i b_j) and
+                    ! (|L||D||L^T|)_ij <= sqrt(h_i h_j), so by Cauchy-Schwarz
+                    ! |F_ij| <= gamma sqrt(g_i g_j): each eigenvalue is
+                    ! judged on its own scale (inertia_add_scaled_block).
+                    call inertia_add_scaled_block(count, self%n, values(k,k), &
                         abs(self%ldl_offdiag(first+k-1)), values(k+1,k+1), &
-                        inertia_tolerance(self%n, history))
+                        self%ldl_bound(first-1+k)+ldl_row_history(self, s, k, k-1), &
+                        self%ldl_bound(first-1+k+1)+ldl_row_history(self, s, k+1, k-1))
                     k = k+2
                 end if
             end do
@@ -903,14 +913,17 @@ contains
     end subroutine ldl_panel_factor
 
     pure function ldl_row_history(self, s, row, columns) result(history)
-        ! sum_k |l_k|^2 |d_k| over the first columns pivots of panel s in its
-        ! row: bounds every |l_i D l_j^T| partial sum by sqrt(h_i h_j). A 2x2
-        ! pivot contributes (l_k^2 + l_{k+1}^2) ||D_k||_inf.
+        ! sum_k |l_k|^T M_k |l_k| over the first columns pivots of panel s in
+        ! its row, M_k = |d_k| for a 1x1 pivot and |D_k| + |e_k| I for a 2x2
+        ! pivot D_k = [d1 e; e d2]: M_k is positive semidefinite
+        ! ((|d1|+|e|)(|d2|+|e|) >= e^2) and at least |D_k| entrywise, so by
+        ! Cauchy-Schwarz every partial sum of |l_i| |D| |l_j|^T is at most
+        ! sqrt(h_i h_j), and each block keeps the scales of its own rows.
         class(supernodes_t), intent(in) :: self
         integer, intent(in) :: s, row, columns
         real(dp) :: history
         integer :: k, first
-        real(dp) :: weight
+        real(dp) :: weight, l1, l2
         history = 0.0_dp
         first = self%panels(s)%first
         if (self%panel_kind(s) /= PANEL_LDLT) then
@@ -926,10 +939,11 @@ contains
                     *abs(self%panels(s)%values(k,k))
                 k = k+1
             else
-                weight = abs(self%ldl_offdiag(first+k-1))+max( &
-                    abs(self%panels(s)%values(k,k)), abs(self%panels(s)%values(k+1,k+1)))
-                history = history+(self%panels(s)%values(row,k)**2 &
-                    +self%panels(s)%values(row,k+1)**2)*weight
+                weight = abs(self%ldl_offdiag(first+k-1))
+                l1 = abs(self%panels(s)%values(row,k))
+                l2 = abs(self%panels(s)%values(row,k+1))
+                history = history+l1*l1*(abs(self%panels(s)%values(k,k))+weight) &
+                    +2.0_dp*l1*l2*weight+l2*l2*(abs(self%panels(s)%values(k+1,k+1))+weight)
                 k = k+2
             end if
         end do

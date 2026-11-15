@@ -89,8 +89,16 @@ positive) and reports `native_factor_family = 'LDLT_SUPERNODAL'`. The
 reliability threshold of a pivot is `n*eps*g_k` with a row-local `g_k`: the
 largest input entry of the pivot row plus `sum_j l_kj^2 |d_j|` over the pivots
 of earlier supernodes, or the largest entry of its assembled Schur row if
-larger, plus the same sum over the earlier pivots of its own block. The sums
-bound the Schur entries that block updates never form one by one.
+larger, plus the same sum over the earlier pivots of its own block. A 2x2
+pivot `D_j = [d1 e; e d2]` contributes `|l_j|^T (|D_j| + |e| I) |l_j|`, a
+positive semidefinite majorant of `|D_j|` that keeps the scales of its two
+rows. The sums bound the Schur entries that block updates never form one by
+one, and the rounding of the pivot block entries `(i, j)` by
+`gamma*sqrt(g_i g_j)` (Cauchy-Schwarz). A 2x2 pivot's eigenvalues are
+therefore judged on the block congruence-scaled by `diag(g_i, g_j)^(-1/2)`,
+which has the same inertia (Sylvester): each eigenvalue is uncertain when its
+scaled counterpart is at most `n*eps`, which for rows of equal scale is the
+absolute threshold `n*eps*g`.
 When every task group depends on the previous one (banded and block-tridiagonal
 factors), the panels are factored in sequence outside the OpenMP team, which
 only assembles them, so a threaded BLAS is free to use the cores. Intended for
