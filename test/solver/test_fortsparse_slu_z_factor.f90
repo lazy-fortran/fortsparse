@@ -1,5 +1,5 @@
 program test_fortsparse_slu_z_factor
-    ! Complex supernodal LU numerics against independent oracles: LAPACK
+    ! Complex supernodal LU numerics against independent oracles: fortnum
     ! zgesv, original-matrix residuals of known solutions for A, A^T and
     ! A^H, a dense complex restricted-pivot emulation written here (exchange
     ! and perturbation counts, solutions), the bilinear transpose identity
@@ -11,15 +11,8 @@ program test_fortsparse_slu_z_factor
     use fortsparse_status, only: fortsparse_status_t, FORTSPARSE_OK, &
         FORTSPARSE_INVALID_MATRIX, FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
     use fortsparse_native_slu, only: slu_factor_t, SLU_PHASE_COUNT
+    use fortnum_lapack_lu, only: zgesv => fortnum_zgesv
     implicit none
-    interface
-        subroutine zgesv(n, nrhs, a, lda, ipiv, b, ldb, info)
-            import dp
-            integer, intent(in) :: n, nrhs, lda, ldb
-            complex(dp), intent(inout) :: a(lda,*), b(ldb,*)
-            integer, intent(out) :: ipiv(*), info
-        end subroutine zgesv
-    end interface
     integer :: seed, trial, total_swaps
     complex(dp), allocatable :: dense(:,:)
 

@@ -1,5 +1,5 @@
 program test_fortsparse_slu_factor
-    ! Serial supernodal LU numerics against independent oracles: LAPACK dgesv,
+    ! Serial supernodal LU numerics against independent oracles: fortnum dgesv,
     ! original-matrix residuals of known solutions, a dense restricted-pivot
     ! emulation written here (exchange and perturbation counts, solutions),
     ! the transpose identity c^T A^-1 b = (A^-T c)^T b and block RHS.
@@ -10,15 +10,8 @@ program test_fortsparse_slu_factor
     use fortsparse, only: csc_t, csc_from_triplet, sparse_solver_t, &
         sparse_factor_stats_t, sparse_factor, sparse_solve, sparse_factor_stats, &
         sparse_destroy, FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_LU_SUPERNODAL
+    use fortnum_lapack_lu, only: dgesv => fortnum_dgesv
     implicit none
-    interface
-        subroutine dgesv(n, nrhs, a, lda, ipiv, b, ldb, info)
-            import dp
-            integer, intent(in) :: n, nrhs, lda, ldb
-            real(dp), intent(inout) :: a(lda,*), b(ldb,*)
-            integer, intent(out) :: ipiv(*), info
-        end subroutine dgesv
-    end interface
     integer :: seed, trial, total_swaps
     real(dp), allocatable :: dense(:,:)
 

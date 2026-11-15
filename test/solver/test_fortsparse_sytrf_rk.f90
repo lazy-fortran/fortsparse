@@ -1,22 +1,13 @@
 program test_fortsparse_sytrf_rk
     ! Dense indefinite block factor in DSYTRF_RK storage. Oracle: the
     ! reconstruction Q L D L^T Q^T of the input matrix. The DSYTRF storage
-    ! conversion is checked directly, so it is covered on every LAPACK, and
-    ! the factor the build selected (DSYTRF_RK or DSYTRF + conversion) too.
+    ! conversion is checked directly, and so is the factor fortsparse uses
+    ! (fortnum's DSYTRF and this conversion).
     ! Zero diagonals force 2x2 pivots; graded entries force interchanges.
     use fortsparse_kinds, only: dp
     use fortsparse_native_sytrf, only: sytrf_rk_lower, sytrf_to_rk_lower
+    use fortnum_lapack_ldlt, only: dsytrf => fortnum_dsytrf
     implicit none
-    interface
-        subroutine dsytrf(uplo, n, a, lda, ipiv, work, lwork, info)
-            import dp
-            character, intent(in) :: uplo
-            integer, intent(in) :: n, lda, lwork
-            real(dp), intent(inout) :: a(lda,*)
-            real(dp), intent(out) :: work(*)
-            integer, intent(out) :: ipiv(*), info
-        end subroutine dsytrf
-    end interface
     integer, parameter :: n = 12, lda = n+3, lwork = n*64
     real(dp) :: a(n,n), f(lda,n), e(n), work(lwork)
     integer :: ipiv(n), info, failures, i, j, trial

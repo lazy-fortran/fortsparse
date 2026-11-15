@@ -1,57 +1,27 @@
-# Prefer optimized system kernels without overriding a consumer's BLAS policy.
-# Load before backend packages put their own FindLAPACK on CMAKE_MODULE_PATH.
-if(TARGET BLAS::BLAS)
-    set(BLAS_FOUND TRUE)
-    if(NOT BLAS_LIBRARIES)
-        set(BLAS_LIBRARIES BLAS::BLAS)
-    endif()
+# Dense kernels are fortnum's; fortsparse needs no system BLAS or LAPACK.
+# fortsparse calls the fortnum_ routines directly, and SuperLU and the UMFPACK
+# helper link fortnum's BLAS and LAPACK under their standard names
+# (fortnum_lapack77). A consumer that defines BLAS::BLAS and LAPACK::LAPACK
+# before adding fortsparse keeps them for these two libraries.
+if(NOT TARGET BLAS::BLAS)
+    add_library(BLAS::BLAS INTERFACE IMPORTED GLOBAL)
+    set_target_properties(BLAS::BLAS PROPERTIES
+        INTERFACE_LINK_LIBRARIES fortnum_lapack77)
 endif()
-if(TARGET LAPACK::LAPACK)
-    set(LAPACK_FOUND TRUE)
-    if(NOT LAPACK_LIBRARIES)
-        set(LAPACK_LIBRARIES LAPACK::LAPACK)
-    endif()
+if(NOT TARGET LAPACK::LAPACK)
+    add_library(LAPACK::LAPACK INTERFACE IMPORTED GLOBAL)
+    set_target_properties(LAPACK::LAPACK PROPERTIES
+        INTERFACE_LINK_LIBRARIES fortnum_lapack77)
 endif()
-if(NOT BLAS_FOUND AND NOT TARGET BLAS::BLAS)
-    if(NOT DEFINED BLA_VENDOR AND NOT DEFINED ENV{BLA_VENDOR})
-        foreach(_fortsparse_vendor OpenBLAS Intel10_64lp_seq)
-            set(BLA_VENDOR "${_fortsparse_vendor}")
-            find_package(BLAS QUIET MODULE)
-            if(BLAS_FOUND)
-                break()
-            endif()
-        endforeach()
-        if(NOT BLAS_FOUND)
-            set(BLA_VENDOR All)
-        endif()
-    endif()
-    find_package(BLAS REQUIRED MODULE)
-endif()
-if(NOT LAPACK_FOUND AND NOT TARGET LAPACK::LAPACK)
-    find_package(LAPACK REQUIRED MODULE)
-endif()
-set(_fortsparse_blas_libraries "${BLAS_LIBRARIES}")
-set(_fortsparse_lapack_libraries "${LAPACK_LIBRARIES}")
 
-# LAPACK < 3.7 (Apple Accelerate among them) has no DSYTRF_RK. The indefinite
-# panel factor then uses DSYTRF and converts its storage. Recheck whenever the
-# selected libraries change.
-include(CheckFortranFunctionExists)
-include(CMakePushCheckState)
-if(NOT "${_fortsparse_lapack_libraries};${_fortsparse_blas_libraries}" STREQUAL
-        "${_FORTSPARSE_DSYTRF_RK_CHECKED_WITH}")
-    unset(FORTSPARSE_LAPACK_HAS_DSYTRF_RK CACHE)
-    set(_FORTSPARSE_DSYTRF_RK_CHECKED_WITH
-        "${_fortsparse_lapack_libraries};${_fortsparse_blas_libraries}"
-        CACHE INTERNAL "")
-endif()
-cmake_push_check_state(RESET)
-set(CMAKE_REQUIRED_LIBRARIES ${_fortsparse_lapack_libraries}
-    ${_fortsparse_blas_libraries})
-set(CMAKE_REQUIRED_QUIET ON)
-check_fortran_function_exists(dsytrf_rk FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
-cmake_pop_check_state()
-if(NOT FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
-    message(STATUS "fortsparse: LAPACK lacks DSYTRF_RK (LAPACK < 3.7); "
-        "indefinite supernodal panels use DSYTRF (Bunch-Kaufman)")
-endif()
+# Imported targets that link these (the SuiteSparse libraries) inherit the
+# module directories of fortnum, which CMake requires to exist when generating.
+foreach(_target fortnum_lapack77 fortnum fortgen_runtime)
+    get_target_property(_dirs ${_target} INTERFACE_INCLUDE_DIRECTORIES)
+    foreach(_dir IN LISTS _dirs)
+        string(REGEX REPLACE "^[$]<BUILD_INTERFACE:(.*)>$" "\\1" _dir "${_dir}")
+        if(_dir AND NOT _dir MATCHES "[$]<")
+            file(MAKE_DIRECTORY "${_dir}")
+        endif()
+    endforeach()
+endforeach()

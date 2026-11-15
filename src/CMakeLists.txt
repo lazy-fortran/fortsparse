@@ -90,13 +90,7 @@ target_include_directories(fortsparse
 # Threads are always needed; SuperLU (BSD) only when its backend is enabled.
 # The SuperLU target differs by provisioning: the system FindSuperLU module
 # exports SuperLU::SuperLU, the fetched in-tree build exports superlu.
-target_link_libraries(fortsparse PUBLIC Threads::Threads BLAS::BLAS)
-target_link_libraries(fortsparse PUBLIC ${_fortsparse_lapack_libraries})
-if(FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
-    target_compile_definitions(fortsparse PRIVATE FORTSPARSE_LAPACK_HAS_DSYTRF_RK)
-else()
-    target_compile_definitions(fortsparse PRIVATE FORTSPARSE_LAPACK_NO_DSYTRF_RK)
-endif()
+target_link_libraries(fortsparse PUBLIC Threads::Threads)
 if(FORTSPARSE_ENABLE_SUPERLU)
     if(FORTSPARSE_USE_SYSTEM_DEPS)
         target_link_libraries(fortsparse PUBLIC SuperLU::SuperLU)

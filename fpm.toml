@@ -8,9 +8,7 @@ copyright = "Copyright 2025, lazy-fortran"
 
 [build]
 auto-tests = true
-# fpm builds the project-owned CPU solvers with system dense BLAS/LAPACK.
 # Optional external sparse backends and GPU support use CMake.
-link = ["lapack", "blas"]
 
 [library]
 source-dir = "src"
@@ -25,4 +23,4 @@ source-form = "free"
 [preprocess.cpp]
 
 [dependencies]
-fortnum = { git = "https://github.com/lazy-fortran/fortnum.git", rev = "b763bce9eb4fd521ba8fe3a7d6afa8c7a450f2f3" }
+fortnum = { git = "https://github.com/lazy-fortran/fortnum.git", rev = "a1e974218fca25617f39556a4c9ea651a8633261" }

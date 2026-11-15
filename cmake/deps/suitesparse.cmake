@@ -1,6 +1,5 @@
 # Fetch and build SuiteSparse/UMFPACK (GPL) from source via ExternalProject,
-# linked against the SYSTEM BLAS/LAPACK so the niche solver is the only thing
-# built from source. Builds only the packages UMFPACK requires without CHOLMOD:
+# linked against fortnum's BLAS and LAPACK (fortnum_lapack77). Builds only the packages UMFPACK requires without CHOLMOD:
 # SuiteSparse_config + AMD + CAMD + CCOLAMD + COLAMD + UMFPACK.
 #
 # Exposes IMPORTED targets SuiteSparse::umfpack, SuiteSparse::amd and
@@ -8,62 +7,41 @@
 # libfortsparse never does.
 #
 # Pattern adapted from sparse_draft/cmake/FetchSuiteSparse.cmake: ExternalProject
-# (not FetchContent) so we can restrict the project set and pass the system
-# BLAS/LAPACK out of tree. The top-level CMake must have run find_package(BLAS)
-# and find_package(LAPACK) before including this file.
+# (not FetchContent) so we can restrict the project set and pass the dense
+# libraries out of tree. The top-level CMake must have added fortnum and
+# included fortsparse_blas.cmake before this file.
 
 include(ExternalProject)
 
-# Resolve the find_package BLAS/LAPACK results to concrete library file paths.
-# ExternalProject configures out of tree and cannot see CMake imported targets,
-# so pass it real file paths. find_package may yield either a list of file paths
-# in BLAS_LIBRARIES / LAPACK_LIBRARIES or only the BLAS::BLAS / LAPACK::LAPACK
-# imported targets (newer FindBLAS/FindLAPACK); in the latter case extract their
-# IMPORTED_LOCATION. Concrete paths also survive the nested-FetchContent scope
-# re-evaluation that a $<TARGET_FILE:...> genexp would abort on.
-function(_fortsparse_resolve_libs out_var raw_libs imported_target)
-    set(_resolved "")
-    if(raw_libs)
-        foreach(_lib IN LISTS raw_libs)
-            if(TARGET ${_lib})
-                get_target_property(_loc ${_lib} IMPORTED_LOCATION)
-                if(_loc)
-                    list(APPEND _resolved "${_loc}")
-                endif()
-            else()
-                list(APPEND _resolved "${_lib}")
-            endif()
-        endforeach()
+# The out-of-tree SuiteSparse build sees files, not targets: fortnum's
+# archives in link order and the Fortran runtime they need.
+set(FORTSPARSE_DENSE_TARGETS fortnum_lapack77 fortnum fortgen_runtime)
+set(FORTSPARSE_DENSE_LIBRARIES "")
+foreach(_target IN LISTS FORTSPARSE_DENSE_TARGETS)
+    get_target_property(_dir ${_target} ARCHIVE_OUTPUT_DIRECTORY)
+    if(NOT _dir)
+        get_target_property(_dir ${_target} BINARY_DIR)
     endif()
-    if(NOT _resolved AND TARGET ${imported_target})
-        get_target_property(_loc ${imported_target} IMPORTED_LOCATION)
-        if(_loc)
-            list(APPEND _resolved "${_loc}")
-        endif()
-        get_target_property(_iface ${imported_target} INTERFACE_LINK_LIBRARIES)
-        if(_iface)
-            foreach(_lib IN LISTS _iface)
-                if(TARGET ${_lib})
-                    get_target_property(_loc ${_lib} IMPORTED_LOCATION)
-                    if(_loc)
-                        list(APPEND _resolved "${_loc}")
-                    endif()
-                else()
-                    list(APPEND _resolved "${_lib}")
-                endif()
-            endforeach()
-        endif()
+    list(APPEND FORTSPARSE_DENSE_LIBRARIES
+        "${_dir}/${CMAKE_STATIC_LIBRARY_PREFIX}${_target}${CMAKE_STATIC_LIBRARY_SUFFIX}")
+endforeach()
+if(OpenMP_Fortran_FOUND)
+    list(APPEND FORTSPARSE_DENSE_LIBRARIES ${OpenMP_Fortran_LIBRARIES})
+endif()
+foreach(_dir IN LISTS CMAKE_Fortran_IMPLICIT_LINK_DIRECTORIES)
+    list(APPEND FORTSPARSE_DENSE_LIBRARIES "-L${_dir}")
+endforeach()
+foreach(_lib IN LISTS CMAKE_Fortran_IMPLICIT_LINK_LIBRARIES)
+    if(IS_ABSOLUTE "${_lib}" OR _lib MATCHES "^-")
+        list(APPEND FORTSPARSE_DENSE_LIBRARIES "${_lib}")
+    else()
+        list(APPEND FORTSPARSE_DENSE_LIBRARIES "-l${_lib}")
     endif()
-    set(${out_var} "${_resolved}" PARENT_SCOPE)
-endfunction()
+endforeach()
 
-_fortsparse_resolve_libs(FORTSPARSE_BLAS_LIBS "${BLAS_LIBRARIES}" BLAS::BLAS)
-_fortsparse_resolve_libs(FORTSPARSE_LAPACK_LIBS "${LAPACK_LIBRARIES}" LAPACK::LAPACK)
-
-# Join multi-entry lists with the pipe LIST_SEPARATOR so they reach the sub-build
-# as ";"-separated lists without tripping ExternalProject's genexp evaluation.
-string(REPLACE ";" "|" FORTSPARSE_BLAS_LIBS_ARG "${FORTSPARSE_BLAS_LIBS}")
-string(REPLACE ";" "|" FORTSPARSE_LAPACK_LIBS_ARG "${FORTSPARSE_LAPACK_LIBS}")
+# Join the list with the pipe LIST_SEPARATOR so it reaches the sub-build as a
+# ";"-separated list without tripping ExternalProject's genexp evaluation.
+string(REPLACE ";" "|" FORTSPARSE_DENSE_LIBRARIES_ARG "${FORTSPARSE_DENSE_LIBRARIES}")
 
 set(SUITESPARSE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/suitesparse-install)
 set(SUITESPARSE_INCLUDE_DIR ${SUITESPARSE_INSTALL_PREFIX}/include)
@@ -90,6 +68,7 @@ ExternalProject_Add(
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     URL https://github.com/DrTimothyAldenDavis/SuiteSparse/archive/refs/tags/v7.8.3.tar.gz
     URL_HASH MD5=242e38ecfc8a3e3aa6b7d8d44849c5cf
+    DEPENDS ${FORTSPARSE_DENSE_TARGETS}
     # Pass list-valued args pipe-separated and tell ExternalProject to translate
     # "|" back into ";" inside the sub-build. A literal ";" (or a $<SEMICOLON>
     # genexp) in CMAKE_ARGS makes ExternalProject emit an "add_custom_command
@@ -105,8 +84,8 @@ ExternalProject_Add(
         -DUMFPACK_USE_CHOLMOD=OFF
         -DSUITESPARSE_USE_OPENMP=OFF
         -DSUITESPARSE_DEMOS=OFF
-        -DBLAS_LIBRARIES=${FORTSPARSE_BLAS_LIBS_ARG}
-        -DLAPACK_LIBRARIES=${FORTSPARSE_LAPACK_LIBS_ARG}
+        -DBLAS_LIBRARIES=${FORTSPARSE_DENSE_LIBRARIES_ARG}
+        -DLAPACK_LIBRARIES=${FORTSPARSE_DENSE_LIBRARIES_ARG}
         -DCMAKE_INSTALL_PREFIX=${SUITESPARSE_INSTALL_PREFIX}
         -DCMAKE_INSTALL_LIBDIR=lib
     BUILD_BYPRODUCTS
@@ -117,9 +96,9 @@ ExternalProject_Add(
         ${COLAMD_LIBRARY_PATH}
         ${SUITESPARSE_CONFIG_LIBRARY_PATH})
 
-# The system BLAS/LAPACK targets carry the link interface the GPL helper needs;
-# attach them to the lowest IMPORTED target so the helper resolves dense kernels
-# against the system OpenBLAS/LAPACK.
+# BLAS::BLAS and LAPACK::LAPACK carry the link interface the GPL helper
+# needs; attach them to the lowest IMPORTED target so the helper resolves the
+# dense kernels against fortnum.
 set(_fortsparse_blas_iface "")
 if(TARGET BLAS::BLAS)
     list(APPEND _fortsparse_blas_iface BLAS::BLAS)

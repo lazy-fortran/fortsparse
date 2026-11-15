@@ -165,7 +165,7 @@ contains
         if (a%nrow /= a%ncol) return
         if (a%nnz < 0) return
         if (a%nnz == huge(0)) then
-          call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'LDLT: CSC index overflow')
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, 'LDLT: CSC index overflow')
             return
         end if
         if (.not. allocated(a%col_ptr)) return
@@ -398,21 +398,13 @@ contains
     end subroutine free_panel_workspace
 
     subroutine panel_factor(self, k, eliminated, status)
+        use fortnum_lapack_ldlt, only: dlasyf => fortnum_dlasyf
         class(native_ldlt_t), intent(inout) :: self
         integer, intent(in) :: k
         integer, intent(out) :: eliminated
         type(fortsparse_status_t), intent(out) :: status
         integer :: width, m, p, q, i, j, r, vertex, nb, kb, info, step, count, active_team
         real(dp) :: a, b, c, lm1, lm2, bound1, bound2, l1, l2
-        interface
-            subroutine dlasyf(uplo, n, nb, kb, a, lda, ipiv, w, ldw, info)
-                import dp
-                character, intent(in) :: uplo
-                integer, intent(in) :: n, nb, lda, ldw
-                integer, intent(out) :: kb, ipiv(*), info
-                real(dp), intent(inout) :: a(lda, *), w(ldw, *)
-            end subroutine dlasyf
-        end interface
         call status_set(status, FORTSPARSE_OK, '')
         eliminated = 0
         width = min(panel_width, self%n - k + 1)

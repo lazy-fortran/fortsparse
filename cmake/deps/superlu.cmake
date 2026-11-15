@@ -1,11 +1,11 @@
 # Fetch and build sequential SuperLU (BSD) from source, static. Provides the
-# `superlu` target. The niche solver is fetched; its dense kernels link the
-# SYSTEM BLAS, the same OpenBLAS the SuiteSparse/UMFPACK chain uses, so numerics
-# stay consistent across backends.
+# `superlu` target. The niche solver is fetched; its dense kernels link
+# fortnum's BLAS, as the SuiteSparse/UMFPACK chain does, so numerics stay
+# consistent across backends.
 #
-# The top-level CMake runs find_package(BLAS) before including this file, so the
-# BLAS::BLAS imported target exists. SuperLU's enable_internal_blaslib stays OFF
-# and the build links the system BLAS through BLAS::BLAS.
+# The top-level CMake includes fortsparse_blas.cmake before this file, so the
+# BLAS::BLAS target exists. SuperLU's enable_internal_blaslib stays OFF and the
+# build links fortnum's BLAS through BLAS::BLAS.
 #
 # The fortsparse SuperLU C shim includes its headers with a `superlu/` prefix
 # (e.g. <superlu/slu_ddefs.h>), matching the usual distro layout. The upstream
@@ -16,8 +16,8 @@
 include(FetchContent)
 
 if(NOT TARGET superlu)
-    # Link the system BLAS (BLAS::BLAS) instead of building SuperLU's bundled
-    # CBLAS, so both backends share the same OpenBLAS.
+    # Link fortnum's BLAS (BLAS::BLAS) instead of building SuperLU's bundled
+    # CBLAS, so both backends share the same kernels.
     set(enable_internal_blaslib OFF CACHE BOOL "" FORCE)
     if(TARGET BLAS::BLAS)
         # Keep generic FindBLAS results concrete. Caching BLAS::BLAS in

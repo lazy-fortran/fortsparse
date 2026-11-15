@@ -424,22 +424,13 @@ end subroutine spd_update_vjp
 
     ! Right-side triangular solve B := B L^(-T), B is m by n.
     subroutine spd_panel_solve(l, n, ldl, b, m, ldb, use_blas)
+        use fortnum_blas3, only: dtrsm => fortnum_dtrsm
         integer, intent(in) :: n, ldl, m, ldb
         real(dp), intent(in) :: l(ldl, n)
         real(dp), intent(inout) :: b(ldb, n)
         logical, optional, intent(in) :: use_blas
         logical :: allow_blas
         integer :: i, j, k
-        interface
-            subroutine dtrsm(side, uplo, trans, diag, rows, cols, alpha, &
-                    factor, ldf, values, ldv)
-                import dp
-                character, intent(in) :: side, uplo, trans, diag
-                integer, intent(in) :: rows, cols, ldf, ldv
-                real(dp), intent(in) :: alpha, factor(ldf,*)
-                real(dp), intent(inout) :: values(ldv,*)
-            end subroutine dtrsm
-        end interface
         allow_blas = .true.
         if (present(use_blas)) allow_blas = use_blas
         if (allow_blas .and. n >= 96 .and. m >= 32) then

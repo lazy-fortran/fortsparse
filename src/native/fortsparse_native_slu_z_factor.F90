@@ -9,24 +9,9 @@ submodule (fortsparse_native_slu) fortsparse_native_slu_z_factor
     use fortsparse_slu_z_leaves, only: slu_z_update, slu_z_scale, &
         slu_z_block_factor, slu_z_trsm_upper, slu_z_trsm_unit_lower_t, &
         slu_z_schur_update, slu_z_scatter_mapped_update
+    use fortnum_blas, only: zgemm_ws => fortnum_zgemm_ws
+    use fortnum_blas3, only: ztrsm_ws => fortnum_ztrsm_ws
     implicit none
-
-    interface
-        subroutine zgemm(ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
-            import dp
-            character, intent(in) :: ta, tb
-            integer, intent(in) :: m, n, k, lda, ldb, ldc
-            complex(dp), intent(in) :: alpha, beta, a(lda,*), b(ldb,*)
-            complex(dp), intent(inout) :: c(ldc,*)
-        end subroutine zgemm
-        subroutine ztrsm(side, uplo, trans, diag, m, n, alpha, a, lda, b, ldb)
-            import dp
-            character, intent(in) :: side, uplo, trans, diag
-            integer, intent(in) :: m, n, lda, ldb
-            complex(dp), intent(in) :: alpha, a(lda,*)
-            complex(dp), intent(inout) :: b(ldb,*)
-        end subroutine ztrsm
-    end interface
 
     complex(dp), parameter :: zone = (1.0_dp, 0.0_dp), zmone = (-1.0_dp, 0.0_dp)
     complex(dp), parameter :: zzero = (0.0_dp, 0.0_dp)
@@ -272,8 +257,9 @@ contains
         ! row map positions (> w_d) index it directly.
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: s, d, f, q, position
-        integer :: m, w, mu, m2, md, mud, wd, col
+        integer :: m, w, mu, m2, md, mud, wd, col, thread
         integer(i8) :: ls, us, ld, ud
+        thread = self%sched%workspace_thread()
         m = self%panels(s)%m
         w = self%panels(s)%width
         mu = m-w
@@ -286,12 +272,14 @@ contains
         ld = self%panels(d)%offset_l
         ud = self%panels(d)%offset_u
         col = self%panels(s)%rows(f)-self%panels(d)%first+1
-        call zgemm('N', 'T', m2, q, w, zmone, self%zvalues(ls+f), m, &
+        call zgemm_ws('N', 'T', m2, q, w, zmone, self%zvalues(ls+f), m, &
             self%zvalues(us+f-w), mu, zone, &
-            self%zvalues(ld+int(col-1,i8)*md+position), md)
-        if (m2 > q) call zgemm('N', 'T', m2-q, q, w, zmone, &
+            self%zvalues(ld+int(col-1,i8)*md+position), md, &
+            self%blas_work(1,thread), blas_lwork(self, thread))
+        if (m2 > q) call zgemm_ws('N', 'T', m2-q, q, w, zmone, &
             self%zvalues(us+f+q-w), mu, self%zvalues(ls+f), m, zone, &
-            self%zvalues(ud+int(col-1,i8)*mud+position+q-wd), mud)
+            self%zvalues(ud+int(col-1,i8)*mud+position+q-wd), mud, &
+            self%blas_work(1,thread), blas_lwork(self, thread))
     end subroutine direct_update_z
 
     subroutine mapped_update_z(self, s, d, f, q, thread)
@@ -337,8 +325,9 @@ contains
         integer, intent(in) :: thread, rows, cols, k, ldl, ldr
         integer(i8), intent(in) :: left, right
         if (self%use_blas) then
-            call zgemm('N', 'T', rows, cols, k, zmone, self%zvalues(left), ldl, &
-                self%zvalues(right), ldr, zzero, self%zupdate_work(1,thread), rows)
+            call zgemm_ws('N', 'T', rows, cols, k, zmone, self%zvalues(left), ldl, &
+                self%zvalues(right), ldr, zzero, self%zupdate_work(1,thread), rows, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         else
             self%zupdate_work(1:rows*cols,thread) = zzero
             call slu_z_schur_update(self%zupdate_work(1,thread), rows, &
@@ -386,9 +375,10 @@ contains
         class(slu_factor_t), intent(inout) :: self
         integer, intent(in) :: d
         real(dp), intent(inout) :: max_u
-        integer :: m, w, mu, k, r, i, first
+        integer :: m, w, mu, k, r, i, first, thread
         integer(i8) :: l0, u0, e
         complex(dp) :: saved
+        thread = self%sched%workspace_thread()
         m = self%panels(d)%m
         w = self%panels(d)%width
         mu = m-w
@@ -405,10 +395,12 @@ contains
             end do
         end do
         if (self%use_blas .and. w >= 96 .and. mu >= 32) then
-            call ztrsm('R', 'U', 'N', 'N', mu, w, zone, self%zvalues(l0+1), m, &
-                self%zvalues(l0+w+1), m)
-            call ztrsm('R', 'L', 'T', 'U', mu, w, zone, self%zvalues(l0+1), m, &
-                self%zvalues(u0+1), mu)
+            call ztrsm_ws('R', 'U', 'N', 'N', mu, w, zone, self%zvalues(l0+1), m, &
+                self%zvalues(l0+w+1), m, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
+            call ztrsm_ws('R', 'L', 'T', 'U', mu, w, zone, self%zvalues(l0+1), m, &
+                self%zvalues(u0+1), mu, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         else
             call slu_z_trsm_upper(self%zvalues(l0+1), m, w, self%zvalues(l0+w+1), m, mu)
             call slu_z_trsm_unit_lower_t(self%zvalues(l0+1), m, w, &

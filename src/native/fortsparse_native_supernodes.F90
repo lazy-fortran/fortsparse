@@ -7,6 +7,9 @@ module fortsparse_native_supernodes
         FORTSPARSE_NOT_FACTORED, FORTSPARSE_INDEX_OVERFLOW, &
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_INTERNAL_ERROR, &
         FORTSPARSE_NOT_POSITIVE_DEFINITE, FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_SINGULAR
+    use fortnum_blas, only: dgemm => fortnum_dgemm
+    use fortnum_blas12, only: dgemv => fortnum_dgemv, dtrsv => fortnum_dtrsv
+    use fortnum_blas3, only: dsyrk => fortnum_dsyrk
     use fortsparse_inertia, only: inertia_count_t, inertia_add_pivot, inertia_tolerance
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
@@ -114,36 +117,6 @@ module fortsparse_native_supernodes
         final :: finalize_supernodes
     end type supernodes_t
 
-    interface
-        subroutine dgemm(ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
-            import dp
-            character, intent(in) :: ta, tb
-            integer, intent(in) :: m, n, k, lda, ldb, ldc
-            real(dp), intent(in) :: alpha, beta, a(lda,*), b(ldb,*)
-            real(dp), intent(inout) :: c(ldc,*)
-        end subroutine dgemm
-        subroutine dsyrk(uplo, trans, n, k, alpha, a, lda, beta, c, ldc)
-            import dp
-            character, intent(in) :: uplo, trans
-            integer, intent(in) :: n, k, lda, ldc
-            real(dp), intent(in) :: alpha, beta, a(lda,*)
-            real(dp), intent(inout) :: c(ldc,*)
-        end subroutine dsyrk
-        subroutine dgemv(trans, m, n, alpha, a, lda, x, incx, beta, y, incy)
-            import dp
-            character, intent(in) :: trans
-            integer, intent(in) :: m, n, lda, incx, incy
-            real(dp), intent(in) :: alpha, beta, a(lda,*), x(*)
-            real(dp), intent(inout) :: y(*)
-        end subroutine dgemv
-        subroutine dtrsv(uplo, trans, diag, n, a, lda, x, incx)
-            import dp
-            character, intent(in) :: uplo, trans, diag
-            integer, intent(in) :: n, lda, incx
-            real(dp), intent(in) :: a(lda,*)
-            real(dp), intent(inout) :: x(*)
-        end subroutine dtrsv
-    end interface
 contains
     subroutine charge(self, count, element_bytes, status, phase)
         class(supernodes_t), intent(inout) :: self
@@ -809,6 +782,7 @@ contains
     end subroutine allocate_ldl
 
     subroutine ldl_panel_factor(self, s)
+        use fortnum_blas3, only: dtrsm => fortnum_dtrsm
         ! Indefinite mode: Cholesky of the diagonal block when it is SPD,
         ! otherwise Q^T A11 Q = L D L^T (DSYTRF_RK rook pivots inside the
         ! block, or DSYTRF Bunch--Kaufman on LAPACK < 3.7) and
@@ -816,16 +790,6 @@ contains
         ! block columns are permuted.
         class(supernodes_t), intent(inout) :: self
         integer, intent(in) :: s
-        interface
-            subroutine dtrsm(side, uplo, trans, diag, rows, cols, alpha, factor, ldf, &
-                    values, ldv)
-                import dp
-                character, intent(in) :: side, uplo, trans, diag
-                integer, intent(in) :: rows, cols, ldf, ldv
-                real(dp), intent(in) :: alpha, factor(ldf,*)
-                real(dp), intent(inout) :: values(ldv,*)
-            end subroutine dtrsm
-        end interface
         integer :: w, m, info, thread, i, j, k, first, ip, lwork
         integer(c_size_t) :: c1, c2
         real(dp) :: d11, d22, e, det, x1, x2, saved, history

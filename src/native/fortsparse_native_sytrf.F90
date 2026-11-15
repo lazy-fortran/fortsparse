@@ -1,13 +1,10 @@
-#ifndef FORTSPARSE_LAPACK_HAS_DSYTRF_RK
-#define FORTSPARSE_LAPACK_NO_DSYTRF_RK
-#endif
 module fortsparse_native_sytrf
     ! Dense symmetric indefinite block factor Q^T A Q = L D L^T (lower) in the
     ! DSYTRF_RK storage: unit L in the strict lower triangle of A with zero
     ! entries inside 2x2 blocks, diag(D) on the diagonal, subdiag(D) in E and
     ! interchanges k <-> |ipiv(k)| applied in order k = 1..n (ipiv(k) < 0 marks
-    ! a 2x2 block at k, k+1). LAPACK < 3.7 (e.g. Apple Accelerate) has no
-    ! DSYTRF_RK; the build then factors with DSYTRF and converts its storage.
+    ! a 2x2 block at k, k+1). fortnum's DSYTRF factors, and its storage is
+    ! converted.
     use fortsparse_kinds, only: dp
     implicit none
     private
@@ -16,37 +13,13 @@ module fortsparse_native_sytrf
 contains
 
     subroutine sytrf_rk_lower(n, a, lda, e, ipiv, work, lwork, info)
+        use fortnum_lapack_ldlt, only: fortnum_dsytrf
         integer, intent(in) :: n, lda, lwork
         real(dp), intent(inout) :: a(lda,*)
         real(dp), intent(out) :: e(*), work(*)
         integer, intent(out) :: ipiv(*), info
-        interface
-#ifdef FORTSPARSE_LAPACK_NO_DSYTRF_RK
-            subroutine dsytrf(uplo, n, a, lda, ipiv, work, lwork, info)
-                import dp
-                character, intent(in) :: uplo
-                integer, intent(in) :: n, lda, lwork
-                real(dp), intent(inout) :: a(lda,*)
-                real(dp), intent(out) :: work(*)
-                integer, intent(out) :: ipiv(*), info
-            end subroutine dsytrf
-#else
-            subroutine dsytrf_rk(uplo, n, a, lda, e, ipiv, work, lwork, info)
-                import dp
-                character, intent(in) :: uplo
-                integer, intent(in) :: n, lda, lwork
-                real(dp), intent(inout) :: a(lda,*)
-                real(dp), intent(out) :: e(*), work(*)
-                integer, intent(out) :: ipiv(*), info
-            end subroutine dsytrf_rk
-#endif
-        end interface
-#ifdef FORTSPARSE_LAPACK_NO_DSYTRF_RK
-        call dsytrf('L', n, a, lda, ipiv, work, lwork, info)
+        call fortnum_dsytrf('L', n, a, lda, ipiv, work, lwork, info)
         if (info >= 0) call sytrf_to_rk_lower(n, a, lda, e, ipiv)
-#else
-        call dsytrf_rk('L', n, a, lda, e, ipiv, work, lwork, info)
-#endif
     end subroutine sytrf_rk_lower
 
     subroutine sytrf_to_rk_lower(n, a, lda, e, ipiv)

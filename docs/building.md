@@ -39,20 +39,20 @@ SuiteSparse chain is available (fetched, or found with
 
 ### BLAS/LAPACK selection
 
-CMake selects BLAS/LAPACK before loading the solver packages. With no parent
-project or `BLA_VENDOR` choice it tries OpenBLAS, sequential MKL, then CMake's
-normal search (including BLIS); `-DBLA_VENDOR=Generic` selects reference BLAS.
-Fetched solvers share this choice. A prebuilt system solver may depend on a
-different BLAS: check `ldd` on the final executable and avoid mixing
-implementations.
+fortsparse needs no system BLAS or LAPACK. Its dense kernels call fortnum,
+and the fetched SuperLU and UMFPACK link fortnum's `fortnum_lapack77`, which
+provides the BLAS and LAPACK routines under their standard names. A prebuilt
+system solver (`FORTSPARSE_USE_SYSTEM_DEPS`, MUMPS) may bring its own BLAS:
+check `ldd` on the final executable and avoid mixing implementations.
 
-For pthread OpenBLAS together with OpenMP MUMPS, set `OPENBLAS_NUM_THREADS=1`
+If a prebuilt MUMPS brings a pthread OpenBLAS, set `OPENBLAS_NUM_THREADS=1`
 and control sparse parallelism with `OMP_NUM_THREADS` to avoid nested thread
 teams.
 
 ### Native-only build
 
-A build without any external sparse solver needs only BLAS/LAPACK:
+A build without any external sparse solver needs no library besides fortnum,
+which CMake fetches:
 
 ```sh
 cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
@@ -86,8 +86,8 @@ Linux-only tests and reference benchmarks are not built on macOS.
 
 ## fpm
 
-`fpm.toml` builds the native CPU library with system BLAS/LAPACK and fetches
-fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD, METIS or the UMFPACK
+`fpm.toml` builds the native CPU library on fortnum's dense kernels and
+fetches fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD, METIS or the UMFPACK
 helper (the built-in AMD ordering is included), so
 `FORTSPARSE_BACKEND_AUTO` selects the native backend. An explicitly requested
 backend that is not configured returns `FORTSPARSE_BACKEND_UNAVAILABLE`.

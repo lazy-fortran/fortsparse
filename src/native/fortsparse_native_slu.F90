@@ -49,7 +49,12 @@ module fortsparse_native_slu
         slu_block_lower, slu_block_upper, slu_block_upper_t, slu_block_lower_t
     use, intrinsic :: iso_c_binding, only: c_int, c_int64_t
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
-    !$ use omp_lib, only: omp_get_num_threads, omp_get_max_threads, omp_set_num_threads
+    !$ use omp_lib, only: omp_get_num_threads, omp_get_max_threads, omp_set_num_threads, &
+    !$     omp_in_parallel
+    use fortnum_blas, only: dgemm_ws => fortnum_dgemm_ws, fortnum_dgemm_lwork, &
+        fortnum_zgemm_lwork
+    use fortnum_blas3, only: dtrsm_ws => fortnum_dtrsm_ws, fortnum_dtrsm_lwork, &
+        fortnum_ztrsm_lwork
     implicit none
     private
     public :: slu_factor_t
@@ -158,6 +163,10 @@ module fortsparse_native_slu
         logical, private :: complex_values = .false.
         complex(dp), allocatable, private :: zvalues(:), zsolve_work(:)
         complex(dp), allocatable, private :: zupdate_work(:,:)
+        ! Packing buffers of the dense BLAS calls (fortnum's workspace
+        ! variants), one column per thread; a call outside a parallel region
+        ! may use all columns. Allocated with use_blas only.
+        real(dp), allocatable, private :: blas_work(:,:)
     contains
         procedure, private :: analyze_real, analyze_complex
         generic :: analyze => analyze_real, analyze_complex
@@ -196,20 +205,6 @@ module fortsparse_native_slu
             integer(c_int), intent(in) :: ptr(*), row(*)
             integer(c_int), intent(out) :: perm(*), inverse(*)
         end function order_nd_general
-        subroutine dgemm(ta, tb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
-            import dp
-            character, intent(in) :: ta, tb
-            integer, intent(in) :: m, n, k, lda, ldb, ldc
-            real(dp), intent(in) :: alpha, beta, a(lda,*), b(ldb,*)
-            real(dp), intent(inout) :: c(ldc,*)
-        end subroutine dgemm
-        subroutine dtrsm(side, uplo, trans, diag, m, n, alpha, a, lda, b, ldb)
-            import dp
-            character, intent(in) :: side, uplo, trans, diag
-            integer, intent(in) :: m, n, lda, ldb
-            real(dp), intent(in) :: alpha, a(lda,*)
-            real(dp), intent(inout) :: b(ldb,*)
-        end subroutine dtrsm
     end interface
 
     ! Complex numerics (submodules fortsparse_native_slu_z_factor/_z_solve).
@@ -329,6 +324,8 @@ contains
         if (present(inject_phase)) self%inject = inject_phase
         if (present(nthreads)) self%nthreads = max(0,nthreads)
         if (low) self%nthreads = 1
+        ! known before the schedule, which sizes the BLAS workspace by it
+        if (present(force_blas)) self%blas_override = merge(1, 0, force_blas)
         self%requested_threads = 1
         if (self%nthreads > 0) then
             !$ self%requested_threads = self%nthreads
@@ -1070,6 +1067,7 @@ contains
         self%flops = flops
         self%use_blas = flops >= 1.0e7_dp .or. any(self%panels%width >= 96)
         if (self%strict) self%use_blas = .false.
+        if (self%blas_override >= 0) self%use_blas = self%blas_override == 1
         ! Subtree task groups use the LU work (about twice Cholesky).
         call self%sched%request_threads(self%nthreads, flops, .false.)
         limit = ledger%limit
@@ -1112,8 +1110,8 @@ contains
                 +32_i8*self%sched%active_threads
             saved = ledger
             ! A complex update entry holds two reals.
-            call self%sched%fit_thread_scratch(self%maxwork*int(esize/8_i8), bytes, &
-                ledger, status)
+            call self%sched%fit_thread_scratch(self%maxwork*int(esize/8_i8) &
+                +blas_work_size(self), bytes, ledger, status)
             if (status%code == FORTSPARSE_RESOURCE_LIMIT) then
                 ledger = saved
                 call status_set(status, FORTSPARSE_OK, '')
@@ -1129,11 +1127,40 @@ contains
         bytes = bytes+self%sched%memory_bytes()
         bytes = bytes+4_i8*int(self%n,i8)*self%sched%active_threads
         bytes = bytes+esize*int(self%maxwork,i8)*self%sched%active_threads
+        bytes = bytes+8_i8*blas_work_size(self)*self%sched%active_threads
         bytes = bytes+esize*(int(self%n,i8)+int(self%maxrows,i8))
         bytes = bytes+32_i8*self%sched%active_threads
         bytes = bytes+map_bytes(self)
         self%plan_bytes = bytes
     end subroutine build_schedule
+
+    integer function blas_work_size(self) result(lwork)
+        ! One thread's BLAS workspace: every product and triangular solve of
+        ! the factorization has at most maxrows rows and columns and the
+        ! widest panel's depth, and the sizes grow with each dimension.
+        class(slu_factor_t), intent(in) :: self
+        integer :: maxw
+        lwork = 0
+        if (.not. self%use_blas .or. self%node_count < 1) return
+        maxw = maxval(self%panels(1:self%node_count)%width)
+        if (self%complex_values) then
+            lwork = max(fortnum_zgemm_lwork(self%maxrows, self%maxrows, maxw, 1), &
+                fortnum_ztrsm_lwork('R', self%maxrows, maxw, 1), &
+                fortnum_ztrsm_lwork('L', maxw, maxw, 1))
+        else
+            lwork = max(fortnum_dgemm_lwork(self%maxrows, self%maxrows, maxw, 1), &
+                fortnum_dtrsm_lwork('R', self%maxrows, maxw, 1), &
+                fortnum_dtrsm_lwork('L', maxw, maxw, 1))
+        end if
+    end function blas_work_size
+
+    integer function blas_lwork(self, thread) result(lwork)
+        ! The workspace a BLAS call of this thread may use from blas_work(1,thread).
+        class(slu_factor_t), intent(in) :: self
+        integer, intent(in) :: thread
+        lwork = size(self%blas_work, 1)
+        !$ if (.not. omp_in_parallel() .and. thread == 1) lwork = size(self%blas_work)
+    end function blas_lwork
 
     pure integer(i8) function element_bytes(self) result(bytes)
         ! Bytes per numerical entry: 8 (real) or 16 (complex).
@@ -1174,7 +1201,7 @@ contains
         class(slu_factor_t), intent(inout) :: self
         type(memory_budget_t), intent(inout) :: ledger
         type(fortsparse_status_t), intent(out) :: status
-        integer :: s, m, w, ierr
+        integer :: s, m, w, ierr, lblas
         integer(i8) :: offset, count
         offset = 0_i8
         do s = 1, self%node_count
@@ -1231,6 +1258,14 @@ contains
             allocate(self%solve_work(self%n+self%maxrows), stat=ierr)
             if (ierr /= 0) goto 910
             self%solve_work = 0.0_dp
+        end if
+        lblas = blas_work_size(self)
+        if (lblas > 0) then
+            call charge_count(self, ledger, int(lblas,i8)*self%sched%active_threads, 8_i8, &
+                SLU_PHASE_SCRATCH, status)
+            if (.not. status_ok(status)) return
+            allocate(self%blas_work(lblas,self%sched%active_threads), stat=ierr)
+            if (ierr /= 0) goto 910
         end if
         call charge_count(self, ledger, 4_i8*self%sched%active_threads, 8_i8, &
             SLU_PHASE_SCRATCH, status)
@@ -1342,6 +1377,7 @@ contains
             bytes = bytes+16_i8*size(self%zsolve_work,kind=i8)
         if (allocated(self%zupdate_work)) &
             bytes = bytes+16_i8*size(self%zupdate_work,kind=i8)
+        if (allocated(self%blas_work)) bytes = bytes+8_i8*size(self%blas_work,kind=i8)
         if (allocated(self%map_pos)) bytes = bytes+map_bytes(self)
     end function memory_bytes
 
@@ -1437,6 +1473,8 @@ contains
                 +8_i8*size(self%sched%update_work,kind=i8) &
                 +8_i8*size(self%solve_work,kind=i8)
         end if
+        if (allocated(self%blas_work)) layout%workspace_host_bytes = &
+            layout%workspace_host_bytes+8_i8*size(self%blas_work,kind=i8)
         layout%persistent_host_bytes = self%plan_bytes-layout%factor_host_bytes &
             -layout%workspace_host_bytes
         layout%peak_host_bytes = self%peak_memory_bytes
@@ -1472,6 +1510,7 @@ contains
         if (allocated(self%zvalues)) deallocate(self%zvalues)
         if (allocated(self%zsolve_work)) deallocate(self%zsolve_work)
         if (allocated(self%zupdate_work)) deallocate(self%zupdate_work)
+        if (allocated(self%blas_work)) deallocate(self%blas_work)
         if (allocated(self%map_ptr)) deallocate(self%map_ptr)
         if (allocated(self%map_rows)) deallocate(self%map_rows)
         if (allocated(self%map_pos)) deallocate(self%map_pos)
@@ -1796,6 +1835,7 @@ contains
         deallocate(self%panels, self%failures, self%pivots, self%values, &
             self%solve_work, self%thread_stats, self%map_ptr, self%map_rows, &
             self%map_pos)
+        if (allocated(self%blas_work)) deallocate(self%blas_work)
         call self%sched%free()
         ledger = memory_budget_t()
         call build_nodes(self, n, sptr, sidx, len, parent, count, starts, ends, &
@@ -2139,9 +2179,10 @@ contains
         integer, intent(in) :: d, i0, i1
         real(dp), intent(out) :: chunk_max
         logical, intent(out) :: chunk_bad
-        integer :: m, w, mu, k, r, i, first, nr, j
+        integer :: m, w, mu, k, r, i, first, nr, j, thread
         integer(i8) :: l0, u0
         real(dp) :: saved
+        thread = self%sched%workspace_thread()
         m = self%panels(d)%m
         w = self%panels(d)%width
         mu = m-w
@@ -2161,10 +2202,12 @@ contains
             end do
         end do
         if (self%use_blas .and. w >= 96 .and. mu >= 32) then
-            call dtrsm('R', 'U', 'N', 'N', nr, w, 1.0_dp, self%values(l0+1), m, &
-                self%values(l0+w+i0), m)
-            call dtrsm('R', 'L', 'T', 'U', nr, w, 1.0_dp, self%values(l0+1), m, &
-                self%values(u0+i0), mu)
+            call dtrsm_ws('R', 'U', 'N', 'N', nr, w, 1.0_dp, self%values(l0+1), m, &
+                self%values(l0+w+i0), m, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
+            call dtrsm_ws('R', 'L', 'T', 'U', nr, w, 1.0_dp, self%values(l0+1), m, &
+                self%values(u0+i0), mu, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         else
             call slu_trsm_upper(self%values(l0+1), m, w, self%values(l0+w+i0), m, nr)
             call slu_trsm_unit_lower_t(self%values(l0+1), m, w, self%values(u0+i0), &
@@ -2273,20 +2316,23 @@ contains
             ! Destination rows and columns are both consecutive.
             col = self%panels(s)%rows(jl)-first_d+1
             position = self%sched%rowmap(self%panels(s)%rows(r1),thread)
-            call dgemm('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
+            call dgemm_ws('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
                 self%values(us+jl-w), mu, 1.0_dp, &
-                self%values(ld+int(col-1,i8)*md+position), md)
+                self%values(ld+int(col-1,i8)*md+position), md, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
             if (m3 > 0) then
                 position = self%sched%rowmap(self%panels(s)%rows(ru),thread)
-                call dgemm('N', 'T', m3, qc, w, -1.0_dp, &
+                call dgemm_ws('N', 'T', m3, qc, w, -1.0_dp, &
                     self%values(us+ru-w), mu, self%values(ls+jl), m, 1.0_dp, &
-                    self%values(ud+int(col-1,i8)*mud+position-wd), mud)
+                    self%values(ud+int(col-1,i8)*mud+position-wd), mud, &
+                    self%blas_work(1,thread), blas_lwork(self, thread))
             end if
             return
         end if
         if (self%use_blas) then
-            call dgemm('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
-                self%values(us+jl-w), mu, 0.0_dp, self%sched%update_work(1,thread), m2)
+            call dgemm_ws('N', 'T', m2, qc, w, -1.0_dp, self%values(ls+r1), m, &
+                self%values(us+jl-w), mu, 0.0_dp, self%sched%update_work(1,thread), m2, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         else
             self%sched%update_work(1:m2*qc,thread) = 0.0_dp
             call slu_schur_update(self%sched%update_work(1,thread), m2, &
@@ -2301,8 +2347,9 @@ contains
         end do
         if (m3 < 1) return
         if (self%use_blas) then
-            call dgemm('N', 'T', m3, qc, w, -1.0_dp, self%values(us+ru-w), mu, &
-                self%values(ls+jl), m, 0.0_dp, self%sched%update_work(1,thread), m3)
+            call dgemm_ws('N', 'T', m3, qc, w, -1.0_dp, self%values(us+ru-w), mu, &
+                self%values(ls+jl), m, 0.0_dp, self%sched%update_work(1,thread), m3, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         else
             self%sched%update_work(1:m3*qc,thread) = 0.0_dp
             call slu_schur_update(self%sched%update_work(1,thread), m3, &
@@ -2353,10 +2400,12 @@ contains
                 end do
             end do
             if (self%use_blas .and. w >= 96 .and. mu >= 32) then
-                call dtrsm('R', 'U', 'N', 'N', mu, w, 1.0_dp, self%values(l0+1), m, &
-                    self%values(l0+w+1), m)
-                call dtrsm('R', 'L', 'T', 'U', mu, w, 1.0_dp, self%values(l0+1), m, &
-                    self%values(u0+1), mu)
+                call dtrsm_ws('R', 'U', 'N', 'N', mu, w, 1.0_dp, self%values(l0+1), m, &
+                    self%values(l0+w+1), m, &
+                    self%blas_work(1,thread), blas_lwork(self, thread))
+                call dtrsm_ws('R', 'L', 'T', 'U', mu, w, 1.0_dp, self%values(l0+1), m, &
+                    self%values(u0+1), mu, &
+                    self%blas_work(1,thread), blas_lwork(self, thread))
             else
                 call slu_trsm_upper(self%values(l0+1), m, w, self%values(l0+w+1), m, mu)
                 call slu_trsm_unit_lower_t(self%values(l0+1), m, w, self%values(u0+1), &
@@ -2567,8 +2616,9 @@ contains
         integer, intent(in) :: m, w, first
         integer, intent(inout) :: perturbed, swaps
         real(dp), intent(inout) :: min_pivot, max_u
-        integer :: k0, kb, rest, i, j
+        integer :: k0, kb, rest, i, j, thread
         integer(i8) :: a0, a12, a21, a22
+        thread = self%sched%workspace_thread()
         do k0 = 1, w, SLU_PANEL_NB
             kb = min(SLU_PANEL_NB, w-k0+1)
             call slu_panel_factor(self%values(l0+1), m, w, k0, kb, self%tau_abs, &
@@ -2579,10 +2629,12 @@ contains
             a12 = l0+int(k0+kb-1,i8)*m+k0
             a21 = a0+kb
             a22 = a12+kb
-            call dtrsm('L', 'L', 'N', 'U', kb, rest, 1.0_dp, self%values(a0), m, &
-                self%values(a12), m)
-            call dgemm('N', 'N', rest, rest, kb, -1.0_dp, self%values(a21), m, &
-                self%values(a12), m, 1.0_dp, self%values(a22), m)
+            call dtrsm_ws('L', 'L', 'N', 'U', kb, rest, 1.0_dp, self%values(a0), m, &
+                self%values(a12), m, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
+            call dgemm_ws('N', 'N', rest, rest, kb, -1.0_dp, self%values(a21), m, &
+                self%values(a12), m, 1.0_dp, self%values(a22), m, &
+                self%blas_work(1,thread), blas_lwork(self, thread))
         end do
         do j = 1, w
             do i = 1, j

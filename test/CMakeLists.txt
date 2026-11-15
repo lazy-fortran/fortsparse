@@ -654,12 +654,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+# Linker symbol of fortnum_blas3::fortnum_dtrsm under each compiler's module mangling.
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+    set(_fortnum_dtrsm_symbol __fortnum_blas3_MOD_fortnum_dtrsm)
+elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
+    set(_fortnum_dtrsm_symbol _QMfortnum_blas3Pfortnum_dtrsm)
+elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
+    set(_fortnum_dtrsm_symbol fortnum_blas3_mp_fortnum_dtrsm_)
+endif()
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang"
+        AND DEFINED _fortnum_dtrsm_symbol)
     add_executable(test_spd_panel_no_blas
         ../test-cmake/native/test_spd_panel_no_blas.f90
         ../test-cmake/native/count_spd_dtrsm.c)
     target_link_libraries(test_spd_panel_no_blas PRIVATE fortsparse)
-    target_link_options(test_spd_panel_no_blas PRIVATE "LINKER:--wrap=dtrsm_")
+    target_compile_definitions(test_spd_panel_no_blas PRIVATE
+        FORTNUM_DTRSM=${_fortnum_dtrsm_symbol})
+    target_link_options(test_spd_panel_no_blas PRIVATE "LINKER:--wrap=${_fortnum_dtrsm_symbol}")
     add_test(NAME test_spd_panel_no_blas COMMAND test_spd_panel_no_blas)
     set_tests_properties(test_spd_panel_no_blas PROPERTIES LABELS "native;memory;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")

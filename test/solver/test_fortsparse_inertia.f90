@@ -1,35 +1,9 @@
 program test_fortsparse_inertia
     ! Sylvester inertia of native LDL^T/LDL^H/Cholesky factors against
-    ! independent dense LAPACK eigenvalue counts (dsyev, dsygv, zheev).
+    ! independent dense eigenvalue counts (fortnum's dsyev, dsygv, zheev).
     use fortsparse
+    use fortnum_lapack_syev, only: dsyev => fortnum_dsyev, dsygv => fortnum_dsygv, zheev => fortnum_zheev
     implicit none
-    interface
-        subroutine dsyev(jobz, uplo, n, a, lda, w, work, lwork, info)
-            import :: dp
-            character, intent(in) :: jobz, uplo
-            integer, intent(in) :: n, lda, lwork
-            real(dp), intent(inout) :: a(lda, *)
-            real(dp), intent(out) :: w(*), work(*)
-            integer, intent(out) :: info
-        end subroutine dsyev
-        subroutine dsygv(itype, jobz, uplo, n, a, lda, b, ldb, w, work, lwork, info)
-            import :: dp
-            integer, intent(in) :: itype, n, lda, ldb, lwork
-            character, intent(in) :: jobz, uplo
-            real(dp), intent(inout) :: a(lda, *), b(ldb, *)
-            real(dp), intent(out) :: w(*), work(*)
-            integer, intent(out) :: info
-        end subroutine dsygv
-        subroutine zheev(jobz, uplo, n, a, lda, w, work, lwork, rwork, info)
-            import :: dp
-            character, intent(in) :: jobz, uplo
-            integer, intent(in) :: n, lda, lwork
-            complex(dp), intent(inout) :: a(lda, *)
-            real(dp), intent(out) :: w(*), rwork(*)
-            complex(dp), intent(out) :: work(*)
-            integer, intent(out) :: info
-        end subroutine zheev
-    end interface
     integer :: ordering, implementation
     logical :: blocked
     integer, parameter :: orderings(3) = [FORTSPARSE_ORDER_DEFAULT, &

@@ -41,9 +41,9 @@ option(FORTSPARSE_ENABLE_UMFPACK_IPC
 
 # Zero-dependency build for the niche libraries only. OFF (default) fetches and
 # builds SuperLU and the SuiteSparse/UMFPACK chain from source; ON locates them
-# via find_package, for distros that ship them. Either way BLAS/LAPACK always
-# come from the system: they are universally present and optimized, and reusing
-# the same system OpenBLAS as the rest of the stack keeps numerics consistent.
+# via find_package, for distros that ship them. Either way BLAS and LAPACK are
+# fortnum's (fortnum_lapack77, see cmake/fortsparse_blas.cmake), for
+# fortsparse's own dense kernels and for the fetched solvers alike.
 # The two paths are orthogonal to FORTSPARSE_ENABLE_SUPERLU: when SuperLU is
 # disabled nothing SuperLU-related is fetched, found, or linked under either
 # setting.
@@ -92,8 +92,14 @@ set(CMAKE_Fortran_MODULE_DIRECTORY ${PROJECT_BINARY_DIR}/include)
 
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
-# Select dense kernels before any backend package can discover its own BLAS
-# or prepend a FindLAPACK module. Reuse the parent's choice when present.
+include(FetchContent)
+if(NOT TARGET fortnum)
+    set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(fortnum
+        GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
+        GIT_TAG a1e974218fca25617f39556a4c9ea651a8633261)
+    FetchContent_MakeAvailable(fortnum)
+endif()
 include(cmake/fortsparse_blas.cmake)
 
 # SuperLU (BSD) is the default in-process backend; the library links only it.
@@ -125,8 +131,8 @@ if(FORTSPARSE_ENABLE_MUMPS)
 endif()
 # Some MUMPS configs rerun a private FindLAPACK even when the imported target
 # already exists. Keep the selected libraries for targets using the variables.
-set(BLAS_LIBRARIES "${_fortsparse_blas_libraries}")
-set(LAPACK_LIBRARIES "${_fortsparse_lapack_libraries}")
+set(BLAS_LIBRARIES BLAS::BLAS)
+set(LAPACK_LIBRARIES LAPACK::LAPACK)
 # OpenMP threads the CSC matvec; without it the matvec is serial.
 option(FORTSPARSE_ENABLE_OPENMP "Thread the CSC matvec with OpenMP" ON)
 if(FORTSPARSE_ENABLE_OPENMP OR FORTSPARSE_ENABLE_MUMPS)
@@ -136,14 +142,6 @@ endif()
 if(FORTSPARSE_ENABLE_NATIVE_CUDA)
     enable_language(CUDA)
     find_package(CUDAToolkit REQUIRED)
-endif()
-include(FetchContent)
-if(NOT TARGET fortnum)
-    set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(fortnum
-        GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
-        GIT_TAG b763bce9eb4fd521ba8fe3a7d6afa8c7a450f2f3)
-    FetchContent_MakeAvailable(fortnum)
 endif()
 
 add_subdirectory(src)
@@ -167,7 +165,7 @@ endif()
 #
 # System path: built only when find_package locates UMFPACK, so a host without
 # it still gets the library. Fetched path: fetch and build the
-# SuiteSparse/UMFPACK chain from source, linked against the system BLAS/LAPACK,
+# SuiteSparse/UMFPACK chain from source, linked against fortnum's BLAS/LAPACK,
 # and always build the helper.
 set(FORTSPARSE_BUILD_HELPER OFF)
 if(FORTSPARSE_ENABLE_UMFPACK_IPC)
@@ -189,9 +187,9 @@ if(FORTSPARSE_BUILD_HELPER)
         ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(fortsparse_umfpack_helper PRIVATE
         ${FORTSPARSE_UMFPACK_TARGET} Threads::Threads)
-    # SuiteSparse_config references libm (hypot). With system BLAS on the link
-    # line libm is no longer pulled in transitively the way the fetched OpenBLAS
-    # dragged it in, so the static SuiteSparse archives leave hypot unresolved.
+    # SuiteSparse_config references libm (hypot). Nothing else on the link line
+    # pulls libm in transitively the way a fetched OpenBLAS once did, so the
+    # static SuiteSparse archives would leave hypot unresolved.
     # Request libm explicitly; it must follow the archives on the link line,
     # which a separate PRIVATE entry guarantees. Skip on Windows, where the math
     # routines live in the C runtime and no libm exists.
