@@ -278,7 +278,8 @@ endif()
 add_executable(bench_fortsparse_matvec ../bench/bench_csc_matvec.f90)
 target_link_libraries(bench_fortsparse_matvec PRIVATE fortsparse)
 
-if(UNIX)
+# WebAssembly has no named semaphores (the IPC shim has no helper there).
+if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     add_executable(test_fortsparse_ipc_wait
         ../test-cmake/ipc/test_fortsparse_ipc_wait.c)
     target_include_directories(test_fortsparse_ipc_wait PRIVATE
@@ -522,6 +523,7 @@ add_test(NAME test_fortsparse_native_only_build
         ${PROJECT_BINARY_DIR}/test-native-only
         --build-generator "${CMAKE_GENERATOR}"
         --build-options
+            -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
             -DCMAKE_Fortran_COMPILER=${CMAKE_Fortran_COMPILER}
             -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
             -DCMAKE_BUILD_TYPE=Release
@@ -928,3 +930,16 @@ fortsparse_add_test(test_fortsparse_hermitian_embedding
     solver/test_fortsparse_hermitian_embedding.f90)
 set_tests_properties(test_fortsparse_hermitian_embedding PROPERTIES
     LABELS "native;fast" TIMEOUT 1)
+
+# Under WebAssembly each test starts node and runs several times slower than
+# native code; the timeouts, set for native runs, scale with it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+    get_property(_fortsparse_tests DIRECTORY PROPERTY TESTS)
+    foreach(_test IN LISTS _fortsparse_tests)
+        get_test_property(${_test} TIMEOUT _timeout)
+        if(_timeout)
+            math(EXPR _timeout "${_timeout} * 10")
+            set_tests_properties(${_test} PROPERTIES TIMEOUT ${_timeout})
+        endif()
+    endforeach()
+endif()

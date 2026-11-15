@@ -65,6 +65,23 @@ ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-fai
 
 AMD/METIS ordering and CUDA can be enabled on top of this when available.
 
+## WebAssembly
+
+The native solvers build for WebAssembly (wasm32) with LFortran and emscripten
+through the CMake toolchain file `tools/wasm/emscripten-lfortran.cmake`;
+`tools/wasm/test_wasm.sh [BUILD_DIR] [CTEST_ARGUMENT ...]` configures, builds
+and runs the tests under node. It needs LFortran built with `WITH_TARGET_WASM`
+(`LFORTRAN`, default `lfortran` on `PATH`), the emscripten SDK (`EMSDK_PATH`)
+and node (`NODE`). LFortran's `main` lacks fixes this needs; the
+[lazy-fortran fork](https://github.com/lazy-fortran/lfortran) carries them and
+lists them in its `FORK.md`. A browser has no processes, threads or C solver
+libraries, so the build has the native solvers only, without SuperLU, the
+UMFPACK helper, METIS, AMD and OpenMP; dense kernels come from fortnum, which
+builds for WebAssembly as well. With `-DFORTSPARSE_WASM_ENVIRONMENT=shell` or
+`web` the test programs are single files for a JavaScript shell such as
+JavaScriptCore's `jsc` or for a browser page. Test timeouts are ten times the
+native ones, since each test starts node.
+
 ## Compiler limitations
 
 Use a compiler that passes the retained-factor ownership and self-assignment

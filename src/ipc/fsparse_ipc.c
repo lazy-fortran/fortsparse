@@ -91,6 +91,44 @@ size_t fsparse_self_dir(char *buf, size_t n)
 
 #endif
 
+#if defined(__EMSCRIPTEN__)
+
+/* WebAssembly in a browser has no processes and no named semaphores: the
+ * helper never starts, and the backend reports itself unavailable. */
+void *fsparse_ipc_start(const char *helper_path, int64_t bytes, int *err)
+{
+    (void) helper_path;
+    (void) bytes;
+    *err = 1;
+    return NULL;
+}
+
+void *fsparse_ipc_data(void *sess)
+{
+    (void) sess;
+    return NULL;
+}
+
+int64_t fsparse_ipc_offset(void *sess, void *ptr)
+{
+    (void) sess;
+    (void) ptr;
+    return 0;
+}
+
+int fsparse_ipc_call(void *sess)
+{
+    (void) sess;
+    return FSPARSE_ST_ERROR;
+}
+
+void fsparse_ipc_stop(void *sess)
+{
+    (void) sess;
+}
+
+#else /* processes and named semaphores */
+
 /* Live-session registry, for leak-free teardown only. A solver releases its
  * helper through the backend's FINAL procedure, which reaches fsparse_ipc_stop
  * and deregisters here, so normal lifetimes need nothing from this. A module
@@ -511,3 +549,5 @@ void fsparse_ipc_stop(void *sess)
 }
 
 #endif
+
+#endif /* __EMSCRIPTEN__ */
