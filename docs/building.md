@@ -20,6 +20,7 @@ All options are set with `-D`.
 
 | Option | Default | Effect |
 | --- | --- | --- |
+| `FORTSPARSE_BUILD_TESTING` | `ON` for a top-level build | Build the test suite. `-DBUILD_TESTING=OFF` turns it off as well. |
 | `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU; the native backend remains available. |
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | Find SuperLU and UMFPACK with `find_package` instead of fetching them. |
@@ -130,6 +131,12 @@ FetchContent_MakeAvailable(fortsparse)
 
 target_link_libraries(my_app PRIVATE fortsparse)
 ```
+
+fortsparse's tests are not part of the consumer's build. To run them there,
+pass `-DFORTSPARSE_BUILD_TESTING=ON` and call `include(CTest)` in the consumer.
+fortsparse itself does not include CTest in a consumer, but the fetched SuperLU
+does; build with `FORTSPARSE_ENABLE_SUPERLU=OFF` or `FORTSPARSE_USE_SYSTEM_DEPS=ON`
+to keep `BUILD_TESTING` out of the consumer's cache.
 
 The UMFPACK backend starts its helper process and looks for the binary next to
 the running executable. Either install `my_app` to the standard `bin/`
