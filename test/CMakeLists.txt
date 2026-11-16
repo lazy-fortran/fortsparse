@@ -512,7 +512,8 @@ fortsparse_add_test(test_fortsparse_native_ldlt_z
 set_tests_properties(test_fortsparse_native_ldlt_z PROPERTIES
     LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_inertia solver/test_fortsparse_inertia.f90)
-set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 1)
+# The runner's Xeon E5-2630 v4 takes 0.7 to 1.0 s for this test.
+set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 5)
 # This configure/build check is distinct from ordinary sub-second numerics.
 # It disables sparse dependency discovery/fetching and inspects actual linkage.
 get_target_property(_precision_fortnum_src fortnum SOURCE_DIR)
