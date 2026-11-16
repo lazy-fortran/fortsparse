@@ -19,14 +19,8 @@ include(GNUInstallDirs)
 # Export compile_commands.json so clangd resolves the C shim include paths.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Detect standalone vs subproject build so testing defaults sanely.
-set(FORTSPARSE_IS_STANDALONE OFF)
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set(FORTSPARSE_IS_STANDALONE ON)
-endif()
-
 option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
-    ${FORTSPARSE_IS_STANDALONE})
+    ${PROJECT_IS_TOP_LEVEL})
 
 # SuperLU (BSD) is the default in-process backend. A consumer that only uses
 # native or out-of-process UMFPACK-IPC backend can switch it off and needs no
