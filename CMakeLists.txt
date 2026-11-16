@@ -101,7 +101,10 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 include(FetchContent)
 if(NOT TARGET fortnum)
-    set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    # A default only: a FORTNUM_BUILD_TESTING set by the user is kept.
+    if(NOT DEFINED FORTNUM_BUILD_TESTING)
+        set(FORTNUM_BUILD_TESTING OFF)
+    endif()
     FetchContent_Declare(fortnum
         GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
         GIT_TAG a1e974218fca25617f39556a4c9ea651a8633261)
