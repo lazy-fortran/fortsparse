@@ -21,6 +21,19 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
     ${PROJECT_IS_TOP_LEVEL})
+# Consumers get fortsparse's tests only on request: -DFORTSPARSE_BUILD_TESTING=ON
+# plus include(CTest) in the consumer.
+if(PROJECT_IS_TOP_LEVEL)
+    include(CTest)
+endif()
+if(FORTSPARSE_BUILD_TESTING AND NOT BUILD_TESTING)
+    message(STATUS "FORTSPARSE_BUILD_TESTING is ON, but BUILD_TESTING is OFF; "
+        "fortsparse tests will not be built.")
+    set(FORTSPARSE_BUILD_TESTING OFF)
+endif()
+if(FORTSPARSE_BUILD_TESTING)
+    enable_testing()
+endif()
 
 # SuperLU (BSD) is the default in-process backend. A consumer that only uses
 # native or out-of-process UMFPACK-IPC backend can switch it off and needs no
@@ -225,7 +238,6 @@ function(fortsparse_colocate_helper target)
 endfunction()
 
 if(FORTSPARSE_BUILD_TESTING)
-    enable_testing()
     add_subdirectory(test)
     if(FORTSPARSE_ENABLE_NATIVE_CUDA)
         fortsparse_add_cuda_tests()
