@@ -19,14 +19,21 @@ include(GNUInstallDirs)
 # Export compile_commands.json so clangd resolves the C shim include paths.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Detect standalone vs subproject build so testing defaults sanely.
-set(FORTSPARSE_IS_STANDALONE OFF)
-if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
-    set(FORTSPARSE_IS_STANDALONE ON)
-endif()
-
 option(FORTSPARSE_BUILD_TESTING "Build tests for fortsparse"
-    ${FORTSPARSE_IS_STANDALONE})
+    ${PROJECT_IS_TOP_LEVEL})
+# Consumers get fortsparse's tests only on request: -DFORTSPARSE_BUILD_TESTING=ON
+# plus include(CTest) in the consumer.
+if(PROJECT_IS_TOP_LEVEL)
+    include(CTest)
+endif()
+if(FORTSPARSE_BUILD_TESTING AND NOT BUILD_TESTING)
+    message(STATUS "FORTSPARSE_BUILD_TESTING is ON, but BUILD_TESTING is OFF; "
+        "fortsparse tests will not be built.")
+    set(FORTSPARSE_BUILD_TESTING OFF)
+endif()
+if(FORTSPARSE_BUILD_TESTING)
+    enable_testing()
+endif()
 
 # SuperLU (BSD) is the default in-process backend. A consumer that only uses
 # native or out-of-process UMFPACK-IPC backend can switch it off and needs no
@@ -94,10 +101,13 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 include(FetchContent)
 if(NOT TARGET fortnum)
-    set(FORTNUM_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+    # A default only: a FORTNUM_BUILD_TESTING set by the user is kept.
+    if(NOT DEFINED FORTNUM_BUILD_TESTING)
+        set(FORTNUM_BUILD_TESTING OFF)
+    endif()
     FetchContent_Declare(fortnum
         GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
-        GIT_TAG a1e974218fca25617f39556a4c9ea651a8633261)
+        GIT_TAG 4a907bd0537c4187141e62343b85772ffd78764d)
     FetchContent_MakeAvailable(fortnum)
 endif()
 include(cmake/fortsparse_blas.cmake)
@@ -231,7 +241,6 @@ function(fortsparse_colocate_helper target)
 endfunction()
 
 if(FORTSPARSE_BUILD_TESTING)
-    enable_testing()
     add_subdirectory(test)
     if(FORTSPARSE_ENABLE_NATIVE_CUDA)
         fortsparse_add_cuda_tests()

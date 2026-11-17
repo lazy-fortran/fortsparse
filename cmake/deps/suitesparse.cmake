@@ -43,7 +43,7 @@ endforeach()
 # ";"-separated list without tripping ExternalProject's genexp evaluation.
 string(REPLACE ";" "|" FORTSPARSE_DENSE_LIBRARIES_ARG "${FORTSPARSE_DENSE_LIBRARIES}")
 
-set(SUITESPARSE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/suitesparse-install)
+set(SUITESPARSE_INSTALL_PREFIX ${PROJECT_BINARY_DIR}/suitesparse-install)
 set(SUITESPARSE_INCLUDE_DIR ${SUITESPARSE_INSTALL_PREFIX}/include)
 
 set(UMFPACK_LIBRARY_PATH
