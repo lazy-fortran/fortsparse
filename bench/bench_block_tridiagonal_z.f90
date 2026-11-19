@@ -1,7 +1,7 @@
 program bench_block_tridiagonal_z
     ! Complex Hermitian indefinite block-tridiagonal pencils with dense blocks,
     ! the shape of Fourier-coupled stability matrices. Usage: BLOCKS WIDTH
-    ! MODE with MODE 0 the scalar LDL^H and 1 the supernodal real embedding;
+    ! MODE with MODE 0 the scalar LDL^H and 1 the real embedding (multifrontal LDL^T);
     ! prints wall and CPU seconds of the factorization and the inertia.
     use fortsparse
     use, intrinsic :: iso_fortran_env, only: int64
@@ -48,9 +48,9 @@ program bench_block_tridiagonal_z
         end do
     end do
     call csc_from_triplet(n, n, rows(:k), cols(:k), vals(:k), a, st)
-    s%backend_id = FORTSPARSE_BACKEND_NATIVE
+    s%backend_id = merge(FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE, &
+        mode == 1)
     s%options%symmetry = FORTSPARSE_SYM_HERMITIAN
-    s%options%ldlt_supernodal = mode == 1
     call system_clock(c0, rate); call cpu_time(t0)
     call sparse_factor(s, a, st)
     call system_clock(c1); call cpu_time(t1)

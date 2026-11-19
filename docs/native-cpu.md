@@ -7,13 +7,16 @@ existing Cholesky engine and other classes to the following new CPU references:
 |---|---|---|
 | Real general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
 | Complex general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
-| Complex Hermitian positive definite (`SYM_SPD`) | Sparse complex Cholesky | Default AMD, natural or METIS ND order, simplicial reference |
-| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | Sparse Bunch--Kaufman LDLT | Default AMD; 1x1/2x2 pivots restricted to the order with delays (see below); opt-in BLAS-3 panels/OpenMP |
-| Complex Hermitian indefinite (`SYM_HERMITIAN`) | Sparse complex Bunch--Kaufman LDLH | Default AMD; restricted 1x1/2x2 pivots with delays, serial reference |
+| Complex Hermitian positive definite (`SYM_SPD`) | Supernodal Cholesky of the real embedding | Uncapped CPU; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the simplicial complex Cholesky |
+| Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | [Multifrontal LDLT](#multifrontal-ldlt) | Uncapped CPU, serial; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the scalar Bunch--Kaufman LDLT |
+| Complex Hermitian indefinite (`SYM_HERMITIAN`) | Multifrontal LDLT of the real embedding | Uncapped CPU; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the scalar Bunch--Kaufman LDLH |
 | Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Default AMD; restricted 1x1/2x2 pivots with delays, serial reference |
 
 The symmetric and Hermitian CSC factors, real and complex, accept explicit AMD
-or METIS ND ordering.
+or METIS ND ordering. The real embedding of a complex Hermitian `A = Ar + i Ai`
+is `E = [[Ar, -Ai], [Ai, Ar]]` with interleaved unknowns: every eigenvalue of
+`A` appears twice in `E`, so the reported inertia is half that of `E`, and the
+statistics name the families `LDLH_EMBEDDED` and `HPD_EMBEDDED`.
 
 ## Default ordering
 
@@ -23,7 +26,8 @@ pattern fills its own envelope (every column is one run of rows around the
 diagonal and the runs never move back up, as in dense bands and
 block-tridiagonal matrices with dense blocks), where natural order creates no
 fill. Otherwise it keeps natural order. This holds for real SPD and complex HPD Cholesky, real and complex
-general LU, and the real and complex symmetric indefinite LDL^T/LDL^H factors.
+general LU, and the scalar symmetric indefinite LDL^T/LDL^H factors. The
+multifrontal LDL^T orders DEFAULT as AMD.
 `FORTSPARSE_ORDER_NATURAL` keeps the input order; `ordering_used` reports
 natural order as 0. AMD needs no external library: without SuiteSparse AMD the
 project-owned implementation (`fsparse_native_amd_core.c`, the algorithm of
@@ -33,95 +37,79 @@ keep working; so do the HPD and indefinite factors and real SPD under a host
 cap, LOW_MEMORY or refinement, where `sparse_analyze` plans the AMD layout that
 the factorization will use. Only NATIVE_REFERENCE keeps natural order by default.
 
-### Pivoting within a fill-reducing order
+### Multifrontal LDLT
 
-Unrestricted Bunch--Kaufman pivoting may pick its partner anywhere in the
-remaining matrix and swap positions with it, which can undo a fill-reducing
-order: on a 4900-unknown Laplacian with diagonal `4-s`, AMD with unrestricted
-pivots gave 1.9x more fill than natural order at s=3.5 (an earlier build with
-the built-in AMD gave 5x). Whenever a fill-reducing order is in use, the
-indefinite factors therefore pivot as a multifrontal solver with delayed
-pivots does (MA57, MUMPS). The next vertex `k` in the order is accepted as a
-1x1 pivot if `|a_kk| >= u max_i |a_ik|`, or else as a 2x2 pivot with its first
-remaining neighbour `p` in the order (its elimination-tree parent) if every
-multiplier stays below `1/u`, that is `u |P^-1| (max_i |a_ik|, max_i |a_ip|)^T
-<= (1, 1)^T` for the 2x2 block `P`. Otherwise `k` is delayed to the position
-right after `p`, as a failed pivot moves to the parent front, and the other
-vertices keep their relative order. A vertex that comes up again before any
-elimination took place takes the ordinary unrestricted Bunch--Kaufman pivot,
-moved into place by the same order-preserving shift, so a pivot always exists.
-The threshold is `u = 0.1`. Natural order keeps unrestricted Bunch--Kaufman
-with position swaps. Inertia is counted from the actual pivots as before. On
-the shifted Laplacian above, the restricted factors keep within 1.15x of the
-definite AMD fill over s = 0..3.5 with backward errors below 1e-14; see
+The real symmetric indefinite factor `P^T A P = L D L^T` is multifrontal
+(Duff and Reid 1983, as MA57 and MUMPS). Each supernode of the elimination
+tree owns a dense front: its fully summed variables, which are the variables
+its children delayed plus its own columns, followed by the rows of its
+structure. Children's contribution blocks are added into the parent front
+(extend-add). A fully summed variable `k` is accepted as a 1x1 pivot if
+`|a_kk| >= u max_i |a_ik|` over all remaining rows of the front, or as a 2x2
+pivot with the largest fully summed entry `r` of its column if
+`u |P^-1| (max_i |a_ik|, max_i |a_ir|)^T <= (1, 1)^T`, with `u = 0.01`. The 2x2
+block is scaled by its largest entry before the test and the inverse, so no
+product over- or underflows. Variables that fail stay in the front, are
+updated, and move to the parent front as delayed pivots. At a root, where
+nothing can be delayed, the unrestricted Bunch--Kaufman choice is taken, so a
+pivot always exists. An exactly zero column is a zero 1x1 pivot.
+
+Pivots are sought in windows of 32 fully summed columns that are updated by
+rank-1/2 steps. A candidate is tested once per window. The rest of the front
+is updated by BLAS-3 after each window (fortnum `dgemm`). The front is
+assembled and factored in place at the end of the factor storage, so only the
+contribution block is copied, to a stack.
+
+`DEFAULT` and `AMD` order with AMD, `ND` with METIS nested dissection (AMD when
+METIS is not built), and `NATURAL` keeps the input order. A variable whose
+diagonal fails the pivot test is first matched with its largest unmatched
+neighbour, and the pair is one vertex of the ordered graph, the member with
+the larger diagonal first (compressed ordering, Duff and Pralet 2005). A
+saddle-point constraint row thus meets its partner in the same front instead
+of being delayed. The elimination tree is postordered and its fundamental
+supernodes are amalgamated with the CHOLMOD rules, keeping matched pairs
+together. `sparse_refactor` with the same pattern and ordering option reuses
+the ordering and the symbolic structure and chooses its pivots afresh.
+
+On a 2947-unknown free-boundary MHD saddle-point matrix with 111 746 entries
+and 1013 zero diagonals (one thread), the factor holds 2.5e5 entries with
+about 180 delayed pivots, as MUMPS 5.8 with its compressed AMD ordering does
+(2.3e5 entries, 171 delays):
+
+| Solver | Analysis + factorization | Refactorization |
+|---|---|---|
+| Multifrontal LDLT | 8.4-9.0 ms | 3.1-3.4 ms |
+| MUMPS LDLT | 9.2-10.1 ms | 3.7-3.9 ms |
+| Scalar Bunch--Kaufman LDLT | 1060 ms | - |
+
+The inertia and its reliability follow [Sylvester inertia](#sylvester-inertia),
+with `g_k` the largest input entry of the pivot row plus `sum_j l_kj^2 |d_j|`
+over the earlier pivots that updated the row, or the largest entry of the
+pivot column if larger. A 2x2 pivot `D_j = [d1 e; e d2]` contributes
+`|l_j|^T (|D_j| + |e| I) |l_j|`, a positive semidefinite majorant of `|D_j|`.
+The statistics report `native_factor_family = 'LDLT_MULTIFRONT'`,
+`factor_nnz` (stored entries, with amalgamation zeros), `symbolic_nnz`
+(`nnz(L)` of the order), `block_pivot_swaps` (2x2 pivots) and the retained
+payload as `host_current_bytes`. The AMD and BLAS workspaces are opaque, so
+`host_peak_bytes` is unknown and no strict cap applies.
+
+### Scalar LDLT
+
+Under a host cap, LOW_MEMORY or NATIVE_REFERENCE, real and complex symmetric
+indefinite matrices use a sparse Bunch--Kaufman elimination whose memory is
+fully accounted. Within a fill-reducing order the next vertex `k` is accepted
+as a 1x1 pivot if `|a_kk| >= u max_i |a_ik|`, or else as a 2x2 pivot with its
+first remaining neighbour `p` in the order (its elimination-tree parent) if
+every multiplier stays below `1/u`. Otherwise `k` is delayed to the position
+right after `p`. A vertex that comes up again before any elimination took
+place takes the ordinary unrestricted Bunch--Kaufman pivot, so a pivot always
+exists. The threshold is `u = 0.1`. Natural order keeps unrestricted
+Bunch--Kaufman with position swaps; see
 [the measurements](../bench/results/2026-10-30-symmetric-ordering/README.md).
-
-Set `options%ldlt_blocked = .true.` to try bounded relaxed supernodes on the
-real CPU LDLT path. Each front contains up to 32 consecutive candidates and
-at most 512 active vertices, including the complete support of every candidate.
-LAPACK `DLASYF` performs Bunch--Kaufman pivot tests and BLAS-3 trailing updates;
-OpenMP assembles columns and merges disjoint Schur rows. `options%nthreads` or
-`OMP_NUM_THREADS` controls that team; keep BLAS threads separately budgeted.
-A private trial needing any interchange is discarded before changing the sparse
-state, then scalar Bunch--Kaufman (restricted to the order when one is in use)
-eliminates a pivot. This preserves 1x1/2x2 recovery without perturbations. Oversized fronts also use scalar
-elimination. Default and blocked execution merge each complete
-rank-1/2 update once per Schur row, with disjoint rows assigned to OpenMP
-workers. Both stored triangles use the same contraction order. Small fronts
-use fewer workers to avoid team overhead. Strict-cap execution accounts for
-merge workspace and row growth before allocation, while LOW_MEMORY retains
-entry-wise scalar updates. Retained solves and implicit derivatives
-use the same factors.
-
-Set `options%ldlt_supernodal = .true.` (with `SYM_INDEFINITE`, real values,
-native CPU, no host cap or LOW_MEMORY) to factor on the supernodal SPD
-schedule instead. Each supernode first tries the Cholesky of its diagonal
-block, as in SPD mode; a block that is not positive definite is factored by
-LAPACK `DSYTRF_RK` (bounded Bunch--Kaufman, rook 1x1/2x2 pivots) inside the
-block, and `L21 = A21 Q L^-T D^-1`. Pivots never leave their supernode, so the
-symbolic structure, OpenMP task schedule and retained refactors are those of
-the SPD path. This is restricted pivoting: there are no delayed pivots or
-perturbations, an exactly zero block pivot fails with `FORTSPARSE_SINGULAR`
-(saddle-point matrices with zero-diagonal leaves can fail where the scalar
-reference succeeds), and element growth is bounded only within each block.
-Inertia counts the signs of the actual block pivots (Cholesky blocks count
-positive) and reports `native_factor_family = 'LDLT_SUPERNODAL'`. The
-reliability threshold of a pivot is `n*eps*g_k` with a row-local `g_k`: the
-largest input entry of the pivot row plus `sum_j l_kj^2 |d_j|` over the pivots
-of earlier supernodes, or the largest entry of its assembled Schur row if
-larger, plus the same sum over the earlier pivots of its own block. A 2x2
-pivot `D_j = [d1 e; e d2]` contributes `|l_j|^T (|D_j| + |e| I) |l_j|`, a
-positive semidefinite majorant of `|D_j|` that keeps the scales of its two
-rows. The sums bound the Schur entries that block updates never form one by
-one, and the rounding of the pivot block entries `(i, j)` by
-`gamma*sqrt(g_i g_j)` (Cauchy-Schwarz). A 2x2 pivot's eigenvalues are
-therefore judged on the block congruence-scaled by `diag(g_i, g_j)^(-1/2)`,
-which has the same inertia (Sylvester): each eigenvalue is uncertain when its
-scaled counterpart is at most `n*eps`, which for rows of equal scale is the
-absolute threshold `n*eps*g`.
-When every task group depends on the previous one (banded and block-tridiagonal
-factors), the panels are factored in sequence outside the OpenMP team, which
-only assembles them, so a threaded BLAS is free to use the cores. Intended for
-nearly positive definite matrices such as damped Newton Hessians, where the
-Cholesky attempt and the indefinite fallback otherwise cost two factorizations.
-
-Panel inertia counts the signs of the actual block pivots, using Sylvester's
-law, with conservative row-history bounds for intermediate panel updates. As
-with scalar LDLT, RELIABLE is a floating-point diagnostic, not an exact-real or
-outward-rounded certificate. Panel bounds may classify more pivots UNCERTAIN.
-Strict host caps and LOW_MEMORY disable LAPACK panels.
-Opaque LAPACK/BLAS allocations prevent a complete panel payload-peak or strict
-cap claim; process RSS must be measured separately. The statistics
-`ldlt_blocked_panels` and `ldlt_active_threads` report actual accepted panels and
-largest observed assembly/scatter team; zero accepted panels means scalar
-elimination with row merging (entry-wise updates under LOW_MEMORY).
-The default retains scalar pivot selection, with row merges and OpenMP, pending
-representative performance admission. Its merge workspace costs
-`4*n + 12*n*threads` bytes with 32-bit indices and 64-bit reals and is included
-in the owned payload accounting. The initial
-symmetric order is distinct from numerical Bunch--Kaufman pivot swaps and is
-retained for same-pattern refactors; each refactor chooses its pivots afresh.
-DEFAULT orders as described under [default ordering](#default-ordering);
+OpenMP workers merge disjoint Schur rows (`ldlt_active_threads`); the merge
+workspace costs `4*n + 12*n*threads` bytes and is charged, and LOW_MEMORY
+retains entry-wise updates. The initial symmetric order is retained for
+same-pattern refactors; each refactor chooses its pivots afresh.
 explicit AMD is unavailable for NATIVE_REFERENCE. The common caller-workspace
 AMD path supports host caps and LOW_MEMORY for the real and complex LDL and
 the HPD factors. Its permutation input, retained initial order (`4*n` bytes),

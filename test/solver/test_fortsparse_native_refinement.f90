@@ -260,9 +260,13 @@ contains
                 end do
             end do
             if(family==1) then
+                ! the scalar LDL^H: strict caps (the native default is the
+                ! real embedding, whose BLAS workspace is opaque)
+                solver%backend_id=FORTSPARSE_BACKEND_NATIVE_REFERENCE
                 solver%options%symmetry=FORTSPARSE_SYM_HERMITIAN
                 expected_family='LDLH_COMPLEX'
             else
+                solver%backend_id=FORTSPARSE_BACKEND_NATIVE
                 solver%options%symmetry=FORTSPARSE_SYM_INDEFINITE
                 matrix(3,3)=cmplx(2,.4_dp,dp)
                 expected_family='LDLT_COMPLEX'

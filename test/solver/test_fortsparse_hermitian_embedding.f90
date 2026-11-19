@@ -1,13 +1,14 @@
 program test_fortsparse_hermitian_embedding
     ! Complex Hermitian block-tridiagonal A = L D L^H (unit lower block
     ! bidiagonal L, real diagonal D with prescribed signs): Sylvester's law
-    ! gives the exact inertia. The supernodal real embedding must return it,
-    ! agree with the scalar complex LDL^H and solve A x = b.
+    ! gives the exact inertia. The real embedding (multifrontal LDL^T) must
+    ! return it, agree with the scalar complex LDL^H and solve A x = b.
     use fortsparse_kinds, only: dp, i8
     use fortsparse_csc, only: csc_z_t, csc_from_triplet, csc_matvec
     use fortsparse_status, only: fortsparse_status_t, status_ok
     use fortsparse, only: sparse_solver_t, sparse_factor, sparse_solve, &
         sparse_inertia, sparse_destroy, FORTSPARSE_BACKEND_NATIVE, &
+        FORTSPARSE_BACKEND_NATIVE_REFERENCE, &
         FORTSPARSE_SYM_HERMITIAN, FORTSPARSE_SYM_SPD
     implicit none
     integer, parameter :: nb = 12, w = 9, n = nb*w
@@ -46,8 +47,7 @@ program test_fortsparse_hermitian_embedding
     if (.not. status_ok(status)) error stop 'matrix'
     embedded%backend_id = FORTSPARSE_BACKEND_NATIVE
     embedded%options%symmetry = FORTSPARSE_SYM_HERMITIAN
-    embedded%options%ldlt_supernodal = .true.
-    scalar%backend_id = FORTSPARSE_BACKEND_NATIVE
+    scalar%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
     scalar%options%symmetry = FORTSPARSE_SYM_HERMITIAN
     call sparse_factor(embedded, a, status)
     if (.not. status_ok(status)) then
@@ -88,7 +88,6 @@ program test_fortsparse_hermitian_embedding
     call csc_from_triplet(n, n, rows(:k), cols(:k), vals(:k), a, status)
     embedded%backend_id = FORTSPARSE_BACKEND_NATIVE
     embedded%options%symmetry = FORTSPARSE_SYM_SPD
-    embedded%options%ldlt_supernodal = .true.
     call sparse_factor(embedded, a, status)
     if (.not. status_ok(status)) error stop 'embedded positive definite factor'
     call sparse_solve(embedded, b, x, status)

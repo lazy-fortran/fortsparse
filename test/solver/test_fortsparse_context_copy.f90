@@ -312,7 +312,7 @@ contains
         s%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(s, a, status)
         call check(status_ok(status), 'real LDLT factor')
-        call copy_real(s, d, 'LDLT_REAL', 'real LDLT')
+        call copy_real(s, d, 'LDLT_MULTIFRONT', 'real LDLT')
     end subroutine lu_cases
 
     subroutine complex_cases()
@@ -351,7 +351,7 @@ contains
         s%options%symmetry = FORTSPARSE_SYM_SPD
         call sparse_factor(s, a, status)
         call check(status_ok(status), 'HPD factor')
-        call copy_complex(s, d, 'CHOLESKY_HPD', 'HPD')
+        call copy_complex(s, d, 'HPD_EMBEDDED', 'HPD')
 
         ! Complex symmetric (A = A^T) indefinite LDLT.
         d = (0.0_dp, 0.0_dp)

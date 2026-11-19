@@ -56,15 +56,11 @@ program bench_block_tridiagonal
     case ('lapack')
         reference = .true.
     case ('scalar')
-    case ('blocked')
-        solver%options%ldlt_blocked = .true.
-    case ('supernodal')
-        solver%options%ldlt_supernodal = .true.
-    case ('supernodal-natural')
-        solver%options%ldlt_supernodal = .true.
+        solver%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
+    case ('multifrontal')
+    case ('multifrontal-natural')
         solver%options%ordering = FORTSPARSE_ORDER_NATURAL
-    case ('supernodal-nd')
-        solver%options%ldlt_supernodal = .true.
+    case ('multifrontal-nd')
         solver%options%ordering = FORTSPARSE_ORDER_ND
     case ('mumps')
         solver%backend_id = FORTSPARSE_BACKEND_MUMPS
@@ -73,8 +69,8 @@ program bench_block_tridiagonal
     case ('umfpack')
         solver%backend_id = FORTSPARSE_BACKEND_UMFPACK_IPC
     case default
-        error stop 'MODE: lapack|scalar|blocked|supernodal|supernodal-natural|' &
-            //'supernodal-nd|mumps|superlu|umfpack'
+        error stop 'MODE: lapack|scalar|multifrontal|multifrontal-natural|' &
+            //'multifrontal-nd|mumps|superlu|umfpack'
     end select
 
     t_refactor = huge(1.0_dp)

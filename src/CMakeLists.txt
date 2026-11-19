@@ -37,6 +37,7 @@ target_sources(fortsparse PRIVATE
     native/fortsparse_native_hpd.f90
     native/fortsparse_native_hermitian_embedding.f90
     native/fortsparse_native_ldlt.f90
+    native/fortsparse_native_multifrontal.f90
     native/fortsparse_native_ldlt_z.f90
     native/fortsparse_mixed_lu.f90
     native/fortsparse_native_lu.f90
@@ -45,7 +46,6 @@ target_sources(fortsparse PRIVATE
     native/fsparse_native_lu_memory.c
     native/fsparse_native_symbolic.c
     native/fortsparse_native_cuda.F90
-    native/fortsparse_native_sytrf.F90
     native/fortsparse_native_supernode_schedule.F90
     native/fortsparse_native_supernodes.F90
     native/fortsparse_native_slu.F90

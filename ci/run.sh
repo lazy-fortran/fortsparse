@@ -110,7 +110,7 @@ cmake --build build -j 2 --target \
   test_mixed_allocations \
   test_fortsparse_native_general_api \
   test_fortsparse_slu_z_api \
-  test_fortsparse_ldlt_blocked \
+  test_fortsparse_ldlt_multifrontal \
   test_fortsparse_native_ldlt \
   test_fortsparse_native_ldlt_z \
   test_fortsparse_inertia
@@ -120,7 +120,7 @@ cmake --build build -j 2 --target \
     load_job_environment
     echo 'Test focused solver gates'
     (
-ctest --test-dir build -j 2 --output-on-failure --no-tests=error -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_blocked|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
+ctest --test-dir build -j 2 --output-on-failure --no-tests=error -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_multifrontal|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
 
     )
     load_job_environment

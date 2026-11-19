@@ -10,12 +10,9 @@ module fortsparse_native_supernodes
     use fortnum_blas, only: dgemm => fortnum_dgemm
     use fortnum_blas12, only: dgemv => fortnum_dgemv, dtrsv => fortnum_dtrsv
     use fortnum_blas3, only: dsyrk => fortnum_dsyrk
-    use fortsparse_inertia, only: inertia_count_t, inertia_add_pivot, inertia_add_scaled_block, &
-        inertia_tolerance
     use fortsparse_spd_leaves, only: spd_panel_factor, spd_panel_solve, &
         spd_scatter_mapped_update, spd_scatter_update, spd_schur_update, &
         spd_divide, spd_gather_update
-    use fortsparse_native_sytrf, only: sytrf_rk_lower
     use fortsparse_native_supernode_schedule, only: supernode_t, supernode_schedule_t, &
         supernode_partition, supernode_gather_rows, supernode_charge
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -37,12 +34,6 @@ module fortsparse_native_supernodes
     implicit none
     private
     integer, parameter :: NOT_SPD = FORTSPARSE_NOT_POSITIVE_DEFINITE
-    ! Indefinite mode: a singular (exactly zero) or nonfinite pivot block.
-    integer, parameter :: LDL_SINGULAR = FORTSPARSE_SINGULAR
-    ! Panel factor kinds in indefinite mode: the diagonal block is SPD
-    ! (Cholesky, as in SPD mode) or factored by the bounded Bunch--Kaufman
-    ! (rook) LDL^T restricted to the block.
-    integer, parameter :: PANEL_CHOLESKY = 0, PANEL_LDLT = 1
 
     ! The structural supernode (first, width, m, rows) comes from the shared
     ! schedule module; the numeric views below are SPD-owned.
@@ -90,22 +81,6 @@ module fortsparse_native_supernodes
         integer, private :: device = -1
         type(c_ptr), private :: cuda = c_null_ptr
         type(update_t), allocatable, private :: updates(:)
-        ! Symmetric indefinite mode (build argument indefinite): every panel
-        ! first tries the Cholesky of its diagonal block; a block that is not
-        ! positive definite is factored as Q^T A11 Q = L D L^T with rook
-        ! Bunch--Kaufman pivots restricted to the block (LAPACK DSYTRF_RK).
-        ! The pivot order inside a supernode never changes the symbolic
-        ! structure. Small pivots are not perturbed: an exactly zero pivot is a
-        ! SINGULAR failure, and growth is bounded only within the block.
-        logical :: indefinite = .false.
-        integer :: ldlt_panels = 0
-        type(inertia_count_t) :: inertia
-        integer, allocatable, private :: panel_kind(:), ldl_pivots(:)
-        real(dp), allocatable, private :: ldl_offdiag(:), ldl_work(:,:)
-        type(inertia_count_t), allocatable, private :: panel_inertia(:)
-        ! Per column: bound on every Schur entry magnitude formed in its row,
-        ! max |A(row, :)| plus sum_k l_k^2 |d_k| over the eliminated pivots.
-        real(dp), allocatable, private :: ldl_bound(:)
     contains
         procedure :: build
         procedure :: factor
@@ -135,8 +110,7 @@ contains
         self%budget_reduced_threads = self%sched%budget_reduced_threads
     end subroutine publish_schedule
 
-    subroutine build(self, n, lp, li, nthreads, status, device, budget, device_limit, &
-            indefinite)
+    subroutine build(self, n, lp, li, nthreads, status, device, budget, device_limit)
         ! The supplied ledger already includes caller-owned live allocations.
         ! Pass the same ledger to free, or reset the whole owning context ledger.
         ! No pointer to that caller ledger survives this call.
@@ -148,7 +122,6 @@ contains
         integer, optional, intent(in) :: device
         type(memory_budget_t), optional, intent(inout) :: budget
         integer(i8), optional, intent(in) :: device_limit
-        logical, optional, intent(in) :: indefinite
         type(memory_budget_t) :: ledger
         integer(i8) :: baseline, device_peak, device_required, device_available
         logical :: device_tracked
@@ -161,17 +134,6 @@ contains
             return
         end if
         self%strict_budget = present(budget)
-        if (present(indefinite)) self%indefinite = indefinite
-        if (self%indefinite) then
-            ! The indefinite panels use BLAS/LAPACK workspaces outside the
-            ! strict ledger and have no CUDA kernels.
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'supernodal LDL^T: no strict host budget or CUDA device')
-            if (present(budget)) return
-            if (present(device)) then
-                if (device >= 0) return
-            end if
-        end if
         if (present(budget)) self%build_ledger = budget
         call self%build_ledger%reserve(0_i8, status)
         if (status%code /= FORTSPARSE_OK) return
@@ -368,7 +330,6 @@ contains
         self%use_blas = self%flops >= 1.0e7_dp .or. self%device >= 0
         if (any(self%panels%width >= 96)) self%use_blas = .true.
         if (self%strict_budget) self%use_blas = .false.
-        if (self%indefinite) self%use_blas = .true.
         call self%sched%request_threads(nthreads, self%flops, self%device >= 0)
         if (self%device < 0) then
             call self%sched%setup_incoming(self%panels, self%build_ledger, status)
@@ -403,10 +364,6 @@ contains
 #endif
         call self%sched%allocate_update_work(maxwork, self%build_ledger, status)
         if (status%code /= FORTSPARSE_OK) return
-        if (self%indefinite) then
-            call allocate_ldl(self, status)
-            if (status%code /= FORTSPARSE_OK) return
-        end if
         self%workspace_bytes = self%memory_bytes()-self%factor_storage_bytes
         if (allocated(mark)) then
             deallocate(mark, starts, ends, counts, rowlist)
@@ -454,10 +411,6 @@ contains
         end if
         started = seconds()
         self%failures = 0
-        if (self%indefinite) then
-            self%ldl_bound = 0.0_dp
-            self%panel_kind = PANEL_CHOLESKY
-        end if
         self%sched%rowmap = 0
         compatible = .true.
         ! Panels own disjoint storage and every thread its own row map.
@@ -523,17 +476,6 @@ contains
             self%active_threads = self%sched%active_threads
         end if
         self%numeric_s = seconds()-started
-        if (self%indefinite) then
-            if (any(self%failures /= 0)) then
-                call status_set(status, LDL_SINGULAR, &
-                    'supernodal LDL^T: zero or nonfinite pivot block')
-                return
-            end if
-            call merge_inertia(self)
-            self%ready = .true.
-            call status_set(status, FORTSPARSE_OK, '')
-            return
-        end if
         if (any(self%failures /= 0)) then
             call status_set(status, NOT_SPD, 'supernode: nonpositive or nonfinite pivot')
             return
@@ -559,8 +501,6 @@ contains
             row = self%panels(s)%first+j-1
             original_column = row
             if (present(perm)) original_column = perm(row)
-            if (self%indefinite) self%ldl_bound(row) = maxval(abs(a%val( &
-                a%col_ptr(original_column):a%col_ptr(original_column+1)-1)))
             do p = a%col_ptr(original_column), a%col_ptr(original_column+1)-1
                 mapped_row = a%row_idx(p)
                 if (present(inverse)) mapped_row = inverse(mapped_row)
@@ -619,10 +559,6 @@ contains
         integer :: info, w, m
         real(dp), pointer, contiguous :: values(:,:), tail(:)
         if (self%failures(s) /= 0) return
-        if (self%indefinite) then
-            call ldl_panel_factor(self, s)
-            return
-        end if
         w = self%panels(s)%width
         m = self%panels(s)%m
         values => self%panels(s)%values
@@ -665,17 +601,6 @@ contains
         w = self%panels(source)%width
         m2 = m-first+1
         source_values => self%host_values(self%panels(source)%offset+first:)
-        if (self%indefinite) then
-            do j = 1, q
-                column = self%panels(source)%rows(first+j-1)
-                self%ldl_bound(column) = self%ldl_bound(column) &
-                    +ldl_row_history(self, source, first+j-1, w)
-            end do
-            if (self%panel_kind(source) == PANEL_LDLT) then
-                call ldl_accumulate_update(self, source, dest, first, q, thread)
-                return
-            end if
-        end if
         ! A rank-one contraction is already the retained generated scalar
         ! Schur update. Apply it directly through the destination row map;
         ! no BLAS dispatch, product scratch or dense-intersection scan.
@@ -746,381 +671,6 @@ contains
         end do
     end subroutine accumulate_update
 
-    subroutine allocate_ldl(self, status)
-        ! Indefinite-mode data: panel kinds and inertia, per-column pivots and
-        ! D subdiagonal, and per-thread scratch for the block copy plus the
-        ! DSYTRF_RK workspace (w^2 + 64 w) or an update operand W (m w).
-        class(supernodes_t), intent(inout) :: self
-        type(fortsparse_status_t), intent(out) :: status
-        integer(i8) :: need, w, m
-        integer :: s, ierr, threads
-        need = 1_i8
-        do s = 1, self%node_count
-            w = self%panels(s)%width
-            m = self%panels(s)%m
-            need = max(need, m*w, w*w+64_i8*w)
-        end do
-        if (need > int(huge(s),i8)) then
-            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
-                'supernodal LDL^T workspace too large')
-            return
-        end if
-        threads = max(1, self%sched%active_threads)
-        call charge(self, need*threads+3_i8*self%n, 8_i8, status, &
-            'supernodal LDL^T pivots and workspace')
-        if (status%code /= FORTSPARSE_OK) return
-        allocate(self%ldl_work(need,threads), self%panel_kind(self%node_count), &
-            self%ldl_pivots(self%n), self%ldl_offdiag(self%n), &
-            self%ldl_bound(self%n), self%panel_inertia(self%node_count), stat=ierr)
-        if (ierr /= 0) then
-            call allocation_error(self, status)
-            return
-        end if
-        self%panel_kind = PANEL_CHOLESKY
-        self%ldl_pivots = 0
-        self%ldl_offdiag = 0.0_dp
-        call status_set(status, FORTSPARSE_OK, '')
-    end subroutine allocate_ldl
-
-    subroutine ldl_panel_factor(self, s)
-        use fortnum_blas3, only: dtrsm => fortnum_dtrsm
-        ! Indefinite mode: Cholesky of the diagonal block when it is SPD,
-        ! otherwise Q^T A11 Q = L D L^T (DSYTRF_RK rook pivots inside the
-        ! block, or DSYTRF Bunch--Kaufman on LAPACK < 3.7) and
-        ! L21 = A21 Q L^-T D^-1. The tail rows keep their labels; only the
-        ! block columns are permuted.
-        class(supernodes_t), intent(inout) :: self
-        integer, intent(in) :: s
-        integer :: w, m, info, thread, i, j, k, first, ip, lwork
-        integer(c_size_t) :: c1, c2
-        real(dp) :: d11, d22, e, det, x1, x2, saved, history
-        real(dp), pointer, contiguous :: values(:,:)
-        type(inertia_count_t) :: count
-        w = self%panels(s)%width
-        m = self%panels(s)%m
-        first = self%panels(s)%first
-        values => self%panels(s)%values
-        thread = self%sched%workspace_thread()
-        k = 0
-        do j = 1, w
-            ! The assembled Schur row of every pivot candidate is formed too.
-            do i = j, w
-                k = k+1
-                self%ldl_work(k,thread) = values(i,j)
-                self%ldl_bound(first-1+i) = max(self%ldl_bound(first-1+i), abs(values(i,j)))
-            end do
-            self%ldl_bound(first-1+j) = max(self%ldl_bound(first-1+j), maxval(abs(values(j:m,j))))
-        end do
-        count = inertia_count_t()
-        call spd_panel_factor(values, w, m, info)
-        if (info == 0) then
-            self%panel_kind(s) = PANEL_CHOLESKY
-            do j = 1, w
-                call inertia_add_pivot(count, 1, values(j,j)**2, 0.0_dp, 0.0_dp, &
-                    inertia_tolerance(self%n, self%ldl_bound(first-1+j) &
-                    +ldl_row_history(self, s, j, j-1)))
-            end do
-            if (m > w) call spd_panel_solve(values, w, m, &
-                self%host_values(self%panels(s)%offset+w+1:), m-w, m, .true.)
-        else
-            k = 0
-            do j = 1, w
-                do i = j, w
-                    k = k+1
-                    values(i,j) = self%ldl_work(k,thread)
-                end do
-            end do
-            self%panel_kind(s) = PANEL_LDLT
-            lwork = size(self%ldl_work,1)-w*w
-            call sytrf_rk_lower(w, values, m, self%ldl_offdiag(first), &
-                self%ldl_pivots(first), self%ldl_work(w*w+1,thread), lwork, info)
-            if (info /= 0) then
-                self%failures(s) = LDL_SINGULAR
-                return
-            end if
-            ! Row bounds follow their pivots through the block interchanges
-            ! and gain the block's own elimination history.
-            do k = 1, w
-                ip = abs(self%ldl_pivots(first+k-1))
-                saved = self%ldl_bound(first-1+k)
-                self%ldl_bound(first-1+k) = self%ldl_bound(first-1+ip)
-                self%ldl_bound(first-1+ip) = saved
-            end do
-            k = 1
-            do while (k <= w)
-                if (self%ldl_pivots(first+k-1) > 0 .or. k == w) then
-                    history = self%ldl_bound(first-1+k)+ldl_row_history(self, s, k, k-1)
-                    call inertia_add_pivot(count, 1, values(k,k), 0.0_dp, 0.0_dp, &
-                        inertia_tolerance(self%n, history))
-                    k = k+1
-                else
-                    ! The computed pivot block is A_BB - sum_p L_Bp D_p L_Bp^T
-                    ! + F with |F_ij| <= gamma (|A_ij| + (|L||D||L^T|)_ij)
-                    ! (inner products in any order, gamma ~ n u). Its rows
-                    ! have g_i = b_i + h_i: b_i >= max_j |A_ij| (full
-                    ! symmetric A), and h_i the history of ldl_row_history
-                    ! over all earlier pivots (those of earlier panels are
-                    ! added to ldl_bound). |A_ij| <= sqrt(b_i b_j) and
-                    ! (|L||D||L^T|)_ij <= sqrt(h_i h_j), so by Cauchy-Schwarz
-                    ! |F_ij| <= gamma sqrt(g_i g_j): each eigenvalue is
-                    ! judged on its own scale (inertia_add_scaled_block).
-                    call inertia_add_scaled_block(count, self%n, values(k,k), &
-                        abs(self%ldl_offdiag(first+k-1)), values(k+1,k+1), &
-                        self%ldl_bound(first-1+k)+ldl_row_history(self, s, k, k-1), &
-                        self%ldl_bound(first-1+k+1)+ldl_row_history(self, s, k+1, k-1))
-                    k = k+2
-                end if
-            end do
-            if (m > w) then
-                ! Column interchanges of A21 in factor order, X = A21 Q L^-T,
-                ! then L21 = X D^-1 (D: 1x1 and 2x2 blocks).
-                do k = 1, w
-                    ip = abs(self%ldl_pivots(first+k-1))
-                    if (ip == k) cycle
-                    c1 = self%panels(s)%offset+int(k-1,c_size_t)*m
-                    c2 = self%panels(s)%offset+int(ip-1,c_size_t)*m
-                    do i = w+1, m
-                        saved = self%host_values(c1+i)
-                        self%host_values(c1+i) = self%host_values(c2+i)
-                        self%host_values(c2+i) = saved
-                    end do
-                end do
-                call dtrsm('R', 'L', 'T', 'U', m-w, w, 1.0_dp, values, m, &
-                    values(w+1:,1), m)
-                k = 1
-                do while (k <= w)
-                    if (self%ldl_pivots(first+k-1) > 0 .or. k == w) then
-                        values(w+1:m,k) = values(w+1:m,k)/values(k,k)
-                        k = k+1
-                    else
-                        d11 = values(k,k)
-                        d22 = values(k+1,k+1)
-                        e = self%ldl_offdiag(first+k-1)
-                        det = d11*d22-e*e
-                        do i = w+1, m
-                            x1 = values(i,k)
-                            x2 = values(i,k+1)
-                            values(i,k) = (x1*d22-x2*e)/det
-                            values(i,k+1) = (x2*d11-x1*e)/det
-                        end do
-                        k = k+2
-                    end if
-                end do
-            end if
-        end if
-        self%panel_inertia(s) = count
-        if (.not. all(ieee_is_finite(values))) self%failures(s) = LDL_SINGULAR
-    end subroutine ldl_panel_factor
-
-    pure function ldl_row_history(self, s, row, columns) result(history)
-        ! sum_k |l_k|^T M_k |l_k| over the first columns pivots of panel s in
-        ! its row, M_k = |d_k| for a 1x1 pivot and |D_k| + |e_k| I for a 2x2
-        ! pivot D_k = [d1 e; e d2]: M_k is positive semidefinite
-        ! ((|d1|+|e|)(|d2|+|e|) >= e^2) and at least |D_k| entrywise, so by
-        ! Cauchy-Schwarz every partial sum of |l_i| |D| |l_j|^T is at most
-        ! sqrt(h_i h_j), and each block keeps the scales of its own rows.
-        class(supernodes_t), intent(in) :: self
-        integer, intent(in) :: s, row, columns
-        real(dp) :: history
-        integer :: k, first
-        real(dp) :: weight, l1, l2
-        history = 0.0_dp
-        first = self%panels(s)%first
-        if (self%panel_kind(s) /= PANEL_LDLT) then
-            do k = 1, columns
-                history = history+self%panels(s)%values(row,k)**2
-            end do
-            return
-        end if
-        k = 1
-        do while (k <= columns)
-            if (self%ldl_pivots(first+k-1) > 0 .or. k == self%panels(s)%width) then
-                history = history+self%panels(s)%values(row,k)**2 &
-                    *abs(self%panels(s)%values(k,k))
-                k = k+1
-            else
-                weight = abs(self%ldl_offdiag(first+k-1))
-                l1 = abs(self%panels(s)%values(row,k))
-                l2 = abs(self%panels(s)%values(row,k+1))
-                history = history+l1*l1*(abs(self%panels(s)%values(k,k))+weight) &
-                    +2.0_dp*l1*l2*weight+l2*l2*(abs(self%panels(s)%values(k+1,k+1))+weight)
-                k = k+2
-            end if
-        end do
-    end function ldl_row_history
-
-    subroutine ldl_scaled_rows(self, source, first, thread)
-        ! ldl_work(:, thread) := W = L21(first:m, :) D (m2 by w) of an LDL^T
-        ! source panel, so that its Schur contribution is W L21(first:, :)^T.
-        class(supernodes_t), intent(inout) :: self
-        integer, intent(in) :: source, first, thread
-        integer :: m, w, m2, k, i, pfirst
-        real(dp) :: d11, d22, e
-        real(dp), pointer, contiguous :: values(:,:)
-        m = self%panels(source)%m
-        w = self%panels(source)%width
-        m2 = m-first+1
-        pfirst = self%panels(source)%first
-        values => self%panels(source)%values
-        k = 1
-        do while (k <= w)
-            if (self%ldl_pivots(pfirst+k-1) > 0 .or. k == w) then
-                do i = 1, m2
-                    self%ldl_work((k-1)*m2+i,thread) = values(first+i-1,k)*values(k,k)
-                end do
-                k = k+1
-            else
-                d11 = values(k,k)
-                d22 = values(k+1,k+1)
-                e = self%ldl_offdiag(pfirst+k-1)
-                do i = 1, m2
-                    self%ldl_work((k-1)*m2+i,thread) = values(first+i-1,k)*d11 &
-                        +values(first+i-1,k+1)*e
-                    self%ldl_work(k*m2+i,thread) = values(first+i-1,k)*e &
-                        +values(first+i-1,k+1)*d22
-                end do
-                k = k+2
-            end if
-        end do
-    end subroutine ldl_scaled_rows
-
-    subroutine ldl_accumulate_update(self, source, dest, first, q, thread)
-        ! Destination -= L21 D L21^T restricted to the source rows first:m
-        ! (columns first:first+q-1) for an LDL^T source panel.
-        class(supernodes_t), intent(inout) :: self
-        integer, intent(in) :: source, dest, first, q, thread
-        integer :: m, w, m2, j, p, column, offset, position, dest_m
-        integer(c_size_t) :: dest_offset
-        logical :: contiguous_rows
-        real(dp), pointer, contiguous :: source_values(:), dest_values(:)
-        m = self%panels(source)%m
-        w = self%panels(source)%width
-        m2 = m-first+1
-        source_values => self%host_values(self%panels(source)%offset+first:)
-        call ldl_scaled_rows(self, source, first, thread)
-        if (w == 1) then
-            do j = 1, q
-                column = self%panels(source)%rows(first+j-1)-self%panels(dest)%first+1
-                dest_values => self%panels(dest)%values(:,column)
-                call spd_scatter_mapped_update(dest_values, &
-                    self%panels(source)%rows(first+j-1:), self%sched%rowmap(:,thread), &
-                    source_values(j:), m2-j+1, self%ldl_work(j,thread))
-            end do
-            return
-        end if
-        position = self%sched%rowmap(self%panels(source)%rows(first),thread)
-        contiguous_rows = position > 0
-        if (contiguous_rows) then
-            do p = first+1, m
-                if (self%sched%rowmap(self%panels(source)%rows(p),thread) &
-                    == position+p-first) cycle
-                contiguous_rows = .false.
-                exit
-            end do
-        end if
-        if (contiguous_rows) then
-            do j = 2, q
-                if (self%panels(source)%rows(first+j-1) &
-                    == self%panels(source)%rows(first)+j-1) cycle
-                contiguous_rows = .false.
-                exit
-            end do
-        end if
-        if (contiguous_rows) then
-            ! The full q by q block also writes the unused upper triangle of
-            ! the destination diagonal block, which no kernel reads.
-            column = self%panels(source)%rows(first)-self%panels(dest)%first+1
-            dest_m = self%panels(dest)%m
-            dest_offset = self%panels(dest)%offset &
-                +int(column-1,c_size_t)*dest_m+position
-            dest_values => self%host_values(dest_offset:)
-            call dgemm('N', 'T', m2, q, w, -1.0_dp, self%ldl_work(1,thread), m2, &
-                source_values, m, 1.0_dp, dest_values, dest_m)
-            return
-        end if
-        call dgemm('N', 'T', m2, q, w, -1.0_dp, self%ldl_work(1,thread), m2, &
-            source_values, m, 0.0_dp, self%sched%update_work(1,thread), m2)
-        do j = 1, q
-            column = self%panels(source)%rows(first+j-1)-self%panels(dest)%first+1
-            offset = (j-1)*m2+j
-            dest_values => self%panels(dest)%values(:,column)
-            call spd_scatter_mapped_update(dest_values, &
-                self%panels(source)%rows(first+j-1:), self%sched%rowmap(:,thread), &
-                self%sched%update_work(offset:,thread), m2-j+1, -1.0_dp)
-        end do
-    end subroutine ldl_accumulate_update
-
-    subroutine ldl_permute(self, s, x, forward)
-        ! x(1:w) := Q^T x (forward) or Q x for the block interchanges of s.
-        class(supernodes_t), intent(in) :: self
-        integer, intent(in) :: s
-        real(dp), intent(inout) :: x(:)
-        logical, intent(in) :: forward
-        integer :: k, ip, first, w
-        real(dp) :: saved
-        first = self%panels(s)%first
-        w = self%panels(s)%width
-        if (forward) then
-            do k = 1, w
-                ip = abs(self%ldl_pivots(first+k-1))
-                saved = x(k); x(k) = x(ip); x(ip) = saved
-            end do
-        else
-            do k = w, 1, -1
-                ip = abs(self%ldl_pivots(first+k-1))
-                saved = x(k); x(k) = x(ip); x(ip) = saved
-            end do
-        end if
-    end subroutine ldl_permute
-
-    subroutine ldl_diagonal_solve(self, s, x)
-        ! x(1:w) := D^-1 x for the 1x1 and 2x2 pivots of panel s.
-        class(supernodes_t), intent(in) :: self
-        integer, intent(in) :: s
-        real(dp), intent(inout) :: x(:)
-        integer :: k, first, w
-        real(dp) :: d11, d22, e, det, x1, x2
-        first = self%panels(s)%first
-        w = self%panels(s)%width
-        k = 1
-        do while (k <= w)
-            if (self%ldl_pivots(first+k-1) > 0 .or. k == w) then
-                x(k) = x(k)/self%panels(s)%values(k,k)
-                k = k+1
-            else
-                d11 = self%panels(s)%values(k,k)
-                d22 = self%panels(s)%values(k+1,k+1)
-                e = self%ldl_offdiag(first+k-1)
-                det = d11*d22-e*e
-                x1 = x(k)
-                x2 = x(k+1)
-                x(k) = (x1*d22-x2*e)/det
-                x(k+1) = (x2*d11-x1*e)/det
-                k = k+2
-            end if
-        end do
-    end subroutine ldl_diagonal_solve
-
-    subroutine merge_inertia(self)
-        ! Sylvester inertia of the block pivots, merged in panel order.
-        class(supernodes_t), intent(inout) :: self
-        integer :: s
-        self%inertia = inertia_count_t()
-        self%ldlt_panels = 0
-        do s = 1, self%node_count
-            associate (c => self%panel_inertia(s))
-                self%inertia%negative = self%inertia%negative+c%negative
-                self%inertia%zero = self%inertia%zero+c%zero
-                self%inertia%positive = self%inertia%positive+c%positive
-                self%inertia%uncertain = self%inertia%uncertain+c%uncertain
-                if (c%min_magnitude < self%inertia%min_magnitude) then
-                    self%inertia%min_magnitude = c%min_magnitude
-                    self%inertia%tolerance = c%tolerance
-                end if
-            end associate
-            if (self%panel_kind(s) == PANEL_LDLT) self%ldlt_panels = self%ldlt_panels+1
-        end do
-    end subroutine merge_inertia
 
     subroutine solve(self, b, status)
         class(supernodes_t), intent(inout) :: self
@@ -1132,7 +682,6 @@ contains
         type(fortsparse_status_t), intent(out) :: status
         integer :: s, m, w, first, p, j, column
         real(dp) :: value
-        logical :: ldl
         real(dp), pointer, contiguous :: values(:,:), tail(:)
         call status_set(status, FORTSPARSE_NOT_FACTORED, 'supernode factor unavailable')
         if (.not. self%ready) return
@@ -1175,14 +724,7 @@ contains
             first = self%panels(s)%first
             values => self%panels(s)%values
             tail => self%host_values(self%panels(s)%offset+w+1:)
-            ldl = .false.
-            if (self%indefinite) ldl = self%panel_kind(s) == PANEL_LDLT
-            if (ldl) then
-                call ldl_permute(self, s, b(first:), .true.)
-                call dtrsv('L', 'N', 'U', w, values, m, b(first:), 1)
-            else
-                call dtrsv('L', 'N', 'N', w, values, m, b(first:), 1)
-            end if
+            call dtrsv('L', 'N', 'N', w, values, m, b(first:), 1)
             if (m > w) then
                 call dgemv('N', m-w, w, 1.0_dp, &
                     tail, m, &
@@ -1190,7 +732,6 @@ contains
                 call spd_scatter_update(b, self%panels(s)%rows(w+1:), self%solve_work, &
                     m-w, 1.0_dp)
             end if
-            if (ldl) call ldl_diagonal_solve(self, s, b(first:))
         end do
         do s = self%node_count, 1, -1
             m = self%panels(s)%m
@@ -1206,14 +747,7 @@ contains
                     tail, m, &
                     self%solve_work, 1, 1.0_dp, b(first:), 1)
             end if
-            ldl = .false.
-            if (self%indefinite) ldl = self%panel_kind(s) == PANEL_LDLT
-            if (ldl) then
-                call dtrsv('L', 'T', 'U', w, values, m, b(first:), 1)
-                call ldl_permute(self, s, b(first:), .false.)
-            else
-                call dtrsv('L', 'T', 'N', w, values, m, b(first:), 1)
-            end if
+            call dtrsv('L', 'T', 'N', w, values, m, b(first:), 1)
         end do
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine solve
@@ -1274,15 +808,6 @@ contains
         call self%sched%free()
         if (allocated(self%failures)) deallocate(self%failures)
         if (allocated(self%solve_work)) deallocate(self%solve_work)
-        if (allocated(self%panel_kind)) deallocate(self%panel_kind)
-        if (allocated(self%ldl_pivots)) deallocate(self%ldl_pivots)
-        if (allocated(self%ldl_offdiag)) deallocate(self%ldl_offdiag)
-        if (allocated(self%ldl_bound)) deallocate(self%ldl_bound)
-        if (allocated(self%ldl_work)) deallocate(self%ldl_work)
-        if (allocated(self%panel_inertia)) deallocate(self%panel_inertia)
-        self%indefinite = .false.
-        self%ldlt_panels = 0
-        self%inertia = inertia_count_t()
         self%n = 0
         self%node_count = 0
         self%active_threads = 1
@@ -1389,13 +914,6 @@ contains
         if (allocated(self%solve_work)) bytes = bytes+8_i8*size(self%solve_work,kind=i8)
         if (allocated(self%updates)) &
             bytes = bytes+int(storage_size(self%updates)/8,i8)*size(self%updates,kind=i8)
-        if (allocated(self%panel_kind)) bytes = bytes+4_i8*size(self%panel_kind,kind=i8)
-        if (allocated(self%ldl_pivots)) bytes = bytes+4_i8*size(self%ldl_pivots,kind=i8)
-        if (allocated(self%ldl_offdiag)) bytes = bytes+8_i8*size(self%ldl_offdiag,kind=i8)
-        if (allocated(self%ldl_bound)) bytes = bytes+8_i8*size(self%ldl_bound,kind=i8)
-        if (allocated(self%ldl_work)) bytes = bytes+8_i8*size(self%ldl_work,kind=i8)
-        if (allocated(self%panel_inertia)) bytes = bytes &
-            +int(storage_size(self%panel_inertia)/8,i8)*size(self%panel_inertia,kind=i8)
     end function memory_bytes
 
 #ifdef FORTSPARSE_HAVE_NATIVE_CUDA

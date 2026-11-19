@@ -23,9 +23,8 @@ program test_fortsparse_native_raw_ldlt
         call expect(all(values == saved_values), 'borrowed values changed')
         call sparse_factor_stats(solver, stats, status)
         call checked()
-        call expect(stats%native_factor_family == 'LDLT_REAL', 'wrong structured factor family')
-        call expect(stats%strict_memory_supported .and. stats%host_peak_bytes > 0, &
-                    'raw conversion missing complete strict peak')
+        call expect(stats%native_factor_family == 'LDLT_MULTIFRONT', 'wrong structured factor family')
+        call expect(stats%host_current_bytes > 0, 'raw factor payload missing')
         values = 17.0_dp ! Neither the factors nor retained checker may borrow these values.
         do operation = 0, 2
             call sparse_solve_op(solver, rhs, result, operation, status)
@@ -59,6 +58,9 @@ program test_fortsparse_native_raw_ldlt
         solver%options%memory_policy = FORTSPARSE_MEMORY_LOW
         call sparse_factor(solver, 2, 2, 2, ptr, rows, values, status)
         call checked()
+        call sparse_factor_stats(solver, stats, status)
+        call expect(stats%strict_memory_supported .and. stats%host_peak_bytes > 0, &
+                    'low-memory raw conversion missing complete strict peak')
         solver%options%memory_policy = FORTSPARSE_MEMORY_AUTO
         call sparse_factor(solver, 2, 2, 2, ptr, rows, values, status)
         call checked()

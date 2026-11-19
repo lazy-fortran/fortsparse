@@ -21,9 +21,9 @@ cmake --build build/fortyard-native -j "$jobs" --target test_fortsparse_slu_fact
     test_fortsparse_slu_z_api test_fortsparse_slu_threads test_fortsparse_amg \
     test_fortsparse_csr_smoothers test_amg_allocations \
     test_fortsparse_compiler_self_assignment test_fortsparse_context_copy \
-    test_fortsparse_native_spd_refactor test_fortsparse_sytrf_rk
+    test_fortsparse_native_spd_refactor
 ctest --test-dir build/fortyard-native -j1 --output-on-failure --no-tests=error \
-    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers|compiler_self_assignment|check_compiler_cache|context_copy|native_spd_refactor|sytrf_rk)$|^test_amg_allocations$'
+    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers|compiler_self_assignment|check_compiler_cache|context_copy|native_spd_refactor)$|^test_amg_allocations$'
 
 OMP_NUM_THREADS=1
 cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-cmake \
@@ -38,7 +38,7 @@ cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \
     test_fortsparse_umfpack_controls fortsparse_umfpack_helper \
     test_fortsparse_precision test_fortsparse_mixed_lu test_fortsparse_stability \
     test_mixed_allocations test_fortsparse_native_general_api \
-    test_fortsparse_slu_z_api test_fortsparse_ldlt_blocked \
+    test_fortsparse_slu_z_api test_fortsparse_ldlt_multifrontal \
     test_fortsparse_native_ldlt test_fortsparse_native_ldlt_z test_fortsparse_inertia
 ctest --test-dir build/fortyard-cmake -j "$jobs" --output-on-failure --no-tests=error \
-    -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_blocked|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
+    -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_multifrontal|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'

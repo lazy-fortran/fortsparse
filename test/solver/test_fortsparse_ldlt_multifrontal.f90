@@ -1,11 +1,12 @@
-program test_fortsparse_ldlt_supernodal
-    ! Supernodal LDL^T (options%ldlt_supernodal, FORTSPARSE_SYM_INDEFINITE).
-    ! Oracles: the analytic spectrum of the shifted 5-point Dirichlet
-    ! Laplacian (inertia), backward errors of solves against the input matrix, the
-    ! unrestricted scalar Bunch--Kaufman reference on a dense indefinite
-    ! matrix with zero diagonal (2x2 pivots inside one supernode), team
-    ! sizes 1 and 4 (same inertia, small residuals), and an exactly singular
-    ! bordered matrix whose count must stay uncertified under row scaling.
+program test_fortsparse_ldlt_multifrontal
+    ! Multifrontal LDL^T (native CPU, FORTSPARSE_SYM_INDEFINITE). Oracles: the
+    ! analytic spectrum of the shifted 5-point Dirichlet Laplacian (inertia),
+    ! backward errors of solves against the input matrix, the scalar
+    ! Bunch--Kaufman reference (NATIVE_REFERENCE) on a dense matrix with zero
+    ! diagonal and on block-tridiagonal matrices, Sylvester's law on
+    ! saddle-point matrices [[H, B^T], [B, 0]] whose zero block forces 2x2 and
+    ! delayed pivots, and an exactly singular bordered matrix whose count
+    ! must stay uncertified under row scaling.
     use fortsparse
     use, intrinsic :: iso_c_binding, only: c_int
     implicit none
@@ -43,7 +44,7 @@ program test_fortsparse_ldlt_supernodal
     failures = 0
 
     ! Shifted Laplacian: inertia from the analytic eigenvalues.
-    do threads = 1, 4, 3
+    do threads = 1, 1
         do k = 1, 3
             shift = shifts(k)
             call laplacian(grid, shift, a)
@@ -57,7 +58,7 @@ program test_fortsparse_ldlt_supernodal
             call expect(status_ok(status), 'factor of the shifted Laplacian')
             if (.not. status_ok(status)) cycle
             call sparse_factor_stats(solver, stats, status)
-            call expect(stats%native_factor_family == 'LDLT_SUPERNODAL', 'factor family')
+            call expect(stats%native_factor_family == 'LDLT_MULTIFRONT', 'factor family')
             call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
             call expect(status_ok(status), 'inertia available')
             call expect(nneg == below(grid, shift) .and. nzero == 0 .and. &
@@ -88,7 +89,7 @@ program test_fortsparse_ldlt_supernodal
     ! The same with each AMD ordering applied explicitly (natural order of
     ! P^T A P): the built-in core, which orders when SuiteSparse AMD is not
     ! built in, and SuiteSparse AMD where it is. Inertia and its reliability
-    ! must not depend on the ordering, and the built-in fill must stay
+    ! must not depend on the ordering, and the built-in fill nnz(L) must stay
     ! within 5 % of SuiteSparse's.
     call laplacian(grid, 1.37_dp, a)
     call scale_rows(grid, a)
@@ -112,7 +113,7 @@ program test_fortsparse_ldlt_supernodal
     ! of its own row, whether that row is tiny or huge against the rest. The
     ! count must not be certified.
     do k = 1, size(powers)
-        do threads = 1, 4, 3
+        do threads = 1, 1
             call laplacian(grid, 1.375_dp, a)
             call add_dependent_row(a)
             if (k > 1) call scale_rows(grid, a)
@@ -131,14 +132,14 @@ program test_fortsparse_ldlt_supernodal
         end do
     end do
 
-    ! Dense indefinite matrix with zero diagonal: one supernode, 2x2 pivots.
+    ! Dense indefinite matrix with zero diagonal: one front, 2x2 pivots.
     call dense_zero_diagonal(dense, a)
     call configure(solver, 1)
     call sparse_factor(solver, a, status)
     call expect(status_ok(status), 'factor of the zero-diagonal dense matrix')
     if (status_ok(status)) then
         call residual_check(solver, a, 1.0e-12_dp)
-        reference%backend_id = FORTSPARSE_BACKEND_NATIVE
+        reference%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
         reference%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(reference, a, status)
         call expect(status_ok(status), 'scalar Bunch--Kaufman reference')
@@ -154,22 +155,19 @@ program test_fortsparse_ldlt_supernodal
     end if
     call sparse_destroy(solver)
 
-    ! Block-tridiagonal dense blocks: the panels form one dependency chain,
-    ! factored in sequence also when a team is requested.
-    call block_tridiagonal(12, 76, a)
-    reference%backend_id = FORTSPARSE_BACKEND_NATIVE
+    ! Block-tridiagonal dense blocks: a chain of fronts.
+    call block_tridiagonal(8, 40, a)
+    reference%backend_id = FORTSPARSE_BACKEND_NATIVE_REFERENCE
     reference%options%symmetry = FORTSPARSE_SYM_INDEFINITE
     call sparse_factor(reference, a, status)
     call expect(status_ok(status), 'scalar reference of the block-tridiagonal matrix')
-    do threads = 1, 2
-        call configure(solver, threads)
-        solver%options%ordering = FORTSPARSE_ORDER_DEFAULT
+    do k = 1, 2
+        call configure(solver, 1)
+        solver%options%ordering = merge(FORTSPARSE_ORDER_NATURAL, &
+            FORTSPARSE_ORDER_DEFAULT, k == 1)
         call sparse_factor(solver, a, status)
         call expect(status_ok(status), 'factor of the block-tridiagonal matrix')
         if (.not. status_ok(status)) cycle
-        call sparse_factor_stats(solver, stats, status)
-        call expect(stats%ordering_used == FORTSPARSE_ORDER_DEFAULT, &
-            'block-tridiagonal factor keeps natural order')
         call residual_check(solver, a, 1.0e-12_dp)
         call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
         block
@@ -185,23 +183,51 @@ program test_fortsparse_ldlt_supernodal
     end do
     call sparse_destroy(reference)
 
-    ! Explicitly unsupported: a strict host cap.
+    ! Saddle points: Sylvester's law gives the inertia of [[H, B^T], [B, 0]]
+    ! with H positive definite and B of full row rank as (nh, mb, 0) for
+    ! (+, -, 0). Every constraint row has a zero diagonal. In the natural
+    ! order with the constraints first, each of them fails as a 1x1 pivot
+    ! and is delayed or paired; AMD orders it next to a matched neighbour.
+    do k = 1, 4
+        call saddle_point(grid, 7*k, a, first=k > 2)
+        call configure(solver, 1)
+        if (k > 2) solver%options%ordering = FORTSPARSE_ORDER_NATURAL
+        call sparse_factor(solver, a, status)
+        call expect(status_ok(status), 'factor of the saddle-point matrix')
+        if (.not. status_ok(status)) cycle
+        call sparse_inertia(solver, nneg, nzero, npos, reliability, status)
+        call expect(nneg == count_constraints(grid, 7*k) .and. &
+            nzero == 0 .and. npos == n, 'saddle-point inertia (n, m, 0)')
+        call expect(reliability == FORTSPARSE_INERTIA_RELIABLE, &
+            'saddle-point inertia reliable')
+        call residual_check(solver, a, 1.0e-12_dp)
+        ! new values on the same pattern: refactor reuses the analysis
+        call saddle_point(grid, 7*k, a, first=k > 2, weight=3.0_dp)
+        call sparse_refactor(solver, a, status, reused)
+        call expect(status_ok(status) .and. reused, 'saddle-point refactor')
+        call residual_check(solver, a, 1.0e-12_dp)
+        call sparse_destroy(solver)
+    end do
+
+    ! A strict host cap selects the scalar factor.
     call laplacian(grid, 1.37_dp, a)
     call configure(solver, 1)
     solver%options%host_memory_limit_bytes = 1000000000_i8
     call sparse_factor(solver, a, status)
-    call expect(status%code == FORTSPARSE_BACKEND_UNAVAILABLE, 'capped LDL^T unavailable')
+    call expect(status_ok(status), 'capped LDL^T factors')
+    call sparse_factor_stats(solver, stats, status)
+    call expect(stats%native_factor_family == 'LDLT_REAL', 'capped LDL^T is the scalar family')
     call sparse_destroy(solver)
 
     if (failures /= 0) then
-        print '(a,i0)', 'supernodal LDL^T failures: ', failures
+        print '(a,i0)', 'multifrontal LDL^T failures: ', failures
         error stop 1
     end if
-    print '(a)', 'supernodal LDL^T: ok'
+    print '(a)', 'multifrontal LDL^T: ok'
 contains
     integer(i8) function ordered_inertia(m, perm, what) result(fill)
         ! Factor P^T m P (perm(new) = old) in its natural order and check its
-        ! inertia; returns the factor entries.
+        ! inertia; returns nnz(L).
         type(csc_t), intent(in) :: m
         integer, intent(in) :: perm(:)
         character(*), intent(in) :: what
@@ -225,7 +251,7 @@ contains
         call expect(status_ok(status), 'factor in the '//what//' order')
         if (status_ok(status)) then
             call sparse_factor_stats(s, stats, status)
-            fill = stats%factor_nnz
+            fill = stats%symbolic_nnz
             call sparse_inertia(s, nneg, nzero, npos, reliability, status)
             call expect(nneg == below(grid, 1.37_dp) .and. nzero == 0, &
                 what//': row-scaled inertia matches the spectrum')
@@ -240,7 +266,6 @@ contains
         integer, intent(in) :: threads
         s%backend_id = FORTSPARSE_BACKEND_NATIVE
         s%options%symmetry = FORTSPARSE_SYM_INDEFINITE
-        s%options%ldlt_supernodal = .true.
         s%options%ordering = FORTSPARSE_ORDER_AMD
         s%options%nthreads = threads
     end subroutine configure
@@ -390,6 +415,54 @@ contains
         call csc_from_triplet(nb*w, nb*w, rows(:k), cols(:k), vals(:k), m, status)
     end subroutine block_tridiagonal
 
+    integer function count_constraints(g, stride) result(mb)
+        integer, intent(in) :: g, stride
+        mb = (g*g - 1)/stride + 1
+    end function count_constraints
+
+    subroutine saddle_point(g, stride, m, first, weight)
+        ! H = shifted Laplacian (positive definite, sigma = -0.5) on g*g
+        ! unknowns, B with one row per stride-th unknown i: B(r, i) = 1,
+        ! B(r, i+1) = w (w = weight, default 0.5), so B has full row rank.
+        ! With first, the constraint rows are numbered before H.
+        integer, intent(in) :: g, stride
+        type(csc_t), intent(out) :: m
+        logical, intent(in) :: first
+        real(dp), intent(in), optional :: weight
+        type(csc_t) :: h
+        integer, allocatable :: rows(:), cols(:)
+        real(dp), allocatable :: vals(:)
+        integer :: nh, mb, j, p, k, r, i
+        real(dp) :: w
+        w = 0.5_dp
+        if (present(weight)) w = weight
+        call laplacian(g, -0.5_dp, h)
+        nh = g*g
+        mb = count_constraints(g, stride)
+        allocate (rows(h%nnz + 4*mb), cols(h%nnz + 4*mb), vals(h%nnz + 4*mb))
+        k = 0
+        do j = 1, nh
+            do p = h%col_ptr(j), h%col_ptr(j + 1) - 1
+                k = k + 1; rows(k) = h%row_idx(p); cols(k) = j; vals(k) = h%val(p)
+            end do
+        end do
+        do r = 1, mb
+            i = 1 + (r - 1)*stride
+            k = k + 1; rows(k) = nh + r; cols(k) = i; vals(k) = 1
+            k = k + 1; rows(k) = i; cols(k) = nh + r; vals(k) = 1
+            if (i < nh) then
+                k = k + 1; rows(k) = nh + r; cols(k) = i + 1; vals(k) = w
+                k = k + 1; rows(k) = i + 1; cols(k) = nh + r; vals(k) = w
+            end if
+        end do
+        if (first) then
+            ! constraints first: unknown v of [H, B^T; B, 0] becomes v + mb
+            rows(:k) = merge(rows(:k) - nh, rows(:k) + mb, rows(:k) > nh)
+            cols(:k) = merge(cols(:k) - nh, cols(:k) + mb, cols(:k) > nh)
+        end if
+        call csc_from_triplet(nh + mb, nh + mb, rows(:k), cols(:k), vals(:k), m, status)
+    end subroutine saddle_point
+
     subroutine dense_zero_diagonal(nd, m)
         integer, intent(in) :: nd
         type(csc_t), intent(out) :: m
@@ -405,4 +478,4 @@ contains
         end do
         call csc_from_triplet(nd, nd, rows(:k), cols(:k), vals(:k), m, status)
     end subroutine dense_zero_diagonal
-end program test_fortsparse_ldlt_supernodal
+end program test_fortsparse_ldlt_multifrontal

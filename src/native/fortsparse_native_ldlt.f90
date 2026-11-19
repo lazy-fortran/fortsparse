@@ -28,8 +28,6 @@ module fortsparse_native_ldlt
     ! Threshold u of the ordered pivot tests: every multiplier is bounded by 1/u.
     real(dp), parameter :: delay_threshold = 0.1_dp
 
-    integer, parameter :: front_limit = 512, panel_width = 32
-
     type :: sparse_row_t
         integer :: used = 0
         integer, allocatable :: index(:)
@@ -38,10 +36,9 @@ module fortsparse_native_ldlt
 
     type :: native_ldlt_t
         private
-        logical :: use_panels = .false.
-        integer :: panels = 0, teams = 1, active_threads = 1, requested_threads = 0
-        real(dp), allocatable :: front(:, :), panel_work(:, :), merge_value(:, :)
-        integer, allocatable :: front_map(:), vertices(:), ipiv(:), merge_index(:, :)
+        integer :: teams = 1, active_threads = 1, requested_threads = 0
+        real(dp), allocatable :: merge_value(:, :)
+        integer, allocatable :: front_map(:), merge_index(:, :)
         integer :: n = 0
         logical :: ready = .false., low_memory = .false.
         integer(i8) :: limit = 0_i8, bytes = 0_i8, peak = 0_i8
@@ -71,19 +68,17 @@ module fortsparse_native_ldlt
         procedure :: permutation => ldlt_permutation
         procedure :: copy_column_order => ldlt_copy_column_order
         procedure :: inertia => ldlt_inertia
-        procedure :: blocked_panels => ldlt_blocked_panels
         procedure :: numeric_threads => ldlt_numeric_threads
         final :: ldlt_finalize
     end type native_ldlt_t
 contains
-    subroutine ldlt_factor(self, a, status, host_limit_bytes, low_memory, column_permutation, blocked, nthreads)
+    subroutine ldlt_factor(self, a, status, host_limit_bytes, low_memory, column_permutation, nthreads)
         class(native_ldlt_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer(i8), intent(in), optional :: host_limit_bytes
         logical, intent(in), optional :: low_memory
         integer, intent(in), optional :: column_permutation(:)
-        logical, intent(in), optional :: blocked
         integer, intent(in), optional :: nthreads
         call self%free()
         if (present(host_limit_bytes)) self%limit = host_limit_bytes
@@ -94,23 +89,21 @@ contains
             call status_set(status, FORTSPARSE_INVALID_MATRIX, 'LDLT: negative cap')
             return
         end if
-        if (present(blocked)) self%use_panels = blocked
         if (present(nthreads)) self%requested_threads = nthreads
         call initialize(self, a, status, column_permutation)
         if (.not. status_ok(status)) return
-        call panel_workspace(self, status)
+        call merge_workspace(self, status)
         if (.not. status_ok(status)) return
         call numeric(self, status)
     end subroutine ldlt_factor
 
-    subroutine ldlt_refactor(self, a, status, host_limit_bytes, low_memory, column_permutation, blocked, nthreads)
+    subroutine ldlt_refactor(self, a, status, host_limit_bytes, low_memory, column_permutation, nthreads)
         class(native_ldlt_t), intent(inout) :: self
         type(csc_t), intent(in) :: a
         type(fortsparse_status_t), intent(out) :: status
         integer(i8), intent(in), optional :: host_limit_bytes
         logical, intent(in), optional :: low_memory
         integer, intent(in), optional :: column_permutation(:)
-        logical, intent(in), optional :: blocked
         integer, intent(in), optional :: nthreads
         integer :: i
         call ldlt_check_matrix(a, status)
@@ -143,13 +136,12 @@ contains
         ! Destructive numeric refactor: drop old numeric factors before building
         ! new ones, retaining only the immutable pattern. No old/new overlap.
         call clear_numeric(self)
-        if (present(blocked)) self%use_panels = blocked
         if (present(nthreads)) self%requested_threads = nthreads
         self%peak = self%bytes
         self%required = self%bytes
         call initialize(self, a, status)
         if (.not. status_ok(status)) return
-        call panel_workspace(self, status)
+        call merge_workspace(self, status)
         if (.not. status_ok(status)) return
         call numeric(self, status)
     end subroutine ldlt_refactor
@@ -316,24 +308,13 @@ contains
         call status_set(status, FORTSPARSE_OK, '')
     end subroutine initialize
 
-    ! A relaxed supernode contains consecutive candidate pivots and the complete
-    ! union of their active rows. DLASYF performs genuine Bunch--Kaufman tests
-    ! against that complete support and uses BLAS-3 for its Schur update. An
-    ! interchange rejects this private trial before any authoritative state is
-    ! changed; the unrestricted sparse reference then eliminates one pivot.
-    subroutine panel_workspace(self, status)
+    subroutine merge_workspace(self, status)
         class(native_ldlt_t), intent(inout) :: self
         type(fortsparse_status_t), intent(out) :: status
         integer :: ierr
         integer(i8) :: request
         call status_set(status, FORTSPARSE_OK, '')
-        ! Opaque LAPACK/BLAS workspace is not a hard allocation-cap contract.
-        ! Strict requests use scalar pivots and explicitly accounted merges.
-        if (self%limit > 0_i8) self%use_panels = .false.
-        if (self%low_memory .or. self%n < 8) then
-            self%use_panels = .false.
-            return
-        end if
+        if (self%low_memory .or. self%n < 8) return
         self%teams = 1
         !$ self%teams = omp_get_max_threads()
         if (self%requested_threads > 0) self%teams = self%requested_threads
@@ -342,9 +323,6 @@ contains
         ! preserve its pivot choices and canonical rank-1/2 contractions.
         request = ib*int(self%n, i8) &
             + (ib + rb)*int(self%n, i8)*self%teams
-        if (self%use_panels) request = request &
-            + rb*int(front_limit, i8)*(front_limit + panel_width) &
-            + 2_i8*ib*front_limit
         call admit(self, request, status)
         if (.not. status_ok(status)) return
         allocate(self%front_map(self%n), self%merge_index(self%n, self%teams), &
@@ -354,38 +332,13 @@ contains
             call clear_numeric(self)
             return
         end if
-        if (self%use_panels) then
-            allocate(self%front(front_limit, front_limit), &
-                self%panel_work(front_limit, panel_width), &
-                self%vertices(front_limit), self%ipiv(front_limit), stat=ierr)
-            if (ierr /= 0) then
-                call allocation_error(status)
-                call clear_numeric(self)
-            end if
-        end if
-    end subroutine panel_workspace
+    end subroutine merge_workspace
 
-    subroutine free_panel_workspace(self)
+    subroutine free_merge_workspace(self)
         class(native_ldlt_t), intent(inout) :: self
-        if (allocated(self%front)) then
-            self%bytes = self%bytes - rb*size(self%front, kind=i8)
-            deallocate(self%front)
-        end if
-        if (allocated(self%panel_work)) then
-            self%bytes = self%bytes - rb*size(self%panel_work, kind=i8)
-            deallocate(self%panel_work)
-        end if
         if (allocated(self%front_map)) then
             self%bytes = self%bytes - ib*size(self%front_map, kind=i8)
             deallocate(self%front_map)
-        end if
-        if (allocated(self%vertices)) then
-            self%bytes = self%bytes - ib*size(self%vertices, kind=i8)
-            deallocate(self%vertices)
-        end if
-        if (allocated(self%ipiv)) then
-            self%bytes = self%bytes - ib*size(self%ipiv, kind=i8)
-            deallocate(self%ipiv)
         end if
         if (allocated(self%merge_index)) then
             self%bytes = self%bytes - ib*size(self%merge_index, kind=i8)
@@ -395,218 +348,8 @@ contains
             self%bytes = self%bytes - rb*size(self%merge_value, kind=i8)
             deallocate(self%merge_value)
         end if
-    end subroutine free_panel_workspace
+    end subroutine free_merge_workspace
 
-    subroutine panel_factor(self, k, eliminated, status)
-        use fortnum_lapack_ldlt, only: dlasyf => fortnum_dlasyf
-        class(native_ldlt_t), intent(inout) :: self
-        integer, intent(in) :: k
-        integer, intent(out) :: eliminated
-        type(fortsparse_status_t), intent(out) :: status
-        integer :: width, m, p, q, i, j, r, vertex, nb, kb, info, step, count, active_team
-        real(dp) :: a, b, c, lm1, lm2, bound1, bound2, l1, l2
-        call status_set(status, FORTSPARSE_OK, '')
-        eliminated = 0
-        width = min(panel_width, self%n - k + 1)
-        if (width < 8) return
-        self%front_map = 0
-        m = width
-        do p = 1, width
-            vertex = self%perm(k + p - 1)
-            self%vertices(p) = vertex
-            self%front_map(vertex) = p
-        end do
-        do p = 1, width
-            i = self%vertices(p)
-            do q = 1, self%schur(i)%used
-                j = self%schur(i)%index(q)
-                if (self%pos(j) < k .or. self%front_map(j) /= 0) cycle
-                if (m == front_limit) return
-                m = m + 1
-                self%vertices(m) = j
-                self%front_map(j) = m
-            end do
-        end do
-        ! Small fronts do not amortize large OpenMP teams. Keep at least
-        ! 64 columns per worker; the scalar recovery may still use every
-        ! requested worker for its substantially larger trailing rows.
-        active_team = min(self%teams, max(1, m/64))
-        ! Each assembly column is private. No numerical-loop allocation.
-        !$omp parallel num_threads(active_team) private(p,i,q,j,r)
-        !$omp single
-        !$ self%active_threads = max(self%active_threads, omp_get_num_threads())
-        !$omp end single
-        !$omp do schedule(static)
-        do p = 1, m
-            self%front(:m, p) = 0.0_dp
-            i = self%vertices(p)
-            do q = 1, self%schur(i)%used
-                j = self%schur(i)%index(q)
-                r = self%front_map(j)
-                if (r > 0) self%front(r, p) = self%schur(i)%value(q)
-            end do
-        end do
-        !$omp end do
-        !$omp end parallel
-        nb = width
-        call dlasyf('L', m, nb, kb, self%front, front_limit, &
-            self%ipiv, self%panel_work, front_limit, info)
-        if (info /= 0 .or. kb < 1) return
-        ! A trial can inspect a noncandidate pivot row with incomplete support,
-        ! but acceptance requires that NO interchange occurred, at any step.
-        ! Thus every accepted pivot search used a fully assembled candidate row.
-        p = 1
-        do while (p <= kb)
-            if (self%ipiv(p) > 0) then
-                if (self%ipiv(p) /= p) return
-                p = p + 1
-            else
-                if (p == kb) return
-                if (self%ipiv(p) /= -p - 1) return
-                if (self%ipiv(p + 1) /= self%ipiv(p)) return
-                p = p + 2
-            end if
-        end do
-        do p = 1, m
-            do q = 1, p
-                if (.not. ieee_is_finite(self%front(p, q))) return
-            end do
-        end do
-        ! Reserve all persistent growth before committing the trial or entering
-        ! parallel scatter. Allocation failures leave factors unavailable.
-        p = 1
-        do while (p <= kb)
-            step = 1
-            if (self%ipiv(p) < 0) step = 2
-            do j = p, p + step - 1
-                call reserve_row(self%lower(k + j - 1), m - p - step + 1, &
-                    .true., self%limit, self%bytes, self%peak, self%required, status)
-                if (.not. status_ok(status)) return
-            end do
-            p = p + step
-        end do
-        do p = kb + 1, m
-            i = self%vertices(p)
-            call reserve_row(self%schur(i), &
-                int(min(int(self%n, i8), int(self%schur(i)%used, i8) + m - kb)), &
-                .false., self%limit, self%bytes, self%peak, self%required, status)
-            if (.not. status_ok(status)) return
-        end do
-        p = 1
-        do while (p <= kb)
-            step = 1
-            if (self%ipiv(p) < 0) step = 2
-            a = self%front(p, p)
-            b = 0.0_dp
-            c = 0.0_dp
-            if (step == 2) then
-                b = self%front(p + 1, p)
-                c = self%front(p + 1, p + 1)
-            end if
-            i = self%vertices(p)
-            j = self%vertices(p + step - 1)
-            call inertia_add_pivot(self%pivots, step, a, abs(b), c, &
-                inertia_tolerance(self%n, max(self%row_scale(i), self%row_scale(j))))
-            self%diagonal(k + p - 1) = a
-            self%offdiagonal(k + p - 1) = b
-            self%block(k + p - 1) = step
-            if (step == 2) self%diagonal(k + p) = c
-            ! Conservative history bound: |S_ij - (L D L^T)_ij| <=
-            ! |S_ij| + |L_i1| max_j |(D L^T)_1j| + |L_i2| max_j |(D L^T)_2j|.
-            ! This includes intermediate updates hidden by LAPACK's panel and
-            ! can only make the existing reliability test more conservative.
-            lm1 = 0.0_dp
-            lm2 = 0.0_dp
-            if (p + step <= m) then
-                lm1 = maxval(abs(self%front(p + step:m, p)))
-                if (step == 2) lm2 = maxval(abs(self%front(p + step:m, p + 1)))
-            end if
-            bound1 = abs(a)*lm1 + abs(b)*lm2
-            bound2 = abs(b)*lm1 + abs(c)*lm2
-            count = 0
-            do r = p + step, m
-                l1 = self%front(r, p)
-                l2 = 0.0_dp
-                if (step == 2) l2 = self%front(r, p + 1)
-                vertex = self%vertices(r)
-                self%row_scale(vertex) = self%row_scale(vertex) &
-                    + abs(l1)*bound1 + abs(l2)*bound2
-                if (abs(l1) <= 0.0_dp .and. abs(l2) <= 0.0_dp) cycle
-                count = count + 1
-                self%lower(k + p - 1)%index(count) = vertex
-                self%lower(k + p - 1)%value(count) = l1
-                if (step == 2) then
-                    self%lower(k + p)%index(count) = vertex
-                    self%lower(k + p)%value(count) = l2
-                end if
-            end do
-            self%lower(k + p - 1)%used = count
-            if (step == 2) self%lower(k + p)%used = count
-            p = p + step
-        end do
-        ! Sorted trailing vertices support a linear union with each Schur row.
-        count = 0
-        do i = 1, self%n
-            if (self%front_map(i) <= kb) cycle
-            count = count + 1
-            self%nbr(count) = i
-        end do
-        !$omp parallel do num_threads(active_team) schedule(static)
-        do p = kb + 1, m
-            call panel_scatter_row(self, p, kb, count)
-        end do
-        !$omp end parallel do
-        do p = 1, kb
-            call release_row(self%schur(self%vertices(p)), self%bytes)
-        end do
-        self%panels = self%panels + 1
-        eliminated = kb
-    end subroutine panel_factor
-
-    subroutine panel_scatter_row(self, p, kb, count)
-        class(native_ldlt_t), intent(inout) :: self
-        integer, intent(in) :: p, kb, count
-        integer :: tid, i, j, q, r, old, fresh, used, column, local
-        real(dp) :: value
-        logical :: existed
-        tid = 1
-        !$ tid = omp_get_thread_num() + 1
-        i = self%vertices(p)
-        old = 1
-        fresh = 1
-        used = 0
-        do while (old <= self%schur(i)%used .or. fresh <= count)
-            j = self%n + 1
-            q = self%n + 1
-            if (old <= self%schur(i)%used) j = self%schur(i)%index(old)
-            if (fresh <= count) q = self%nbr(fresh)
-            column = min(j, q)
-            existed = j == column
-            value = 0.0_dp
-            if (existed) then
-                value = self%schur(i)%value(old)
-                old = old + 1
-            end if
-            if (q == column) fresh = fresh + 1
-            local = self%front_map(column)
-            if (local > 0 .and. local <= kb) cycle
-            if (local > kb) value = self%front(max(p, local), min(p, local))
-            if (.not. existed .and. abs(value) <= 0.0_dp) cycle
-            used = used + 1
-            self%merge_index(used, tid) = column
-            self%merge_value(used, tid) = value
-        end do
-        do r = 1, used
-            self%schur(i)%index(r) = self%merge_index(r, tid)
-            self%schur(i)%value(r) = self%merge_value(r, tid)
-        end do
-        self%schur(i)%used = used
-    end subroutine panel_scatter_row
-
-    integer function ldlt_blocked_panels(self) result(panels)
-        class(native_ldlt_t), intent(in) :: self
-        panels = self%panels
-    end function ldlt_blocked_panels
 
     integer function ldlt_numeric_threads(self) result(threads)
         class(native_ldlt_t), intent(in) :: self
@@ -616,19 +359,11 @@ contains
     subroutine numeric(self, status)
         class(native_ldlt_t), intent(inout) :: self
         type(fortsparse_status_t), intent(out) :: status
-        integer :: k, step, pivot, first, second, m, i, j, p, q, eliminated
+        integer :: k, step, pivot, first, second, m, i, j, p, q
         real(dp) :: a, b, c, scale, determinant, value, l1, l2
         self%pivots = inertia_count_t()
         k = 1
         do while (k <= self%n)
-            if (self%use_panels) then
-                call panel_factor(self, k, eliminated, status)
-                if (.not. status_ok(status)) return
-                if (eliminated > 0) then
-                    k = k + eliminated
-                    cycle
-                end if
-            end if
             if (allocated(self%delayed)) then
                 call ordered_pivot(self, k, pivot, step, status)
                 if (.not. status_ok(status)) return
@@ -1321,7 +1056,7 @@ contains
     subroutine release_scratch(self)
         class(native_ldlt_t), intent(inout) :: self
         integer :: j
-        call free_panel_workspace(self)
+        call free_merge_workspace(self)
         if (allocated(self%schur)) then
             do j = 1, size(self%schur)
                 call release_row(self%schur(j), self%bytes)
@@ -1356,8 +1091,7 @@ contains
         class(native_ldlt_t), intent(inout) :: self
         self%ready = .false.
         self%inertia_ready = .false.
-        call free_panel_workspace(self)
-        self%panels = 0
+        call free_merge_workspace(self)
         self%active_threads = 1
         if (allocated(self%schur)) deallocate (self%schur)
         if (allocated(self%lower)) deallocate (self%lower)
@@ -1391,7 +1125,6 @@ contains
         self%required = 0_i8
         self%limit = 0_i8
         self%low_memory = .false.
-        self%use_panels = .false.
         self%requested_threads = 0
     end subroutine ldlt_free
 

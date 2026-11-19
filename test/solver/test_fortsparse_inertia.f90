@@ -4,13 +4,14 @@ program test_fortsparse_inertia
     use fortsparse
     use fortnum_lapack_syev, only: dsyev => fortnum_dsyev, dsygv => fortnum_dsygv, zheev => fortnum_zheev
     implicit none
-    integer :: ordering, implementation
-    logical :: blocked
+    integer :: ordering, implementation, backend
     integer, parameter :: orderings(3) = [FORTSPARSE_ORDER_DEFAULT, &
                                           FORTSPARSE_ORDER_AMD, FORTSPARSE_ORDER_ND]
 
+    ! the multifrontal factor (NATIVE) and the scalar one (NATIVE_REFERENCE)
     do implementation = 1, 2
-        blocked = implementation == 2
+        backend = merge(FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE, &
+            implementation == 1)
         call random_seed_fixed()
         do ordering = 1, size(orderings)
             if (.not. ordering_available(orderings(ordering))) then
@@ -40,8 +41,7 @@ contains
         type(csc_t) :: a
         call csc_from_triplet(2, 2, [1, 2, 1, 2], [1, 1, 2, 2], &
                               [1.0_dp, 2.0_dp, 2.0_dp, -1.0_dp], a, status)
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         call sparse_factor(solver, a, status)
@@ -168,8 +168,7 @@ contains
             base(j, j) = 0.0_dp
         end do
         call symmetric_eigenvalues(base, w)
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         do trial = 1, 7
@@ -269,8 +268,7 @@ contains
         allocate (work(3*n))
         call dsygv(1, 'N', 'L', n, kc, n, mc, n, w, work, size(work), info)
         call expect(info == 0, 'dsygv oracle')
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         do s = 1, nshift
@@ -320,8 +318,7 @@ contains
         call expect(count(w < 0.0_dp) == p .and. minval(abs(w)) > 1.0e-6_dp, &
                     'saddle-point oracle inertia')
         call dense_to_csc(dense, mask, a)
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         solver%options%ordering = order
         call sparse_factor(solver, a, status)
@@ -352,8 +349,7 @@ contains
         do order = 1, 2
             if (.not. ordering_available(orderings(order))) cycle
             call dense_to_csc(dense, mask, a)
-            solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-            solver%options%ldlt_blocked = blocked
+            solver%backend_id = backend
             solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
             solver%options%ordering = orderings(order)
             call sparse_factor(solver, a, status)
@@ -392,8 +388,7 @@ contains
                                   [2, 2])
         mask = dense /= 0.0_dp
         call dense_to_csc(dense, mask, a)
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, a, status)
         call expect(status%code == FORTSPARSE_OK, 'near-singular factor')
@@ -442,8 +437,7 @@ contains
         dense(nb + 1:, nb + 1:) = small
         mask = dense /= 0.0_dp
         call dense_to_csc(dense, mask, a)
-        solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, a, status)
         call expect(status%code == FORTSPARSE_OK, 'scaled blocks factor')
@@ -470,8 +464,7 @@ contains
             dense(3, 3) = 1.0e-3_dp*scale
             mask = dense /= 0.0_dp
             call dense_to_csc(dense, mask, a)
-            solver%backend_id = FORTSPARSE_BACKEND_NATIVE
-            solver%options%ldlt_blocked = blocked
+            solver%backend_id = backend
             solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
             call sparse_factor(solver, a, status)
             call expect(status%code == FORTSPARSE_OK, 'extreme pair factor')
@@ -592,7 +585,7 @@ contains
         call expect(status%code == FORTSPARSE_OK, 'complex symmetric assembly')
         solver%backend_id = FORTSPARSE_BACKEND_NATIVE
         solver%options = sparse_options_t()
-        solver%options%ldlt_blocked = blocked
+        solver%backend_id = backend
         solver%options%symmetry = FORTSPARSE_SYM_INDEFINITE
         call sparse_factor(solver, z, status)
         call expect(status%code == FORTSPARSE_OK, 'complex symmetric factor')

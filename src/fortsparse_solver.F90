@@ -39,6 +39,7 @@ module fortsparse_solver
     use fortsparse_spd_leaves, only: spd_update
     use fortsparse_native_general, only: native_general_backend_t
     use fortsparse_native_hermitian_embedding, only: native_hermitian_embedding_t
+    use fortsparse_native_multifrontal, only: native_multifrontal_backend_t
     use fortsparse_lu_leaves, only: lu_z_update
     use fortsparse_native, only: native_backend_t, native_plan_ordered_spd, &
         bounded_default_prefers_amd
@@ -1081,8 +1082,7 @@ contains
             end if
         end if
         if (allocated(solver%backend)) then
-            if (backend_is(solver%backend, id, is_complex, solver%options%symmetry, &
-                solver%options%ldlt_supernodal)) then
+            if (backend_is(solver%backend, id, is_complex, solver%options)) then
                 solver%backend%options = solver%options
                 call status_set(status, FORTSPARSE_OK, "")
                 return
@@ -1093,11 +1093,12 @@ contains
         case (FORTSPARSE_BACKEND_NATIVE, FORTSPARSE_BACKEND_NATIVE_REFERENCE)
             if (hermitian_embedding(id, is_complex, solver%options)) then
                 allocate(native_hermitian_embedding_t :: solver%backend)
-            else if (.not. native_cholesky_family(is_complex, solver%options%symmetry, &
-                    solver%options%ldlt_supernodal)) then
-                allocate(native_general_backend_t :: solver%backend)
-            else
+            else if (multifrontal_ldlt(id, is_complex, solver%options)) then
+                allocate(native_multifrontal_backend_t :: solver%backend)
+            else if (native_cholesky_family(is_complex, solver%options%symmetry)) then
                 allocate(native_backend_t :: solver%backend)
+            else
+                allocate(native_general_backend_t :: solver%backend)
             end if
             select type (backend => solver%backend)
             type is (native_backend_t)
@@ -1141,50 +1142,68 @@ contains
 #endif
     end function has_approximate_factors
 
-    ! Complex Hermitian (or positive definite) factors that request the
-    ! supernodal path go through the real embedding of
-    ! fortsparse_native_hermitian_embedding.
+    ! Native CPU factors without a strict memory contract: the uncapped
+    ! default. Capped, LOW_MEMORY and NATIVE_REFERENCE factors use the scalar
+    ! families of native_general_backend_t.
+    pure logical function uncapped_native(id, options) result(uncapped)
+        integer, intent(in) :: id
+        type(sparse_options_t), intent(in) :: options
+        uncapped = id == FORTSPARSE_BACKEND_NATIVE .and. options%device < 0 .and. &
+            options%host_memory_limit_bytes == 0_i8 .and. &
+            options%memory_policy /= FORTSPARSE_MEMORY_LOW
+    end function uncapped_native
+
+    ! Real symmetric indefinite (or real Hermitian): the multifrontal LDL^T.
+    pure logical function multifrontal_ldlt(id, is_complex, options) result(use)
+        integer, intent(in) :: id
+        logical, intent(in) :: is_complex
+        type(sparse_options_t), intent(in) :: options
+        use = .not. is_complex .and. (options%symmetry == FORTSPARSE_SYM_INDEFINITE &
+            .or. options%symmetry == FORTSPARSE_SYM_HERMITIAN) .and. &
+            uncapped_native(id, options)
+    end function multifrontal_ldlt
+
+    ! Complex Hermitian (or positive definite) factors go through the real
+    ! embedding of fortsparse_native_hermitian_embedding: the multifrontal
+    ! LDL^T, or the supernodal Cholesky.
     pure logical function hermitian_embedding(id, is_complex, options) result(use)
         integer, intent(in) :: id
         logical, intent(in) :: is_complex
         type(sparse_options_t), intent(in) :: options
-        use = id == FORTSPARSE_BACKEND_NATIVE .and. is_complex .and. &
-            (options%symmetry == FORTSPARSE_SYM_HERMITIAN .or. &
-            options%symmetry == FORTSPARSE_SYM_SPD) .and. options%ldlt_supernodal
+        use = is_complex .and. (options%symmetry == FORTSPARSE_SYM_HERMITIAN .or. &
+            options%symmetry == FORTSPARSE_SYM_SPD) .and. uncapped_native(id, options)
     end function hermitian_embedding
 
-    ! True when an allocated backend is the concrete kind for backend_id.
-    ! The native Cholesky backend owns real SPD and, on request, the real
-    ! symmetric indefinite supernodal LDL^T.
-    pure logical function native_cholesky_family(is_complex, symmetry, &
-            ldlt_supernodal) result(owned)
-        logical, intent(in) :: is_complex, ldlt_supernodal
+    ! The native Cholesky backend owns real SPD.
+    pure logical function native_cholesky_family(is_complex, symmetry) result(owned)
+        logical, intent(in) :: is_complex
         integer, intent(in) :: symmetry
-        owned = .not. is_complex .and. (symmetry == FORTSPARSE_SYM_SPD .or. &
-            (symmetry == FORTSPARSE_SYM_INDEFINITE .and. ldlt_supernodal))
+        owned = .not. is_complex .and. symmetry == FORTSPARSE_SYM_SPD
     end function native_cholesky_family
 
-    logical function backend_is(backend, backend_id, is_complex, symmetry, &
-            ldlt_supernodal)
+    ! True when an allocated backend is the concrete kind for backend_id.
+    logical function backend_is(backend, backend_id, is_complex, options)
         class(sparse_backend_t), intent(in) :: backend
-        integer,                 intent(in) :: backend_id, symmetry
-        logical, intent(in) :: is_complex, ldlt_supernodal
+        integer,                 intent(in) :: backend_id
+        logical, intent(in) :: is_complex
+        type(sparse_options_t), intent(in) :: options
 
         backend_is = .false.
         select type (backend)
         type is (native_hermitian_embedding_t)
-            backend_is = hermitian_embedding(backend_id, is_complex, &
-                sparse_options_t(symmetry=symmetry, ldlt_supernodal=ldlt_supernodal))
+            backend_is = hermitian_embedding(backend_id, is_complex, options)
+        type is (native_multifrontal_backend_t)
+            backend_is = multifrontal_ldlt(backend_id, is_complex, options)
         type is (native_general_backend_t)
-            if (hermitian_embedding(backend_id, is_complex, sparse_options_t( &
-                symmetry=symmetry, ldlt_supernodal=ldlt_supernodal))) return
+            if (hermitian_embedding(backend_id, is_complex, options)) return
+            if (multifrontal_ldlt(backend_id, is_complex, options)) return
             if (backend%reference_only .neqv. &
                 (backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE)) return
             backend_is = (backend_id == FORTSPARSE_BACKEND_NATIVE .or. &
                 backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE) .and. &
-                .not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)
+                .not. native_cholesky_family(is_complex, options%symmetry)
         type is (native_backend_t)
-            if (.not. native_cholesky_family(is_complex, symmetry, ldlt_supernodal)) return
+            if (.not. native_cholesky_family(is_complex, options%symmetry)) return
             if (backend%reference_only) then
                 backend_is = backend_id == FORTSPARSE_BACKEND_NATIVE_REFERENCE
             else

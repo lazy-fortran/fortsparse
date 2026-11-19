@@ -83,16 +83,6 @@ module fortsparse_backend
         integer(i8) :: memory_budget_bytes = 0_i8
         ! Native CPU real/complex GENERAL LU method; see FORTSPARSE_LU_*.
         integer :: lu_method = FORTSPARSE_LU_SCALAR
-        ! Real symmetric indefinite: bounded dense panels, scalar Bunch--Kaufman
-        ! recovery (restricted to the order when ordered). Strict caps/LOW
-        ! retain the scalar path.
-        logical :: ldlt_blocked = .false.
-        ! Real symmetric indefinite, native CPU without memory caps: the
-        ! supernodal SPD schedule with Bunch--Kaufman (rook) LDL^T pivots
-        ! restricted to each supernode diagonal block (panels whose block is
-        ! SPD keep the Cholesky). Reports exact pivot inertia. Not a robust
-        ! replacement for the scalar Bunch--Kaufman reference with delays.
-        logical :: ldlt_supernodal = .false.
         ! Supernodal LU: static pivots |p| < pivot_perturbation*||A~||_inf
         ! are replaced by sign(p)*pivot_perturbation*||A~||_inf; 0 < value < 1.
         real(dp) :: pivot_perturbation = 1.0e-13_dp
@@ -114,13 +104,12 @@ module fortsparse_backend
     ! Factorization statistics; -1 / -1.0 mark a quantity the backend does not
     ! report.
     type :: sparse_factor_stats_t
-        integer :: ldlt_blocked_panels = 0 ! accepted BLAS-3 panels
         integer :: ldlt_active_threads = 1 ! observed assembly/scatter team
         integer(i8) :: factor_nnz = -1 ! entries stored in the factors
         real(dp)    :: factor_mem_mb = -1.0_dp ! peak factorization memory
         real(dp)    :: flops = -1.0_dp ! factorization operations
         real(dp)    :: analysis_s = -1.0_dp ! wall time of ordering + symbolic
-        real(dp)    :: factor_s = -1.0_dp   ! wall time of the numerical factor
+        real(dp)    :: factor_s = -1.0_dp ! wall time of the numerical factor
         integer     :: active_threads = -1 ! actual native factor team size
         integer     :: active_device = -2 ! -2 unknown; -1 CPU; >=0 CUDA device
         integer     :: ordering_used = -1 ! actual native ordering option
@@ -132,7 +121,7 @@ module fortsparse_backend
         integer(i8) :: symbolic_nnz = -1 ! unpadded native Cholesky structure
         integer(i8) :: factor_storage_bytes = -1 ! native numeric factor payload
         integer(i8) :: workspace_bytes = -1 ! retained native auxiliary payload
-        integer     :: nthreads = -1        ! threads requested
+        integer     :: nthreads = -1 ! threads requested
         integer(i8) :: symbolic_peak_bytes = -1_i8
         integer(i8) :: estimated_peak_bytes = -1_i8
         integer(i8) :: numeric_peak_bytes = -1_i8
@@ -627,9 +616,9 @@ contains
             call self%factor_real(a, refine, status)
         end if
         goto 900
-800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-                        'native RAW conversion allocation failed')
-900     self%options%host_memory_limit_bytes = saved_cap
+        800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                                'native RAW conversion allocation failed')
+        900     self%options%host_memory_limit_bytes = saved_cap
         ! Snapshot the simultaneous conversion/factor peak before local arrays
         ! leave scope. Failed attempts also invalidate direct backend factors.
         call finish_raw_conversion(self, called, status)
@@ -707,9 +696,9 @@ contains
             call self%factor_complex(a, refine, status)
         end if
         goto 900
-800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
-                        'native RAW conversion allocation failed')
-900     self%options%host_memory_limit_bytes = saved_cap
+        800     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
+                                'native RAW conversion allocation failed')
+        900     self%options%host_memory_limit_bytes = saved_cap
         ! Snapshot the simultaneous conversion/factor peak before local arrays
         ! leave scope. Failed attempts also invalidate direct backend factors.
         call finish_raw_conversion(self, called, status)

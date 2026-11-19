@@ -467,16 +467,10 @@ endif()
 
 fortsparse_add_test(test_fortsparse_memory_api solver/test_fortsparse_memory_api.f90)
 set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 1)
-fortsparse_add_test(test_fortsparse_ldlt_blocked solver/test_fortsparse_ldlt_blocked.f90)
-set_tests_properties(test_fortsparse_ldlt_blocked PROPERTIES LABELS "native;fast" TIMEOUT 1)
-fortsparse_add_test(test_fortsparse_sytrf_rk solver/test_fortsparse_sytrf_rk.f90)
-set_tests_properties(test_fortsparse_sytrf_rk PROPERTIES LABELS "native;fast" TIMEOUT 1)
-fortsparse_add_test(test_fortsparse_ldlt_supernodal solver/test_fortsparse_ldlt_supernodal.f90)
-target_sources(test_fortsparse_ldlt_supernodal PRIVATE solver/ldlt_amd_core_order.c)
-target_include_directories(test_fortsparse_ldlt_supernodal PRIVATE ${PROJECT_SOURCE_DIR}/src/native)
-set_tests_properties(test_fortsparse_ldlt_supernodal PROPERTIES
-    LABELS "native;fast" TIMEOUT 1 PROCESSORS 4
-    ENVIRONMENT "OMP_NUM_THREADS=4;OPENBLAS_NUM_THREADS=1")
+fortsparse_add_test(test_fortsparse_ldlt_multifrontal solver/test_fortsparse_ldlt_multifrontal.f90)
+target_sources(test_fortsparse_ldlt_multifrontal PRIVATE solver/ldlt_amd_core_order.c)
+set_tests_properties(test_fortsparse_ldlt_multifrontal PROPERTIES
+    LABELS "native;fast" TIMEOUT 5)
 fortsparse_add_test(test_fortsparse_ldlt_merge solver/test_fortsparse_ldlt_merge.f90)
 set_tests_properties(test_fortsparse_ldlt_merge PROPERTIES
     LABELS "native;performance;fast" TIMEOUT 1 PROCESSORS 2

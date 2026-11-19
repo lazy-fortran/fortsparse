@@ -3,7 +3,8 @@
  * Returns 0, or nonzero when the core or an allocation fails. */
 #include <stdint.h>
 #include <stdlib.h>
-#include "fsparse_native_amd_core.h"
+/* relative to this file, so fpm builds find it without an include path */
+#include "../../src/native/fsparse_native_amd_core.h"
 
 int test_amd_core_order(int n, const int *ptr, const int *row, int *perm) {
     int32_t m = 0;

@@ -116,7 +116,15 @@ contains
             1.0_dp, 0.0_dp, 2.0_dp, 5.0_dp], [3,3])
         colptr = [1, 3, 6, 8]
         rowidx = [1, 2, 1, 2, 3, 2, 3]
+        ! SuperLU is an optional CMake component; fpm builds do not have it.
         solver%backend_id = FORTSPARSE_BACKEND_SUPERLU_ILU
+        call sparse_factor(solver, 3, 3, 7, colptr, rowidx, &
+            [4.0_dp, -2.0_dp, 1.0_dp, 3.0_dp, 1.0_dp, 2.0_dp, 5.0_dp], status)
+        call sparse_free(solver)
+        if (status%code == FORTSPARSE_BACKEND_UNAVAILABLE) then
+            print '(a)', 'SKIP: SuperLU ILU is not built'
+            return
+        end if
         do pass = 1, 4
             rs = 1.0_dp
             cs = 1.0_dp

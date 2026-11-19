@@ -8,7 +8,7 @@ module fortsparse_native
     use fortsparse_kinds, only: dp, i8
     use fortsparse_backend, only: sparse_backend_t, sparse_factor_stats_t, &
         backend_factor_real_raw_budgeted, backend_refactor_real_raw_budgeted, &
-        sparse_options_t, FORTSPARSE_SYM_SPD, FORTSPARSE_SYM_INDEFINITE, &
+        sparse_options_t, FORTSPARSE_SYM_SPD, &
         FORTSPARSE_ORDER_DEFAULT, FORTSPARSE_ORDER_NATURAL, &
         FORTSPARSE_ORDER_ND, FORTSPARSE_ORDER_AMD, FORTSPARSE_MEMORY_LOW
     use fortsparse_csc, only: csc_t, csc_z_t, csc_is_valid
@@ -27,7 +27,7 @@ module fortsparse_native
     use fortsparse_native_symbolic, only: native_symbolic_counts, &
         native_symbolic_workspace_bytes
     use fortsparse_native_cuda, only: native_cuda_available
-    use fortsparse_inertia, only: FORTSPARSE_INERTIA_RELIABLE, inertia_status_of
+    use fortsparse_inertia, only: FORTSPARSE_INERTIA_RELIABLE
     use fortsparse_spd_leaves, only: spd_root, spd_divide, spd_update, &
         spd_scatter_update, spd_gather_update
     use fortsparse_native_residual, only: native_original_norms, native_residual_error
@@ -78,8 +78,6 @@ module fortsparse_native
         integer, allocatable :: tpos(:)
         type(csc_t) :: ordered
         logical :: ready = .false., blocked = .false.
-        ! Real symmetric indefinite supernodal LDL^T (options%ldlt_supernodal).
-        logical :: indefinite = .false.
         type(supernodes_t) :: panels
         integer, allocatable :: ap(:), ai(:), parent(:), lp(:)
         integer(c_int32_t), contiguous, pointer :: li(:) => null()
@@ -213,7 +211,7 @@ contains
         if (.not. status_ok(status)) goto 900
         plan%fits = .true.
         plan%max_rhs_batch = rhs
-900     call temporary%free()
+        900     call temporary%free()
     end subroutine native_plan_ordered_spd
 
     ! DEFAULT under a cap, LOW_MEMORY or refinement: the same AMD rule as the
@@ -247,7 +245,6 @@ contains
         integer, allocatable :: transposed(:)
 
         call self%free()
-        self%indefinite = self%options%symmetry == FORTSPARSE_SYM_INDEFINITE
         ! The transpose map is retained only without a strict memory budget.
         if (self%options%host_memory_limit_bytes > 0_i8 .or. &
             self%options%memory_policy == FORTSPARSE_MEMORY_LOW .or. refine) then
@@ -301,11 +298,6 @@ contains
         end if
         if (self%bounded_memory) call update_budget_stats(self)
         if (.not. status_ok(status)) return
-        if (self%indefinite .and. .not. self%blocked) then
-            call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                'supernodal LDL^T: requires the uncapped blocked CPU schedule')
-            return
-        end if
         if (self%blocked) then
             if (allocated(self%perm)) then
                 ! Panels assemble directly from the caller's canonical CSC.
@@ -584,7 +576,7 @@ contains
         if (.not. status_ok(status)) goto 900
         self%selected_order = FORTSPARSE_ORDER_AMD
         return
-900     continue
+        900     continue
         if (allocated(arena)) deallocate(arena)
         if (allocated(cursor)) deallocate(cursor)
         if (allocated(self%perm)) deallocate(self%perm)
@@ -725,7 +717,7 @@ contains
         self%blocked = .not. self%reference_only .and. &
             (.not. self%bounded_memory .or. self%bounded_blocked) .and. &
             ((self%n >= 64 .and. maxval(self%count) > 12) .or. &
-            self%options%device >= 0 .or. self%indefinite)
+            self%options%device >= 0)
         if (self%blocked) then
             if (account_analysis) then
                 call self%panels%build(self%n, self%lp, self%li, &
@@ -734,8 +726,7 @@ contains
             else
                 call self%panels%build(self%n, self%lp, self%li, &
                     self%options%nthreads, status, self%options%device, &
-                    device_limit=self%options%device_memory_limit_bytes, &
-                    indefinite=self%indefinite)
+                    device_limit=self%options%device_memory_limit_bytes)
             end if
             if (self%blocked .and. .not. status_ok(status)) return
         end if
@@ -897,16 +888,7 @@ contains
                 'native SPD: CUDA sparse factorization not enabled')
             return
         end if
-        if (self%options%symmetry == FORTSPARSE_SYM_INDEFINITE .and. &
-            self%options%ldlt_supernodal) then
-            if (self%reference_only .or. self%options%device >= 0 .or. &
-                self%options%host_memory_limit_bytes > 0_i8 .or. &
-                self%options%memory_policy == FORTSPARSE_MEMORY_LOW) then
-                call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                    'supernodal LDL^T: uncapped native CPU only')
-                return
-            end if
-        else if (self%options%symmetry /= FORTSPARSE_SYM_SPD) then
+        if (self%options%symmetry /= FORTSPARSE_SYM_SPD) then
             call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
                 'native backend supports real SPD matrices only')
             return
@@ -1001,7 +983,6 @@ contains
         self%stats%native_factor_family = 'CHOLESKY_SIMPLE'
         if (self%blocked) then
             self%stats%native_factor_family = 'CHOLESKY_BLOCK'
-            if (self%indefinite) self%stats%native_factor_family = 'LDLT_SUPERNODAL'
             if (allocated(self%perm)) then
                 call self%panels%factor(A, status, self%perm, self%inverse, &
                     validated=.true.)
@@ -1080,8 +1061,7 @@ contains
         if (.not. status_ok(status)) return
         call refinement_supported(self,refine,status)
         if (.not.status_ok(status)) return
-        if (refine .neqv. self%refining .or. (self%indefinite .neqv. &
-            self%options%symmetry == FORTSPARSE_SYM_INDEFINITE)) then
+        if (refine .neqv. self%refining) then
             call self%factor_real(A,refine,status)
             return
         end if
@@ -1305,15 +1285,7 @@ contains
 
         call update_budget_stats(self)
         stats = self%stats
-        if (self%ready .and. self%indefinite) then
-            stats%inertia_negative = self%panels%inertia%negative
-            stats%inertia_zero = self%panels%inertia%zero
-            stats%inertia_positive = self%panels%inertia%positive
-            stats%inertia_uncertain = self%panels%inertia%uncertain
-            stats%inertia_status = inertia_status_of(self%panels%inertia)
-            stats%inertia_min_pivot = self%panels%inertia%min_magnitude
-            stats%inertia_tolerance = self%panels%inertia%tolerance
-        else if (self%ready) then
+        if (self%ready) then
             ! A completed Cholesky factor has n positive pivots by construction.
             stats%inertia_negative = 0_i8
             stats%inertia_zero = 0_i8
@@ -1565,7 +1537,7 @@ contains
         end if
         call status_set(status, FORTSPARSE_OK, '')
         return
-900     call self%free()
+        900     call self%free()
         self%options = options
         self%reference_only = src%reference_only
     end subroutine copy_native
