@@ -3,6 +3,8 @@ program test_fortsparse_native_default_ordering
     ! leaves the solution unchanged within roundoff, and NATURAL keeps the
     ! input order. A pattern that fills its own envelope (block-tridiagonal
     ! dense blocks) has no fill in natural order and keeps it by default.
+    ! A small mesh with scattered numbering, as from an unstructured mesh
+    ! generator, is also ordered by default.
     ! Oracles: explicit natural factors and original residuals.
     use, intrinsic :: iso_fortran_env, only: error_unit
     use fortsparse
@@ -10,7 +12,7 @@ program test_fortsparse_native_default_ordering
     integer, parameter :: grid = 65, vertices = 46
     real(dp), parameter :: fill_ratio = 0.5_dp
     integer, parameter :: blocks = 128, width = 32
-    type(csc_t) :: laplace, tridiagonal
+    type(csc_t) :: laplace, tridiagonal, scattered
     type(csc_z_t) :: elastic
     integer :: failures
 
@@ -20,6 +22,9 @@ program test_fortsparse_native_default_ordering
     call compare_real(laplace, FORTSPARSE_SYM_GENERAL, 'real LU')
     call compare_real(laplace, FORTSPARSE_SYM_SPD, 'real SPD')
     call compare_complex(elastic, 'complex LU')
+    call build_scattered_laplacian(31, scattered)
+    call compare_real(scattered, FORTSPARSE_SYM_GENERAL, 'small scattered LU')
+    call compare_real(scattered, FORTSPARSE_SYM_SPD, 'small scattered SPD')
     call build_block_tridiagonal(blocks, width, tridiagonal)
     call keeps_natural(tridiagonal, FORTSPARSE_SYM_GENERAL, 'block-tridiagonal LU')
     call keeps_natural(tridiagonal, FORTSPARSE_SYM_SPD, 'block-tridiagonal SPD')
@@ -175,6 +180,33 @@ contains
         call csc_from_triplet(m*m, m*m, rows(:k), cols(:k), vals(:k), A, status)
         call check(status_ok(status), 'Laplacian construction')
     end subroutine build_laplacian
+
+    subroutine build_scattered_laplacian(m, A)
+        ! Five-point Laplacian on m*m < 4096 vertices, vertex c numbered
+        ! mod(389 (c - 1), m*m) + 1 (389 coprime to m*m): no band structure.
+        integer, intent(in) :: m
+        type(csc_t), intent(out) :: A
+        integer, allocatable :: rows(:), cols(:)
+        real(dp), allocatable :: vals(:)
+        type(fortsparse_status_t) :: status
+        integer :: ix, iy, k, c, id(m*m)
+
+        id = [(mod(389*(c - 1), m*m) + 1, c=1, m*m)]
+        allocate (rows(5*m*m), cols(5*m*m), vals(5*m*m))
+        k = 0
+        do iy = 1, m
+            do ix = 1, m
+                c = (iy - 1)*m + ix
+                call push(rows, cols, vals, k, id(c), id(c), 4.0_dp)
+                if (ix > 1) call push(rows, cols, vals, k, id(c), id(c - 1), -1.0_dp)
+                if (ix < m) call push(rows, cols, vals, k, id(c), id(c + 1), -1.0_dp)
+                if (iy > 1) call push(rows, cols, vals, k, id(c), id(c - m), -1.0_dp)
+                if (iy < m) call push(rows, cols, vals, k, id(c), id(c + m), -1.0_dp)
+            end do
+        end do
+        call csc_from_triplet(m*m, m*m, rows(:k), cols(:k), vals(:k), A, status)
+        call check(status_ok(status), 'scattered Laplacian construction')
+    end subroutine build_scattered_laplacian
 
     subroutine build_block_tridiagonal(nb, w, A)
         ! Dense w by w blocks on the three block diagonals, strictly

@@ -7,12 +7,12 @@ module fortsparse_native_amd
     public :: default_prefers_amd
     interface
         integer(c_int) function bounded_amd_available() &
-            bind(C, name='fsparse_native_amd_bounded_available')
+                bind(C, name='fsparse_native_amd_bounded_available')
             import :: c_int
         end function bounded_amd_available
         integer(c_int) function bounded_amd_size(n, nnz, ptr, row, low, &
                                                  arena_bytes, output_bytes) &
-            bind(C, name='fsparse_native_amd_bounded_size')
+                bind(C, name='fsparse_native_amd_bounded_size')
             import :: c_int, c_int64_t
             integer(c_int), value :: n, nnz, low
             integer(c_int), intent(in) :: ptr(*), row(*)
@@ -21,7 +21,7 @@ module fortsparse_native_amd
         integer(c_int) function bounded_amd_order(n, nnz, ptr, row, low, &
                                                   arena, &
                                                   arena_bytes, perm, inverse) &
-            bind(C, name='fsparse_native_amd_bounded')
+                bind(C, name='fsparse_native_amd_bounded')
             import :: c_int, c_int64_t
             integer(c_int), value :: n, nnz, low
             integer(c_int), intent(in) :: ptr(*), row(*)
@@ -33,16 +33,17 @@ module fortsparse_native_amd
 contains
     pure logical function default_prefers_amd(ptr, rows) result(prefers)
         ! DEFAULT ordering policy shared by all native CPU factorizations.
-        ! Natural order is already near-optimal for small or narrow-band
-        ! patterns, and creates no fill when the pattern fills its own
-        ! envelope (dense bands, block-tridiagonal dense blocks), so AMD is
-        ! skipped there. Tolerates malformed CSC; the factorization
+        ! AMD costs O(nnz), so it runs for every pattern above a few dozen
+        ! columns: a small mesh numbered by an unstructured generator fills
+        ! almost completely in natural order. Natural order creates no fill
+        ! when the pattern fills its own envelope (dense bands,
+        ! block-tridiagonal dense blocks), so AMD is skipped there. Tolerates malformed CSC; the factorization
         ! validates it.
         integer, intent(in) :: ptr(:), rows(:)
         integer :: j, p, first, last, lo, hi
         logical :: full
         prefers = .false.
-        if (size(ptr) - 1 < 4096) return
+        if (size(ptr) - 1 < 64) return
         ! Every column is one run of rows around the diagonal, and the runs
         ! never move back up: elimination stays inside the stored pattern.
         full = .true.
