@@ -906,7 +906,9 @@ endif()
 fortsparse_add_test(test_fortsparse_amg solver/test_fortsparse_amg.f90)
 fortsparse_add_test(test_fortsparse_csr_smoothers solver/test_fortsparse_csr_smoothers.f90)
 fortsparse_add_test(test_fortsparse_pcg solver/test_fortsparse_pcg.f90)
-foreach(amg_test test_fortsparse_amg test_fortsparse_csr_smoothers test_fortsparse_pcg)
+fortsparse_add_test(test_fortsparse_ams solver/test_fortsparse_ams.f90)
+foreach(amg_test test_fortsparse_amg test_fortsparse_csr_smoothers test_fortsparse_pcg
+        test_fortsparse_ams)
     target_link_libraries(${amg_test} PRIVATE fortsparse_amg_test_support)
     set_tests_properties(${amg_test} PROPERTIES LABELS "native;preconditioner;fast"
         TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")

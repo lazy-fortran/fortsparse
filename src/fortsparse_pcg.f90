@@ -11,13 +11,15 @@ module fortsparse_pcg
         FORTSPARSE_NOT_POSITIVE_DEFINITE, FORTSPARSE_NOT_CONVERGED
     use fortsparse_amg, only: amg_params_t, amg_handle_t, amg_setup, amg_apply, &
         amg_destroy
+    use fortsparse_ams, only: ams_params_t, ams_handle_t, ams_setup, ams_apply, &
+        ams_destroy
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
     implicit none
     private
     public :: pcg_params_t, pcg_handle_t, pcg_setup_csr, pcg_setup, pcg_solve, &
-        pcg_destroy
+        pcg_destroy, pcg_setup_ams
     integer, parameter, public :: PCG_NONE = 0, PCG_JACOBI = 1, PCG_IC0 = 2, &
-        PCG_AMG = 3
+        PCG_AMG = 3, PCG_AMS = 4
 
     type :: pcg_params_t
         integer :: preconditioner = PCG_JACOBI
@@ -25,6 +27,8 @@ module fortsparse_pcg
         real(dp) :: rtol = 1.0e-8_dp
         integer :: max_iterations = 1000
         type(amg_params_t) :: amg
+        !! PCG_AMS, set up by pcg_setup_ams with the gradient and nodal maps.
+        type(ams_params_t) :: ams
     end type
 
     type :: pcg_handle_t
@@ -37,6 +41,7 @@ module fortsparse_pcg
         type(csr_t) :: l
         real(dp) :: shift = 0
         type(amg_handle_t) :: amg
+        type(ams_handle_t) :: ams
         real(dp), allocatable :: r(:), z(:), p(:), q(:)
         logical :: ready = .false.
     end type
@@ -81,6 +86,9 @@ contains
             call ic0_setup(handle, info)
         case (PCG_AMG)
             call amg_setup(a, params%amg, handle%amg, info)
+        case (PCG_AMS)
+            call status_set(info, FORTSPARSE_INVALID_MATRIX, &
+                'PCG: AMS needs pcg_setup_ams with G and Pi')
         case default
             call status_set(info, FORTSPARSE_INVALID_MATRIX, 'PCG: unknown preconditioner')
         end select
@@ -92,6 +100,30 @@ contains
         handle%ready = .true.
         call status_set(info, FORTSPARSE_OK, '')
     end subroutine pcg_setup
+
+    subroutine pcg_setup_ams(a, g, pi, params, handle, info)
+        !! PCG with the AMS preconditioner for an H(curl) matrix A, its
+        !! discrete gradient G (n1 x n0) and nodal vector interpolation Pi
+        !! (n1 x 3 n0, x, y, z column blocks).
+        type(csr_t), intent(in) :: a, g, pi
+        type(pcg_params_t), intent(in) :: params
+        type(pcg_handle_t), intent(inout) :: handle
+        type(fortsparse_status_t), intent(out) :: info
+        type(pcg_params_t) :: plain
+        integer :: n
+
+        plain = params
+        plain%preconditioner = PCG_NONE
+        call pcg_setup(a, plain, handle, info)
+        if (info%code /= FORTSPARSE_OK) return
+        call ams_setup(a, g, pi, params%ams, handle%ams, info)
+        if (info%code /= FORTSPARSE_OK) then
+            call pcg_destroy(handle)
+            return
+        end if
+        handle%preconditioner = PCG_AMS
+        n = a%nrow
+    end subroutine pcg_setup_ams
 
     subroutine pcg_solve(handle, params, b, x, info, iterations, relative_residual)
         !! x holds the initial guess on entry and the iterate on return.
@@ -178,9 +210,28 @@ contains
     subroutine pcg_destroy(handle)
         type(pcg_handle_t), intent(inout) :: handle
 
+        ! Released component by component: assigning a fresh handle runs the
+        ! finalizers of a constructor temporary, which gfortran gets wrong
+        ! for the nested solver handles.
         if (handle%preconditioner == PCG_AMG) call amg_destroy(handle%amg)
-        handle = pcg_handle_t()
+        if (handle%preconditioner == PCG_AMS) call ams_destroy(handle%ams)
+        call release(handle%a)
+        call release(handle%l)
+        if (allocated(handle%inverse_diagonal)) deallocate (handle%inverse_diagonal)
+        if (allocated(handle%r)) deallocate (handle%r, handle%z, handle%p, handle%q)
+        handle%preconditioner = PCG_NONE
+        handle%shift = 0
+        handle%ready = .false.
     end subroutine pcg_destroy
+
+    subroutine release(a)
+        type(csr_t), intent(inout) :: a
+        if (allocated(a%row_ptr)) deallocate (a%row_ptr)
+        if (allocated(a%col)) deallocate (a%col)
+        if (allocated(a%val)) deallocate (a%val)
+        a%nrow = 0
+        a%ncol = 0
+    end subroutine release
 
     subroutine precondition(handle, r, z, info)
         type(pcg_handle_t), intent(inout) :: handle
@@ -200,6 +251,8 @@ contains
             call ic0_apply(handle%l, r, z)
         case (PCG_AMG)
             call amg_apply(handle%amg, r, z, info)
+        case (PCG_AMS)
+            call ams_apply(handle%ams, r, z, info)
         case default
             z = r
         end select

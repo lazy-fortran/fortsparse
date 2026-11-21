@@ -47,14 +47,19 @@ module fortsparse
     use fortsparse_amg, only: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, &
         amg_apply, amg_destroy
     use fortsparse_pcg, only: pcg_params_t, pcg_handle_t, pcg_setup, pcg_setup_csr, &
-        pcg_solve, pcg_destroy, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG
+        pcg_solve, pcg_destroy, pcg_setup_ams, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG, &
+        PCG_AMS
+    use fortsparse_ams, only: ams_params_t, ams_handle_t, ams_setup, ams_setup_csr, &
+        ams_apply, ams_destroy, ams_uses_gradient, AMS_MULTIPLICATIVE, AMS_ADDITIVE
     implicit none
     private
     public :: csr_t, csr_matvec, csr_smoother_t, smoother_setup, smoother_apply
     public :: smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
     public :: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, amg_apply, amg_destroy
     public :: pcg_params_t, pcg_handle_t, pcg_setup, pcg_setup_csr, pcg_solve, &
-        pcg_destroy, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG
+        pcg_destroy, pcg_setup_ams, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG, PCG_AMS
+    public :: ams_params_t, ams_handle_t, ams_setup, ams_setup_csr, ams_apply, &
+        ams_destroy, ams_uses_gradient, AMS_MULTIPLICATIVE, AMS_ADDITIVE
 
     ! Kinds
     public :: dp, sp, i4, i8

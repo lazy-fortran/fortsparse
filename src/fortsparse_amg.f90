@@ -9,6 +9,9 @@ module fortsparse_amg
                              FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_NOT_POSITIVE_DEFINITE
     use fortsparse_inertia, only: inertia_count_t
     use fortsparse_native_ldlt, only: native_ldlt_t
+    use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_solve, &
+        sparse_destroy
+    use fortsparse_backend, only: FORTSPARSE_SYM_SPD
     use fortsparse_smoothers, only: csr_smoother_t, smoother_setup, &
                                   smoother_apply, SMOOTHER_CHEBYSHEV, SMOOTHER_L1_JACOBI
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
@@ -16,6 +19,9 @@ module fortsparse_amg
     private
     public :: amg_params_t, amg_handle_t, amg_setup, amg_apply, amg_destroy
     public :: amg_setup_csr, amg_tentative_prolongator
+    ! The scalar LDL^T keeps amg_apply allocation-free on small coarse levels;
+    ! larger ones take the supernodal Cholesky.
+    integer, parameter :: LARGE_COARSE = 1000
     type :: amg_params_t
         real(dp) :: strength_threshold = 0.02_dp
         real(dp) :: prolongator_damping = 4.0_dp/3.0_dp
@@ -36,6 +42,10 @@ module fortsparse_amg
         private
         type(level_t), allocatable :: level(:)
         type(native_ldlt_t) :: coarse
+        !! A coarse level above LARGE_COARSE rows is factored by the
+        !! supernodal Cholesky instead of the scalar LDL^T.
+        type(sparse_solver_t) :: large
+        logical :: use_large = .false.
         integer :: count = 0, visits = 1
         logical :: ready = .false.
     contains
@@ -156,7 +166,7 @@ contains
                 diagonal(i) = handle%level(l)%a%val(k)
                 scale = 0
                 do j = handle%level(l)%a%row_ptr(i), &
-                    handle%level(l)%a%row_ptr(i + 1) - 1
+                        handle%level(l)%a%row_ptr(i + 1) - 1
                     scale = scale + abs(handle%level(l)%a%val(j))
                 end do
                 bound = max(bound, scale/diagonal(i))
@@ -199,6 +209,15 @@ contains
         csc%col_ptr = handle%level(l)%a%row_ptr
         csc%row_idx = handle%level(l)%a%col
         csc%val = handle%level(l)%a%val
+        handle%use_large = n > LARGE_COARSE
+        if (handle%use_large) then
+            ! Cholesky fails on a coarse operator that is not positive definite.
+            handle%large%options%symmetry = FORTSPARSE_SYM_SPD
+            call sparse_factor(handle%large, csc, info)
+            if (info%code /= 0) goto 900
+            handle%ready = .true.
+            return
+        end if
         call handle%coarse%factor(csc, info)
         if (info%code /= 0) goto 900
         call handle%coarse%inertia(inertia, inertia_state)
@@ -209,7 +228,7 @@ contains
         end if
         handle%ready = .true.
         return
-900     call amg_destroy(handle)
+        900     call amg_destroy(handle)
     end subroutine
 
     subroutine move_csr(a, b)
@@ -440,7 +459,11 @@ contains
         type(fortsparse_status_t), intent(out) :: info
         integer :: visit, i
         if (l == handle%count) then
-            call handle%coarse%solve(handle%level(l)%b, handle%level(l)%x, info)
+            if (handle%use_large) then
+                call sparse_solve(handle%large, handle%level(l)%b, handle%level(l)%x, info)
+            else
+                call handle%coarse%solve(handle%level(l)%b, handle%level(l)%x, info)
+            end if
             return
         end if
         call smoother_apply(handle%level(l)%a, handle%level(l)%smoother, &
@@ -474,6 +497,8 @@ contains
         type(amg_handle_t), intent(inout) :: handle
         if (allocated(handle%level)) deallocate (handle%level)
         call handle%coarse%free()
+        if (handle%use_large) call sparse_destroy(handle%large)
+        handle%use_large = .false.
         handle%count = 0
         handle%ready = .false.
     end subroutine

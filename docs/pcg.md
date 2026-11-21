@@ -42,3 +42,31 @@ Iterations to `rtol = 1e-8` on FortFEM's spline curl-curl matrices
 
 The counts grow with refinement; H(curl) problems need an auxiliary-space
 preconditioner.
+
+## AMS for H(curl)
+
+`pcg_setup_ams(A, G, Pi, params, handle, info)` preconditions an H(curl)
+matrix `A` (curl-curl, with or without a mass term) by the auxiliary-space
+Maxwell solver (Hiptmair and Xu 2007, Kolev and Vassilevski 2009): l1-Jacobi
+smoothing on `A`, and corrections in the gradient space `G` (n1 x n0) and in
+the nodal vector space `Pi` (n1 x 3 n0, x, y, z column blocks), each solved
+by smoothed aggregation AMG. `params%ams` selects the multiplicative cycle
+(`AMS_MULTIPLICATIVE`, default) or the additive one, the smoothing sweeps,
+and, with `nodal_components` (default), three scalar AMG solves on the
+component blocks of `Pi^T A Pi` instead of one on the coupled vector
+problem. When `A G = 0` the gradient correction is left out
+(`ams_uses_gradient`). The auxiliary operators get `aux_shift` times their
+diagonal added, so that a semidefinite `A` gives definite AMG problems.
+`ams_setup_csr` and `ams_apply` give the preconditioner alone.
+
+Iterations to `1e-8` on the curl-curl matrices above, multiplicative cycle,
+two smoothing sweeps, against IC(0):
+
+| case, level 1 / 2 / 3 | A + 1e-2 M1 | A, b = A x |
+|---|---|---|
+| torus | 30 / 24 / 35 (IC(0) 249 / 394 / 624) | 19 / 23 / 35 (21 / 28 / 43) |
+| ring torus | 64 / 63 / 76 (154 / 369 / 714) | 40 / 44 / 54 (21 / 42 / 71) |
+
+With exact auxiliary solves the same cycle needs 2 to 3 iterations on all
+of them, so the remaining growth comes from dropping the coupling between
+the components of the nodal vector problem.

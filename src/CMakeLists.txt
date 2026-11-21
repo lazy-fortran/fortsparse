@@ -9,6 +9,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_csr.f90
     fortsparse_smoothers.f90
     fortsparse_amg.f90
+    fortsparse_ams.f90
     fortsparse_pcg.f90
     fortsparse_precision_csr.f90
     fortsparse.f90
