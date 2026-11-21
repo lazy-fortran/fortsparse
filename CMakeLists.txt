@@ -42,9 +42,9 @@ endif()
 # solver factory reports the backend unavailable instead of failing to link.
 option(FORTSPARSE_TEST_OOM
     "Also run the address-limit SuperLU allocation-failure test (manual)" OFF)
-option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" ON)
+option(FORTSPARSE_ENABLE_SUPERLU "Enable the in-process SuperLU backend" OFF)
 option(FORTSPARSE_ENABLE_UMFPACK_IPC
-    "Build the optional out-of-process GPL UMFPACK helper" ON)
+    "Build the optional out-of-process GPL UMFPACK helper" OFF)
 
 # Zero-dependency build for the niche libraries only. OFF (default) fetches and
 # builds SuperLU and the SuiteSparse/UMFPACK chain from source; ON locates them
@@ -107,7 +107,7 @@ if(NOT TARGET fortnum)
     endif()
     FetchContent_Declare(fortnum
         GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
-        GIT_TAG 4a907bd0537c4187141e62343b85772ffd78764d)
+        GIT_TAG 4285c0e422082bc44a090bbad5d199739153af59)
     FetchContent_MakeAvailable(fortnum)
 endif()
 include(cmake/fortsparse_blas.cmake)

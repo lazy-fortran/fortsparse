@@ -1,6 +1,6 @@
 program test_fortsparse_auto
-    ! FORTSPARSE_BACKEND_AUTO is the default backend. Below the measured
-    ! crossover it factors with SuperLU, above it with MUMPS; on both sides,
+    ! The default backend is native. FORTSPARSE_BACKEND_AUTO factors with
+    ! SuperLU below the measured crossover and with MUMPS above it; on both sides,
     ! real and complex, the solution is correct, a same-pattern refactor keeps
     ! the chosen backend (and the MUMPS analysis), and sparse_solve_once works.
     use, intrinsic :: iso_fortran_env, only: error_unit
@@ -8,7 +8,8 @@ program test_fortsparse_auto
         sparse_refactor, sparse_solve, sparse_destroy, sparse_solve_once, &
         fortsparse_status_t, status_ok, sparse_auto_backend, &
         FORTSPARSE_BACKEND_AUTO, FORTSPARSE_BACKEND_DEFAULT, &
-        FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_SUPERLU
+        FORTSPARSE_BACKEND_MUMPS, FORTSPARSE_BACKEND_SUPERLU, &
+        FORTSPARSE_BACKEND_NATIVE
     use fortsparse_mumps, only: mumps_backend_t
     use fortsparse_superlu, only: superlu_backend_t
     use fs_test_mpi, only: test_mpi_init, test_mpi_finalize, test_mpi_parallel
@@ -20,8 +21,8 @@ program test_fortsparse_auto
     integer :: nfail, m, kind
 
     nfail = 0
-    call check("default_is_auto", FORTSPARSE_BACKEND_DEFAULT == &
-        FORTSPARSE_BACKEND_AUTO)
+    call check("default_is_native", FORTSPARSE_BACKEND_DEFAULT == &
+        FORTSPARSE_BACKEND_NATIVE)
 
     ! Small side: a 4 x 4 grid.
     call laplace2d(4, A)
@@ -72,7 +73,8 @@ contains
         b = matvec_r(M, xe)
         allocate (x(M%ncol))
         call check(tag//"_solver_default", solver%backend_id == &
-            FORTSPARSE_BACKEND_AUTO)
+            FORTSPARSE_BACKEND_NATIVE)
+        solver%backend_id = FORTSPARSE_BACKEND_AUTO
         call sparse_factor(solver, M, status)
         if (.not. status_ok(status)) write (error_unit, '(a)') status%msg
         call check(tag//"_factor", status_ok(status))
@@ -109,6 +111,7 @@ contains
         xe = [(cmplx(sin(0.3_dp*i), cos(0.2_dp*i), dp), i=1, M%ncol)]
         b = matvec_z(M, xe)
         allocate (x(M%ncol))
+        solver%backend_id = FORTSPARSE_BACKEND_AUTO
         call sparse_factor(solver, M, status)
         call check(tag//"_factor", status_ok(status))
         call check(tag//"_backend", backend_of(solver) == expect)

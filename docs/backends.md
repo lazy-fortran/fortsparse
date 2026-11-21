@@ -6,12 +6,12 @@ one by setting `solver%backend_id` before factoring:
 
 | Constant | Backend |
 | --- | --- |
-| `FORTSPARSE_BACKEND_AUTO` (default) | Chosen per factorization; see [automatic selection](#automatic-selection) |
+| `FORTSPARSE_BACKEND_AUTO` | Chosen per factorization; see [automatic selection](#automatic-selection) |
 | `FORTSPARSE_BACKEND_SUPERLU` | SuperLU (BSD), in process |
 | `FORTSPARSE_BACKEND_SUPERLU_ILU` | SuperLU incomplete LU, real only |
 | `FORTSPARSE_BACKEND_MUMPS` | MUMPS (CeCILL-C), in process, optional |
 | `FORTSPARSE_BACKEND_UMFPACK_IPC` | UMFPACK (GPL) in a separate helper process |
-| `FORTSPARSE_BACKEND_NATIVE` | Project-owned native solvers |
+| `FORTSPARSE_BACKEND_NATIVE` (default) | Project-owned native solvers |
 | `FORTSPARSE_BACKEND_NATIVE_REFERENCE` | Serial simplicial native reference, for comparisons |
 
 A backend that was not built returns `FORTSPARSE_BACKEND_UNAVAILABLE`.

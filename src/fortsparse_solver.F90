@@ -3,11 +3,12 @@ module fortsparse_solver
     !
     ! A client factors a matrix once, solves any number of right-hand sides
     ! reusing that factorization, then frees it. The backend is selected by an
-    ! integer tag on the solver. The default, FORTSPARSE_BACKEND_AUTO, picks
-    ! SuperLU (BSD) or, for large matrices with a ready MUMPS runtime, MUMPS
-    ! per factorization (sparse_auto_backend); UMFPACK runs out-of-process
-    ! through a separate GPL helper and is reached by selecting
-    ! FORTSPARSE_BACKEND_UMFPACK_IPC. Selecting an unbuilt or unknown backend
+    ! integer tag on the solver. The default is the project-owned native
+    ! backend. FORTSPARSE_BACKEND_AUTO picks SuperLU (BSD) or, for large
+    ! matrices with a ready MUMPS runtime, MUMPS per factorization
+    ! (sparse_auto_backend); UMFPACK runs out-of-process through a separate
+    ! GPL helper and is reached by selecting FORTSPARSE_BACKEND_UMFPACK_IPC.
+    ! Selecting an unbuilt or unknown backend
     ! yields a documented
     ! FORTSPARSE_BACKEND_UNAVAILABLE status rather than a crash.
     use, intrinsic :: iso_c_binding, only: c_loc, c_associated
@@ -59,11 +60,11 @@ module fortsparse_solver
     ! Explicit approximate inverse; excluded from AUTO and exact derivatives.
     integer, parameter, public :: FORTSPARSE_BACKEND_SUPERLU_ILU = 6
     ! Per-matrix choice between the in-process backends at factor time
-    ! (sparse_auto_backend); the default of sparse_solver_t%backend_id and
-    ! hence of sparse_solve_once.
+    ! (sparse_auto_backend).
     integer, parameter, public :: FORTSPARSE_BACKEND_AUTO = 0
+    ! Default of sparse_solver_t%backend_id and hence of sparse_solve_once.
     integer, parameter, public :: FORTSPARSE_BACKEND_DEFAULT = &
-        FORTSPARSE_BACKEND_AUTO
+        FORTSPARSE_BACKEND_NATIVE
 
     ! Fewest stored entries for which AUTO factors with MUMPS (measured
     ! crossover of factor + solve wall time; README, "Backend selection").

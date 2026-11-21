@@ -3,10 +3,10 @@
 ## CMake
 
 CMake is the primary build, with CTest. It needs Fortran 2018 and C compilers,
-CMake 3.22 or newer, BLAS/LAPACK, and Ninja for the commands below. By default
-it fetches and builds SuperLU and the SuiteSparse/UMFPACK chain and fetches
-[fortnum](https://github.com/lazy-fortran/fortnum) from source. OpenBLAS and
-MKL both work; on a cluster, load the module first.
+CMake 3.22 or newer, and Ninja for the commands below. It fetches
+[fortnum](https://github.com/lazy-fortran/fortnum), which provides all BLAS and
+LAPACK routines. SuperLU and the SuiteSparse/UMFPACK chain are fetched and built
+only when enabled (see below).
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -21,8 +21,8 @@ All options are set with `-D`.
 | Option | Default | Effect |
 | --- | --- | --- |
 | `FORTSPARSE_BUILD_TESTING` | `ON` for a top-level build | Build the test suite. `-DBUILD_TESTING=OFF` turns it off as well. |
-| `FORTSPARSE_ENABLE_SUPERLU` | `ON` | Build the in-process SuperLU backend. `OFF` drops SuperLU; the native backend remains available. |
-| `FORTSPARSE_ENABLE_UMFPACK_IPC` | `ON` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
+| `FORTSPARSE_ENABLE_SUPERLU` | `OFF` | Build the in-process SuperLU backend. |
+| `FORTSPARSE_ENABLE_UMFPACK_IPC` | `OFF` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | Find SuperLU and UMFPACK with `find_package` instead of fetching them. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend; see [backends](backends.md#mumps). |
 | `FORTSPARSE_ENABLE_AMD` | `ON` | Use SuiteSparse's BSD AMD for the native AMD ordering; otherwise the built-in implementation is used. |
@@ -52,14 +52,12 @@ teams.
 
 ### Native-only build
 
-A build without any external sparse solver needs no library besides fortnum,
-which CMake fetches:
+A build without any external sparse solver or ordering needs no library
+besides fortnum, which CMake fetches:
 
 ```sh
 cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
-  -DFORTSPARSE_ENABLE_MUMPS=OFF -DFORTSPARSE_ENABLE_AMD=OFF \
-  -DFORTSPARSE_ENABLE_METIS=OFF
+  -DFORTSPARSE_ENABLE_AMD=OFF -DFORTSPARSE_ENABLE_METIS=OFF
 cmake --build build-native --target test_fortsparse_native_only -j 2
 ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-failure
 ```
@@ -107,7 +105,7 @@ Linux-only tests and reference benchmarks are not built on macOS.
 `fpm.toml` builds the native CPU library on fortnum's dense kernels and
 fetches fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD, METIS or the UMFPACK
 helper (the built-in AMD ordering is included), so
-`FORTSPARSE_BACKEND_AUTO` selects the native backend. An explicitly requested
+`FORTSPARSE_BACKEND_AUTO` also selects the native backend. An explicitly requested
 backend that is not configured returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
 
 ```sh
@@ -135,7 +133,7 @@ target_link_libraries(my_app PRIVATE fortsparse)
 fortsparse's tests are not part of the consumer's build. To run them there,
 pass `-DFORTSPARSE_BUILD_TESTING=ON` and call `include(CTest)` in the consumer.
 fortsparse itself does not include CTest in a consumer, but the fetched SuperLU
-does; build with `FORTSPARSE_ENABLE_SUPERLU=OFF` or `FORTSPARSE_USE_SYSTEM_DEPS=ON`
+does; leave `FORTSPARSE_ENABLE_SUPERLU` off or set `FORTSPARSE_USE_SYSTEM_DEPS=ON`
 to keep `BUILD_TESTING` out of the consumer's cache.
 
 The UMFPACK backend starts its helper process and looks for the binary next to

@@ -37,9 +37,10 @@ unsupported paths.
 ## Building
 
 CMake is the main build. It needs Fortran 2018 and C compilers, CMake 3.22 or
-newer, BLAS/LAPACK (OpenBLAS or MKL), and Ninja for the commands below. By
-default it fetches and builds SuperLU and the SuiteSparse/UMFPACK chain from
-source, and fetches [fortnum](https://github.com/lazy-fortran/fortnum).
+newer, and Ninja for the commands below. It fetches
+[fortnum](https://github.com/lazy-fortran/fortnum), which provides all BLAS and
+LAPACK routines. SuperLU and the SuiteSparse/UMFPACK chain are fetched and built
+only with `FORTSPARSE_ENABLE_SUPERLU=ON` and `FORTSPARSE_ENABLE_UMFPACK_IPC=ON`.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -47,8 +48,8 @@ cmake --build build --parallel 4
 ctest --test-dir build --output-on-failure
 ```
 
-The `fpm.toml` builds the native CPU library only, linked against system
-BLAS/LAPACK. The compiler must pass the self-assignment lifetime probe;
+The `fpm.toml` builds the native CPU library only, on fortnum's BLAS and
+LAPACK. The compiler must pass the self-assignment lifetime probe;
 CMake runs this check during configuration. For fpm:
 
 ```sh
@@ -73,7 +74,7 @@ real(dp) :: b(n), x(n)
 ! Build A from COO triplets; row and column indices are 1-based.
 call csc_from_triplet(n, n, rows, cols, vals, A, status)
 
-! Optional: choose a backend (default FORTSPARSE_BACKEND_AUTO).
+! Optional: choose a backend (default FORTSPARSE_BACKEND_NATIVE).
 solver%backend_id = FORTSPARSE_BACKEND_NATIVE
 solver%options%symmetry = FORTSPARSE_SYM_SPD
 
@@ -87,8 +88,9 @@ Check `status%code` against `FORTSPARSE_OK` after each call that accepts a
 status argument. `sparse_solve_once(A, b, x, status)` factors, solves and frees
 in one call. Complex systems use `csc_z_t` with the same calls.
 
-`FORTSPARSE_BACKEND_AUTO` uses MUMPS for large matrices when it is built,
-SuperLU for smaller ones, and the native backend when neither is available.
+The native backend is the default. `FORTSPARSE_BACKEND_AUTO` uses MUMPS for
+large matrices when it is built, SuperLU for smaller ones, and the native
+backend when neither is available.
 
 The [user guide](docs/user-guide.md) gives a complete first program and
 explains status handling, factor ownership and derivative calls.

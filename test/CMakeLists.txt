@@ -289,8 +289,8 @@ if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
     set_tests_properties(test_fortsparse_ipc_wait PROPERTIES TIMEOUT 10)
 endif()
 
-# These cases factor through the default backend (MUMPS in a sequential MUMPS
-# build with ZMUMPS, SuperLU otherwise); the SuperLU-specific ones pin SuperLU.
+# These cases factor through the default native backend; the SuperLU-specific
+# ones pin SuperLU.
 # They are registered when the SuperLU backend is compiled in. The IPC, selflocate, kinds,
 # status, and csc tests do not depend on it and stay registered always.
 if(FORTSPARSE_ENABLE_SUPERLU)

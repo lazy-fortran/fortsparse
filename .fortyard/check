@@ -29,7 +29,8 @@ OMP_NUM_THREADS=1
 cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-cmake \
     -P cmake/fortsparse_check_compiler.cmake
 cmake -S . -B build/fortyard-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
-    -DFORTSPARSE_BUILD_TESTING=ON
+    -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=ON \
+    -DFORTSPARSE_ENABLE_UMFPACK_IPC=ON
 cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \
     test_fortsparse_solve_real test_fortsparse_solve_complex \
     test_fortsparse_solve_derivatives test_fortsparse_complex_solve_derivatives \

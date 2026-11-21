@@ -85,6 +85,8 @@ ctest --test-dir native -j1 --output-on-failure --no-tests=error -R '^test_forts
 cmake -S . -B build -G Ninja \
   -DCMAKE_BUILD_TYPE=Debug \
   -DFORTSPARSE_BUILD_TESTING=ON \
+  -DFORTSPARSE_ENABLE_SUPERLU=ON \
+  -DFORTSPARSE_ENABLE_UMFPACK_IPC=ON \
   -DFORTSPARSE_USE_SYSTEM_DEPS=ON
 
 

@@ -34,8 +34,8 @@ the `refine` and `factored` flags, a `sparse_options_t` options object and the
 allocated concrete backend. The [native matrix-class guide](native-cpu.md)
 describes supported copy operations and factor ownership.
 
-The default is `FORTSPARSE_BACKEND_DEFAULT = FORTSPARSE_BACKEND_AUTO = 0`, which
-resolves at every factor to `FORTSPARSE_BACKEND_MUMPS = 3` for matrices with at
+The default is `FORTSPARSE_BACKEND_DEFAULT = FORTSPARSE_BACKEND_NATIVE = 4`.
+`FORTSPARSE_BACKEND_AUTO = 0` resolves at every factor to `FORTSPARSE_BACKEND_MUMPS = 3` for matrices with at
 least 40000 stored entries when MUMPS is configured and its runtime is ready
 (with ZMUMPS for complex matrices). It otherwise uses
 `FORTSPARSE_BACKEND_SUPERLU = 1` when available. Without SuperLU it uses ready
