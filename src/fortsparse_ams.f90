@@ -81,7 +81,7 @@ contains
         type(ams_handle_t), intent(inout) :: handle
         type(fortsparse_status_t), intent(out) :: info
         type(csr_t), intent(in), optional :: mass
-        type(csr_t) :: laplacian, nodal_mass, block
+        type(csr_t) :: laplacian, block
         type(csr_budget_t) :: budget
         type(csr_t) :: work
         type(amg_params_t) :: nodal
@@ -112,10 +112,6 @@ contains
         if (info%code /= FORTSPARSE_OK) return
         call csr_multiply(handle%gt, work, handle%ag, budget, info)
         if (info%code /= FORTSPARSE_OK) return
-        call csr_multiply(a, pi, work, budget, info)
-        if (info%code /= FORTSPARSE_OK) return
-        call csr_multiply(handle%pit, work, handle%api, budget, info)
-        if (info%code /= FORTSPARSE_OK) return
 
         ! A G = 0 (curl-curl without mass): the gradient correction of a
         ! consistent residual vanishes, so it is left out.
@@ -140,24 +136,22 @@ contains
                 call csr_multiply(handle%gt, work, laplacian, budget, info)
                 if (info%code /= FORTSPARSE_OK) return
             end if
-            if (present(mass) .and. params%beta /= 0) then
-                call csr_multiply(mass, pi, work, budget, info)
-                if (info%code /= FORTSPARSE_OK) return
-                call csr_multiply(handle%pit, work, nodal_mass, budget, info)
-                if (info%code /= FORTSPARSE_OK) return
-                nodal_mass%val = params%beta*nodal_mass%val
-            end if
+            ! Only the diagonal blocks Pi_d^T X Pi_d are needed: the full
+            ! Pi^T X Pi would cost three times as much.
             do i = 1, 3
                 if (present(mass)) then
                     ! The vector Laplacian of Hiptmair and Xu, component by
                     ! component: the blocks of Pi^T A Pi lack a derivative.
                     handle%acomp(i) = laplacian
                     if (params%beta /= 0) then
-                        call diagonal_block(nodal_mass, (i - 1)*n0, n0, block)
+                        call component_product(mass, pi, (i - 1)*n0, n0, budget, block, info)
+                        if (info%code /= FORTSPARSE_OK) return
+                        block%val = params%beta*block%val
                         call add_into(handle%acomp(i), block)
                     end if
                 else
-                    call diagonal_block(handle%api, (i - 1)*n0, n0, handle%acomp(i))
+                    call component_product(a, pi, (i - 1)*n0, n0, budget, handle%acomp(i), info)
+                    if (info%code /= FORTSPARSE_OK) return
                 end if
                 call regularize(handle%acomp(i), params%aux_shift)
                 call amg_setup(handle%acomp(i), params%amg_nodal, handle%bcomp(i), info)
@@ -172,6 +166,10 @@ contains
             call status_set(info, FORTSPARSE_OK, '')
             return
         end if
+        call csr_multiply(a, pi, work, budget, info)
+        if (info%code /= FORTSPARSE_OK) return
+        call csr_multiply(handle%pit, work, handle%api, budget, info)
+        if (info%code /= FORTSPARSE_OK) return
         call regularize(handle%api, params%aux_shift)
         nodal = params%amg_nodal
         if (.not. allocated(nodal%near_nullspace)) then
@@ -391,36 +389,42 @@ contains
         call move_alloc(c%val, a%val)
     end subroutine add_into
 
-    subroutine diagonal_block(b, offset, n, c)
-        !! c = b(offset+1:offset+n, offset+1:offset+n), rows kept sorted.
-        type(csr_t), intent(in) :: b
+    subroutine component_product(x, pi, offset, n, budget, c, info)
+        !! c = Pi_d^T x Pi_d with Pi_d = pi(:, offset+1:offset+n).
+        type(csr_t), intent(in) :: x, pi
         integer, intent(in) :: offset, n
+        type(csr_budget_t), intent(inout) :: budget
         type(csr_t), intent(out) :: c
+        type(fortsparse_status_t), intent(out) :: info
+        type(csr_t) :: pd, pdt, w
         integer :: i, k, m
 
-        c%nrow = n
-        c%ncol = n
-        allocate (c%row_ptr(n + 1))
-        c%row_ptr(1) = 1
-        do i = 1, n
-            m = 0
-            do k = b%row_ptr(offset + i), b%row_ptr(offset + i + 1) - 1
-                if (b%col(k) > offset .and. b%col(k) <= offset + n) m = m + 1
-            end do
-            c%row_ptr(i + 1) = c%row_ptr(i) + m
+        pd%nrow = pi%nrow
+        pd%ncol = n
+        allocate (pd%row_ptr(pi%nrow + 1))
+        pd%row_ptr(1) = 1
+        do i = 1, pi%nrow
+            m = count(pi%col(pi%row_ptr(i):pi%row_ptr(i + 1) - 1) > offset .and. &
+                pi%col(pi%row_ptr(i):pi%row_ptr(i + 1) - 1) <= offset + n)
+            pd%row_ptr(i + 1) = pd%row_ptr(i) + m
         end do
-        allocate (c%col(c%row_ptr(n + 1) - 1), c%val(c%row_ptr(n + 1) - 1))
+        allocate (pd%col(pd%row_ptr(pi%nrow + 1) - 1), pd%val(pd%row_ptr(pi%nrow + 1) - 1))
         m = 0
-        do i = 1, n
-            do k = b%row_ptr(offset + i), b%row_ptr(offset + i + 1) - 1
-                if (b%col(k) > offset .and. b%col(k) <= offset + n) then
+        do i = 1, pi%nrow
+            do k = pi%row_ptr(i), pi%row_ptr(i + 1) - 1
+                if (pi%col(k) > offset .and. pi%col(k) <= offset + n) then
                     m = m + 1
-                    c%col(m) = b%col(k) - offset
-                    c%val(m) = b%val(k)
+                    pd%col(m) = pi%col(k) - offset
+                    pd%val(m) = pi%val(k)
                 end if
             end do
         end do
-    end subroutine diagonal_block
+        call csr_transpose(pd, pdt, budget, info)
+        if (info%code /= FORTSPARSE_OK) return
+        call csr_multiply(x, pd, w, budget, info)
+        if (info%code /= FORTSPARSE_OK) return
+        call csr_multiply(pdt, w, c, budget, info)
+    end subroutine component_product
 
     subroutine regularize(b, shift)
         !! Symmetrizes the Galerkin product's rounding and adds shift times a
