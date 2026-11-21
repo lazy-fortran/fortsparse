@@ -25,7 +25,6 @@ All options are set with `-D`.
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `OFF` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | Find SuperLU and UMFPACK with `find_package` instead of fetching them. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend; see [backends](backends.md#mumps). |
-| `FORTSPARSE_ENABLE_AMD` | `ON` | Use SuiteSparse's BSD AMD for the native AMD ordering; otherwise the built-in implementation is used. |
 | `FORTSPARSE_ENABLE_METIS` | `ON` | Use the optional METIS nested-dissection ordering for the native solvers. |
 | `FORTSPARSE_ENABLE_NATIVE_CUDA` | `OFF` | Build the native CUDA kernels. |
 | `FORTSPARSE_ENABLE_OPENMP` | `ON` | Thread the CSC matrix-vector product with OpenMP. |
@@ -57,7 +56,7 @@ besides fortnum, which CMake fetches:
 
 ```sh
 cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DFORTSPARSE_ENABLE_AMD=OFF -DFORTSPARSE_ENABLE_METIS=OFF
+  -DFORTSPARSE_ENABLE_METIS=OFF
 cmake --build build-native --target test_fortsparse_native_only -j 2
 ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-failure
 ```

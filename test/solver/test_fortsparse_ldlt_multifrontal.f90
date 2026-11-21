@@ -11,21 +11,21 @@ program test_fortsparse_ldlt_multifrontal
     use, intrinsic :: iso_c_binding, only: c_int
     implicit none
     interface
-        integer(c_int) function amd_core_order(n, ptr, row, perm) &
-                bind(C, name='test_amd_core_order')
+        integer(c_int) function amd_order(n, nnz, ptr, row, perm, inverse) &
+                bind(C, name='fsparse_native_order_amd')
             import :: c_int
-            integer(c_int), value :: n
+            integer(c_int), value :: n, nnz
             integer(c_int), intent(in) :: ptr(*), row(*)
-            integer(c_int), intent(out) :: perm(*)
-        end function amd_core_order
-        ! SuiteSparse amd_l_order; 3 when SuiteSparse AMD is not built in.
-        integer(c_int) function suitesparse_amd_order(n, nnz, ptr, row, perm, inverse) &
+            integer(c_int), intent(out) :: perm(*), inverse(*)
+        end function amd_order
+        ! The same ordering on 64-bit indices.
+        integer(c_int) function amd_order_wide(n, nnz, ptr, row, perm, inverse) &
                 bind(C, name='fsparse_native_order_amd_general_wide')
             import :: c_int
             integer(c_int), value :: n, nnz
             integer(c_int), intent(in) :: ptr(*), row(*)
             integer(c_int), intent(out) :: perm(*), inverse(*)
-        end function suitesparse_amd_order
+        end function amd_order_wide
     end interface
     integer, parameter :: grid = 24, n = grid*grid, dense = 72
     real(dp), parameter :: pi = acos(-1.0_dp)
@@ -39,7 +39,7 @@ program test_fortsparse_ldlt_multifrontal
     integer(i8) :: nneg, nzero, npos
     integer :: failures, reliability, threads, k
     integer :: order(n), inverse(n), code
-    integer(i8) :: core_fill, suitesparse_fill
+    integer(i8) :: fill32, fill64
     logical :: reused
     failures = 0
 
@@ -86,25 +86,19 @@ program test_fortsparse_ldlt_multifrontal
     end if
     call sparse_destroy(solver)
 
-    ! The same with each AMD ordering applied explicitly (natural order of
-    ! P^T A P): the built-in core, which orders when SuiteSparse AMD is not
-    ! built in, and SuiteSparse AMD where it is. Inertia and its reliability
-    ! must not depend on the ordering, and the built-in fill nnz(L) must stay
-    ! within 5 % of SuiteSparse's.
+    ! The same with the AMD ordering applied explicitly (natural order of
+    ! P^T A P), on 32-bit and on 64-bit indices. Inertia and its reliability
+    ! must not depend on the ordering, and both index widths order alike.
     call laplacian(grid, 1.37_dp, a)
     call scale_rows(grid, a)
-    code = amd_core_order(n, a%col_ptr, a%row_idx, order)
-    call expect(code == 0, 'built-in AMD order')
-    if (code == 0) core_fill = ordered_inertia(a, order, 'built-in AMD')
-    code = suitesparse_amd_order(n, int(a%nnz), a%col_ptr, a%row_idx, order, inverse)
+    code = amd_order(n, int(a%nnz), a%col_ptr, a%row_idx, order, inverse)
+    call expect(code == 0, 'AMD order')
+    if (code == 0) fill32 = ordered_inertia(a, order, 'AMD')
+    code = amd_order_wide(n, int(a%nnz), a%col_ptr, a%row_idx, order, inverse)
+    call expect(code == 0, '64-bit AMD order')
     if (code == 0) then
-        suitesparse_fill = ordered_inertia(a, order, 'SuiteSparse AMD')
-        print '(a,i0,a,i0)', 'factor entries: built-in AMD ', core_fill, &
-            ', SuiteSparse AMD ', suitesparse_fill
-        call expect(real(core_fill, dp) <= 1.05_dp*real(suitesparse_fill, dp), &
-            'built-in AMD fill within 5 % of SuiteSparse AMD')
-    else
-        call expect(code == 3, 'SuiteSparse AMD order')
+        fill64 = ordered_inertia(a, order, '64-bit AMD')
+        call expect(fill32 == fill64, '32- and 64-bit AMD fill agree')
     end if
 
     ! Negative control: the dyadic shift 11/8 and an extra row and column

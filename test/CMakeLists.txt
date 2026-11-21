@@ -468,7 +468,6 @@ endif()
 fortsparse_add_test(test_fortsparse_memory_api solver/test_fortsparse_memory_api.f90)
 set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 1)
 fortsparse_add_test(test_fortsparse_ldlt_multifrontal solver/test_fortsparse_ldlt_multifrontal.f90)
-target_sources(test_fortsparse_ldlt_multifrontal PRIVATE solver/ldlt_amd_core_order.c)
 set_tests_properties(test_fortsparse_ldlt_multifrontal PROPERTIES
     LABELS "native;fast" TIMEOUT 5)
 fortsparse_add_test(test_fortsparse_ldlt_merge solver/test_fortsparse_ldlt_merge.f90)
@@ -633,14 +632,15 @@ endif()
 add_executable(test_native_order_amd_bounded ../test-cmake/native/test_amd_bounded.c)
 target_link_libraries(test_native_order_amd_bounded PRIVATE fortsparse ${CMAKE_DL_LIBS})
 target_include_directories(test_native_order_amd_bounded PRIVATE ../src/native)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND FORTSPARSE_NATIVE_BOUNDED_AMD_FOUND
-        AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_definitions(test_native_order_amd_bounded PRIVATE FS_TEST_BOUNDED_AMD)
-    target_link_libraries(test_native_order_amd_bounded PRIVATE ${FORTSPARSE_NATIVE_AMD_TARGET})
-    target_link_options(test_native_order_amd_bounded PRIVATE "LINKER:--wrap=amd_2" "LINKER:--wrap=amd_version")
-endif()
 add_test(NAME test_native_order_amd_bounded COMMAND test_native_order_amd_bounded)
 set_tests_properties(test_native_order_amd_bounded PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+# SuiteSparse AMD, loaded at run time where installed, is the ordering oracle.
+add_executable(test_native_order_amd_reference ../test-cmake/native/test_amd_reference.c)
+target_link_libraries(test_native_order_amd_reference PRIVATE fortsparse ${CMAKE_DL_LIBS})
+target_include_directories(test_native_order_amd_reference PRIVATE ../src/native)
+add_test(NAME test_native_order_amd_reference COMMAND test_native_order_amd_reference)
+set_tests_properties(test_native_order_amd_reference PROPERTIES LABELS "native;fast"
+    TIMEOUT 30 SKIP_RETURN_CODE 77)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_general_amd_bounded
         ../test-cmake/native/test_general_amd_bounded.f90

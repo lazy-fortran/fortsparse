@@ -16,7 +16,7 @@ shift || true
 cmake -S "$top" -B "$out" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$top/tools/wasm/emscripten-lfortran.cmake" \
     -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
-    -DFORTSPARSE_ENABLE_METIS=OFF -DFORTSPARSE_ENABLE_AMD=OFF \
+    -DFORTSPARSE_ENABLE_METIS=OFF \
     -DFORTSPARSE_ENABLE_OPENMP=OFF
 cmake --build "$out"
 ctest --test-dir "$out" --output-on-failure "$@"

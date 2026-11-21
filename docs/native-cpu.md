@@ -29,9 +29,9 @@ fill. Otherwise it keeps natural order. This holds for real SPD and complex HPD 
 general LU, and the scalar symmetric indefinite LDL^T/LDL^H factors. The
 multifrontal LDL^T orders DEFAULT as AMD.
 `FORTSPARSE_ORDER_NATURAL` keeps the input order; `ordering_used` reports
-natural order as 0. AMD needs no external library: without SuiteSparse AMD the
-project-owned implementation (`fsparse_native_amd_core.c`, the algorithm of
-Amestoy, Davis and Duff, 1996) is built, also by `fpm`. General LU takes the
+natural order as 0. AMD needs no external library: the project-owned port of
+SuiteSparse AMD (`fortsparse_amd.f90`, the algorithm of Amestoy, Davis and
+Duff, 1996) orders as `amd_order` does, also under `fpm`. General LU takes the
 accounted caller-workspace AMD for the default, so exact host peaks and caps
 keep working; so do the HPD and indefinite factors and real SPD under a host
 cap, LOW_MEMORY or refinement, where `sparse_analyze` plans the AMD layout that

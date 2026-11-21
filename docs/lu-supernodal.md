@@ -68,8 +68,7 @@ Matching, ordering, LU and plumbing
   - There is no weighted matching or scaling anywhere. The only scaling is the scalar LU's row max-abs `row_norm`.
 - Orderings (perm[new]=old, one-based, 0 = OK):
   - `fsparse_native_order_general` (METIS ND on A+Aᵀ, `src/native/fsparse_native_order.c:141`).
-  - `fsparse_native_order_amd_general` (`fsparse_native_order_amd.c:76`).
-  - Bounded AMD with a caller arena: `fsparse_native_amd_bounded_size/_bounded` (`fsparse_native_amd_bounded.c:60/:77`; Fortran bindings in `fortsparse_native_amd.f90`).
+  - `fsparse_native_order_amd_general` and the bounded AMD with a caller arena, `fsparse_native_amd_bounded_size/_bounded` (`src/native/fortsparse_amd.f90`).
   - ND is refused under a cap or LOW (`fortsparse_native_general.f90:381-385`).
 - Scalar LU `lu_factor_t` (`src/native/fortsparse_native_lu.f90:31`) is **generated** by `gen/gen_lu.f90`.
   - Gilbert–Peierls with threshold row pivoting. Arguments include `row_preference` and `pruning`.

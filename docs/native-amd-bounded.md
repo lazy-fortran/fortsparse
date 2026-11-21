@@ -3,37 +3,21 @@
 Explicit AMD ordering supports positive host allocation caps and `MEMORY_LOW`
 for native real/complex general LU, real SPD and complex HPD Cholesky and the
 real/complex symmetric indefinite LDL factors. The caller-workspace
-path calls the audited AMD 3.3.4 `amd_2` when that ABI is built and the
-project-owned `fsparse_amd_core` otherwise; both take the same arena and
-elbow room, and the core allocates nothing. `DEFAULT` uses this path
+path runs the project-owned AMD (`src/native/fortsparse_amd.f90`, a port of
+SuiteSparse AMD 3.3 whose permutations equal `amd_order`'s) and allocates
+nothing. `DEFAULT` uses this path
 whenever it selects AMD; `NATIVE_REFERENCE` retains its natural policy. This is CPU ordering; row
 pivoting, value scaling, sparse numerical factors and retained N/T/H solves are
-unchanged. These checks establish correctness and array-payload accounting,
-not performance admission or completion of the broader memory roadmap.
+unchanged.
 
 ## Library boundary
 
-The existing uncapped `amd_order` adapter remains unchanged. It owns opaque
-vendor allocation, so complete peak bytes remain unknown and
-`strict_memory_supported` remains false for that path. A positive host cap or
-`MEMORY_LOW` selects the separate allocation-free `amd_2` adapter. Its public
-header warns that inputs are unchecked and destroyed; FortSparse therefore
-constructs and validates the complete private graph before calling AMD.
-
-Configure checks require the reviewed 3.3.4 header, exact function signature,
-32-bit C integer ABI and linkable `amd_2`/`amd_version` symbols. Every bounded
-operation checks the runtime version too. A header or interface that fails the
-configure checks builds the project-owned core instead; a runtime version
-mismatch of a built vendor ABI returns `BACKEND_UNAVAILABLE`. There are no global SuiteSparse allocator hooks,
-production preload or hardcoded installation paths.
-
-The allocation contract trusts the audited upstream **AMD 3.3.4** implementation:
-`amd_2 -> amd_postorder -> amd_post_tree` uses caller arrays and iterative tree
-traversal, with no heap allocation in that closure. Matching version numbers
-are ABI guards, not proof that a locally modified library has identical behavior;
-a patched build claiming 3.3.4 must preserve that contract. The source and
-compiled-library audit must be repeated before accepting another release.
-AMD remains an externally linked BSD 3-clause dependency of the MIT core.
+The uncapped ordering allocates its arrays on the heap. A positive host cap or
+`MEMORY_LOW` selects the caller-workspace entry
+`fsparse_native_amd_bounded`, which validates the CSC input, builds the graph
+of A+A^T in the arena and orders it there. No external AMD library is used.
+`test_native_order_amd_reference` checks the permutations against SuiteSparse
+`amd_order`, loaded at run time where installed.
 
 ## Owned layout and cap admission
 
@@ -42,23 +26,21 @@ For canonical one-based CSC, let `K` be its stored off-diagonal entry count and
 The query validates CSC, counts the graph using allocation-free mirrored-entry
 searches, and returns checked workspace and output byte counts. Values are
 borrowed; numerical zeros remain structural entries. No value copy or dense
-matrix is constructed. Counting costs O(K log(max_degree+1)); graph construction
-uses an off-diagonal transpose followed by sorted union merges in O(n+K+m).
+matrix is constructed. The size query counts in O(K log(max_degree+1)); the
+ordering counts and lists the graph in O(n+K+m) as `amd_order` does.
 
 The caller owns one int32 arena and two n-element permutation outputs:
 
 | Arrays | int32 count |
 | --- | --- |
-| transpose pointers/indices | `n+1+K` |
 | AMD vectors except its two output vectors | `7*n` |
 | adjacency and compression space | `iwlen` |
 | permutation and inverse outputs | `2*n` |
 
-Thus workspace bytes are `4*(K+8*n+1+iwlen)` and output bytes are `8*n`.
+Thus workspace bytes are `4*(7*n+iwlen)` and output bytes are `8*n`.
 The ordinary bounded path uses `iwlen=m+floor(m/5)+n`, matching upstream's elbow
 room. `MEMORY_LOW` uses the documented supported minimum `m+n`, saving exactly
-`4*floor(m/5)` bytes at the cost of potentially more graph compression. The
-transpose stays inside the arena during AMD and is counted throughout.
+`4*floor(m/5)` bytes at the cost of potentially more graph compression. 
 Default control and null diagnostic pointers add no owned diagnostic arrays.
 All counts and conversions are checked before allocation, including the
 symmetrized graph and workspace index limits.

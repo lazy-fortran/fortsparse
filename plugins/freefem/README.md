@@ -12,7 +12,7 @@ the ordinary core build. Enable it explicitly with a matching FreeFem SDK/runtim
 ```sh
 cmake -S . -B build-freefem -G Ninja \
   -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
-  -DFORTSPARSE_ENABLE_MUMPS=OFF -DFORTSPARSE_ENABLE_AMD=ON \
+  -DFORTSPARSE_ENABLE_MUMPS=OFF \
   -DFORTSPARSE_BUILD_FREEFEM_PLUGIN=ON \
   -DFREEFEM_CXX_EXECUTABLE=/prefix/bin/ff-c++ \
   -DFREEFEM_EXECUTABLE=/prefix/bin/FreeFem++

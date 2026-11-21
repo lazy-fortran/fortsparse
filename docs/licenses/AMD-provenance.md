@@ -1,29 +1,16 @@
-# Optional AMD ordering dependency
+# AMD ordering provenance
 
-The MIT adapter calls AMD's public `amd_order` API through a separately linked
-library when SuiteSparse AMD is found. Otherwise the built-in ordering in
-`src/native/fsparse_native_amd_core.c` is used. That file was written with
-reference to SuiteSparse AMD's `amd_2.c` at the revision below and carries the
-AMD copyright and BSD 3-clause notice.
+`src/native/fortsparse_amd_kernel.inc` is a Fortran port of SuiteSparse AMD
+3.3.3 (`amd_aat.c`, `amd_1.c`, `amd_2.c`, `amd_postorder.c`,
+`amd_post_tree.c`) from the
+[SuiteSparse v7.8.3 release](https://github.com/DrTimothyAldenDavis/SuiteSparse/releases/tag/v7.8.3),
+with the default controls and without the statistics and debug code. It
+carries the AMD copyright and BSD 3-clause notice; the
+[AMD license](AMD-LICENSE.txt) is retained without edits.
+`test_native_order_amd_reference` checks that its permutations equal
+`amd_order`'s.
 
-Primary source retained on 2026-10-16:
-
-- Local research clone: `~/code/sparse-dev/repos/SuiteSparse`.
-- Revision: `34db4dfbe21c53cea7b0e3c5ee2da37bfaef369a`.
-- Exact [AMD license](https://github.com/DrTimothyAldenDavis/SuiteSparse/blob/34db4dfbe21c53cea7b0e3c5ee2da37bfaef369a/AMD/Doc/License.txt),
-  retained without edits as [AMD-LICENSE.txt](AMD-LICENSE.txt).
-- SHA-256:
-  `e50fdd9a587f4860ce1d503b94576bfff47bccc421f758d1bdc8706c8cd36108`.
-
-The retained notice specifies BSD 3-clause. The installed AMD 3.3.4 header
-also identifies BSD-3-Clause. Its SuiteSparse_config dependency identifies
-BSD-3-Clause in the archived `SuiteSparse_config/README.txt`; no GPL UMFPACK
-code is linked into the native solver by this adapter. CMake reuses AMD's
-package target, including transitive dependencies, when available. A raw
-static AMD library also needs its matching SuiteSparse_config library.
-
-The adapter accepts full canonical symmetric one-based CSC and returns
-`perm[new] = old`, `inverse[old] = new`, both one-based. Input validation is
-shared with the METIS adapter. It uses AMD defaults and checks the returned
-permutation before exposing it. Graph ordering remains outside numerical
-kernel generation.
+`src/native/fortsparse_amd.f90` (MIT) wraps the port for one-based CSC input:
+it returns `perm[new] = old` and `inverse[old] = new`, both one-based, and
+checks the permutation before exposing it. Input validation matches the METIS
+adapter's. No AMD or SuiteSparse_config library is linked.

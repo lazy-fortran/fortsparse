@@ -102,7 +102,7 @@ Build/test the minimal dependency configuration:
 ```sh
 cmake -S . -B build-c-api -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
-  -DFORTSPARSE_ENABLE_MUMPS=OFF -DFORTSPARSE_ENABLE_AMD=OFF \
+  -DFORTSPARSE_ENABLE_MUMPS=OFF \
   -DFORTSPARSE_ENABLE_METIS=OFF
 cmake --build build-c-api --target test_native_c_api test_native_cxx_api -j2
 ctest --test-dir build-c-api -R '^test_native_c(xx)?_api$' --output-on-failure -j2
