@@ -45,28 +45,31 @@ preconditioner.
 
 ## AMS for H(curl)
 
-`pcg_setup_ams(A, G, Pi, params, handle, info)` preconditions an H(curl)
-matrix `A` (curl-curl, with or without a mass term) by the auxiliary-space
-Maxwell solver (Hiptmair and Xu 2007, Kolev and Vassilevski 2009): l1-Jacobi
-smoothing on `A`, and corrections in the gradient space `G` (n1 x n0) and in
-the nodal vector space `Pi` (n1 x 3 n0, x, y, z column blocks), each solved
-by smoothed aggregation AMG. `params%ams` selects the multiplicative cycle
-(`AMS_MULTIPLICATIVE`, default) or the additive one, the smoothing sweeps,
-and, with `nodal_components` (default), three scalar AMG solves on the
-component blocks of `Pi^T A Pi` instead of one on the coupled vector
-problem. When `A G = 0` the gradient correction is left out
-(`ams_uses_gradient`). The auxiliary operators get `aux_shift` times their
-diagonal added, so that a semidefinite `A` gives definite AMG problems.
-`ams_setup_csr` and `ams_apply` give the preconditioner alone.
+`pcg_setup_ams(A, G, Pi, params, handle, info, mass)` preconditions an
+H(curl) matrix `A = C^T M2 C + beta M` (curl-curl, with or without a mass
+term) by the auxiliary-space Maxwell solver (Hiptmair and Xu 2007, Kolev and
+Vassilevski 2009): l1-Jacobi smoothing on `A`, and corrections in the
+gradient space `G` (n1 x n0) and in the nodal vector space `Pi` (n1 x 3 n0,
+x, y, z column blocks), each solved by smoothed aggregation AMG. Pass the
+1-form mass matrix `M` as `mass` and `beta` as `params%ams%beta`: each
+Cartesian component of the nodal space is then solved with the vector
+Laplacian of Hiptmair and Xu, `G^T M G + beta Pi_d^T M Pi_d`. Without
+`mass`, the component blocks `Pi_d^T A Pi_d` are used; for curl-curl they
+lack a derivative, and AMG converges slowly on them. `params%ams` also
+selects the multiplicative cycle (`AMS_MULTIPLICATIVE`, default) or the
+additive one, and the smoothing sweeps. When `A G = 0` the gradient
+correction is left out (`ams_uses_gradient`). The auxiliary operators get
+`aux_shift` times their diagonal added, so that a semidefinite `A` gives
+definite AMG problems. `ams_setup_csr` and `ams_apply` give the
+preconditioner alone.
 
 Iterations to `1e-8` on the curl-curl matrices above, multiplicative cycle,
-two smoothing sweeps, against IC(0):
+two smoothing sweeps, with `mass` and `beta` (IC(0) in parentheses):
 
 | case, level 1 / 2 / 3 | A + 1e-2 M1 | A, b = A x |
 |---|---|---|
-| torus | 30 / 24 / 35 (IC(0) 249 / 394 / 624) | 19 / 23 / 35 (21 / 28 / 43) |
-| ring torus | 64 / 63 / 76 (154 / 369 / 714) | 40 / 44 / 54 (21 / 42 / 71) |
+| torus | 19 / 22 / 26 (249 / 394 / 644) | 16 / 17 / 21 (21 / 28 / 43) |
+| ring torus | 36 / 41 / 47 (154 / 369 / 727) | 24 / 27 / 30 (21 / 42 / 71) |
 
-With exact auxiliary solves the same cycle needs 2 to 3 iterations on all
-of them, so the remaining growth comes from dropping the coupling between
-the components of the nodal vector problem.
+Without `mass` the torus needs 30 / 24 / 35 and 19 / 23 / 35, the ring torus
+64 / 63 / 76 and 40 / 44 / 54.

@@ -105,7 +105,7 @@ contains
         call status_set(info, FORTSPARSE_OK, '')
     end subroutine pcg_setup
 
-    subroutine pcg_setup_ams(a, g, pi, params, handle, info)
+    subroutine pcg_setup_ams(a, g, pi, params, handle, info, mass)
         !! PCG with the AMS preconditioner for an H(curl) matrix A, its
         !! discrete gradient G (n1 x n0) and nodal vector interpolation Pi
         !! (n1 x 3 n0, x, y, z column blocks).
@@ -113,6 +113,8 @@ contains
         type(pcg_params_t), intent(in) :: params
         type(pcg_handle_t), intent(inout) :: handle
         type(fortsparse_status_t), intent(out) :: info
+        !! The 1-form mass matrix, for the nodal Laplacian auxiliary solves.
+        type(csr_t), intent(in), optional :: mass
         type(pcg_params_t) :: plain
         integer :: n
 
@@ -121,7 +123,7 @@ contains
         call pcg_setup(a, plain, handle, info)
         if (info%code /= FORTSPARSE_OK) return
         allocate (handle%ams)
-        call ams_setup(a, g, pi, params%ams, handle%ams, info)
+        call ams_setup(a, g, pi, params%ams, handle%ams, info, mass)
         if (info%code /= FORTSPARSE_OK) then
             call pcg_destroy(handle)
             return

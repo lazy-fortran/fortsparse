@@ -16,6 +16,8 @@ program test_fortsparse_ams
     type(fortsparse_status_t) :: info
     real(dp), allocatable :: x(:), b(:), exact(:), r(:), cg(:)
     integer :: level, side, beta_case, variant, it_ams(2, 2), it_ic0(2, 2), i, it
+    integer :: it_mass(2, 2)
+    type(csr_t) :: identity
     ! Grid of the current Nedelec problem, for node, edge and face.
     integer :: np, ne(3), cur_side
     real(dp) :: beta, relative
@@ -51,6 +53,17 @@ program test_fortsparse_ams
                 if (variant == 1) it_ams(beta_case, level) = it
                 call pcg_destroy(handle)
             end do
+            ! With the edge mass matrix (here the identity) the nodal
+            ! components are solved with the nodal Laplacian G^T M G.
+            call unit_matrix(a%nrow, identity)
+            params%ams%cycle = AMS_MULTIPLICATIVE
+            params%ams%beta = beta
+            call pcg_setup_ams(a, g, pi, params, handle, info, identity)
+            call check(info%code == FORTSPARSE_OK, 'AMS setup with mass: '//trim(info%msg))
+            x = 0
+            call pcg_solve(handle, params, b, x, info, it_mass(beta_case, level))
+            call check(info%code == FORTSPARSE_OK, 'AMS-PCG solve with mass')
+            call pcg_destroy(handle)
             params%preconditioner = PCG_IC0
             call pcg_setup(a, params, handle, info)
             x = 0
@@ -59,8 +72,11 @@ program test_fortsparse_ams
             call pcg_destroy(handle)
             deallocate (x, b, exact, r)
         end do
-        print '(a,f3.1,a,2i5,a,2i5)', 'beta ', beta, ': AMS iterations', &
-            it_ams(beta_case, :), ', IC(0)', it_ic0(beta_case, :)
+        print '(a,f3.1,a,2i5,a,2i5,a,2i5)', 'beta ', beta, ': AMS iterations', &
+            it_ams(beta_case, :), ', with mass', it_mass(beta_case, :), ', IC(0)', &
+            it_ic0(beta_case, :)
+        call check(it_mass(beta_case, 2) <= it_mass(beta_case, 1) + 8, &
+            'AMS with the nodal Laplacian stays nearly flat')
         call check(it_ams(beta_case, 2) < it_ic0(beta_case, 2), 'AMS beats IC(0)')
         call check(it_ams(beta_case, 2) <= it_ams(beta_case, 1) + 8, &
             'AMS iterations stay nearly flat under refinement')
@@ -244,6 +260,18 @@ contains
         cols(4) = edge(a2, ix, iy, iz)
         vals = [1.0_dp, 1.0_dp, -1.0_dp, -1.0_dp]
     end subroutine face
+
+    subroutine unit_matrix(n, m)
+        integer, intent(in) :: n
+        type(csr_t), intent(out) :: m
+        integer :: k
+        m%nrow = n
+        m%ncol = n
+        m%row_ptr = [(k, k=1, n + 1)]
+        m%col = [(k, k=1, n)]
+        allocate (m%val(n))
+        m%val = 1
+    end subroutine unit_matrix
 
     subroutine sort4(cols, vals)
         integer, intent(inout) :: cols(4)

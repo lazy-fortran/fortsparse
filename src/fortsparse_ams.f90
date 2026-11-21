@@ -30,6 +30,9 @@ module fortsparse_ams
         !! True: three scalar AMG solves on Pi_d^T A Pi_d, d = x, y, z (block
         !! diagonal); false: one AMG on the vector problem Pi^T A Pi.
         logical :: nodal_components = .true.
+        !! With the 1-form mass matrix M given to setup: A = C^T M2 C + beta M,
+        !! and the nodal components are solved with G^T M G + beta Pi_d^T M Pi_d.
+        real(dp) :: beta = 0
         type(amg_params_t) :: amg_gradient, amg_nodal
     end type
 
@@ -67,11 +70,18 @@ contains
         call ams_setup(a, g, pi, params, handle, info)
     end subroutine ams_setup_csr
 
-    subroutine ams_setup(a, g, pi, params, handle, info)
+    subroutine ams_setup(a, g, pi, params, handle, info, mass)
+        !! Each Cartesian component of the nodal space is solved by AMG: with
+        !! the 1-form mass matrix `mass` (n1 x n1) on G^T mass G + beta
+        !! Pi_d^T mass Pi_d (params%beta), the vector Laplacian auxiliary
+        !! operator of Hiptmair and Xu; without it on the block Pi_d^T A Pi_d,
+        !! which for a curl-curl A lacks a derivative and suits AMG poorly.
         type(csr_t), intent(in) :: a, g, pi
         type(ams_params_t), intent(in) :: params
         type(ams_handle_t), intent(inout) :: handle
         type(fortsparse_status_t), intent(out) :: info
+        type(csr_t), intent(in), optional :: mass
+        type(csr_t) :: laplacian, nodal_mass, block
         type(csr_budget_t) :: budget
         type(csr_t) :: work
         type(amg_params_t) :: nodal
@@ -124,8 +134,31 @@ contains
         handle%n0 = n0
         if (handle%components) then
             allocate (handle%bcomp(3))
+            if (present(mass)) then
+                call csr_multiply(mass, g, work, budget, info)
+                if (info%code /= FORTSPARSE_OK) return
+                call csr_multiply(handle%gt, work, laplacian, budget, info)
+                if (info%code /= FORTSPARSE_OK) return
+            end if
+            if (present(mass) .and. params%beta /= 0) then
+                call csr_multiply(mass, pi, work, budget, info)
+                if (info%code /= FORTSPARSE_OK) return
+                call csr_multiply(handle%pit, work, nodal_mass, budget, info)
+                if (info%code /= FORTSPARSE_OK) return
+                nodal_mass%val = params%beta*nodal_mass%val
+            end if
             do i = 1, 3
-                call diagonal_block(handle%api, (i - 1)*n0, n0, handle%acomp(i))
+                if (present(mass)) then
+                    ! The vector Laplacian of Hiptmair and Xu, component by
+                    ! component: the blocks of Pi^T A Pi lack a derivative.
+                    handle%acomp(i) = laplacian
+                    if (params%beta /= 0) then
+                        call diagonal_block(nodal_mass, (i - 1)*n0, n0, block)
+                        call add_into(handle%acomp(i), block)
+                    end if
+                else
+                    call diagonal_block(handle%api, (i - 1)*n0, n0, handle%acomp(i))
+                end if
                 call regularize(handle%acomp(i), params%aux_shift)
                 call amg_setup(handle%acomp(i), params%amg_nodal, handle%bcomp(i), info)
                 if (info%code /= FORTSPARSE_OK) then
@@ -307,6 +340,56 @@ contains
         call csr_matvec(handle%pi, handle%zpi, handle%z0)
         z = z + handle%z0
     end subroutine correct_nodal
+
+    subroutine add_into(a, b)
+        !! a = a + b on the union of both patterns, rows sorted.
+        type(csr_t), intent(inout) :: a
+        type(csr_t), intent(in) :: b
+        type(csr_t) :: c
+        integer :: i, p, q, k
+
+        c%nrow = a%nrow
+        c%ncol = a%ncol
+        allocate (c%row_ptr(a%nrow + 1), c%col(size(a%col) + size(b%col)), &
+            c%val(size(a%col) + size(b%col)))
+        k = 0
+        c%row_ptr(1) = 1
+        do i = 1, a%nrow
+            p = a%row_ptr(i)
+            q = b%row_ptr(i)
+            do while (p < a%row_ptr(i + 1) .or. q < b%row_ptr(i + 1))
+                k = k + 1
+                if (q >= b%row_ptr(i + 1)) then
+                    c%col(k) = a%col(p)
+                    c%val(k) = a%val(p)
+                    p = p + 1
+                else if (p >= a%row_ptr(i + 1)) then
+                    c%col(k) = b%col(q)
+                    c%val(k) = b%val(q)
+                    q = q + 1
+                else if (a%col(p) == b%col(q)) then
+                    c%col(k) = a%col(p)
+                    c%val(k) = a%val(p) + b%val(q)
+                    p = p + 1
+                    q = q + 1
+                else if (a%col(p) < b%col(q)) then
+                    c%col(k) = a%col(p)
+                    c%val(k) = a%val(p)
+                    p = p + 1
+                else
+                    c%col(k) = b%col(q)
+                    c%val(k) = b%val(q)
+                    q = q + 1
+                end if
+            end do
+            c%row_ptr(i + 1) = k + 1
+        end do
+        c%col = c%col(:k)
+        c%val = c%val(:k)
+        call move_alloc(c%row_ptr, a%row_ptr)
+        call move_alloc(c%col, a%col)
+        call move_alloc(c%val, a%val)
+    end subroutine add_into
 
     subroutine diagonal_block(b, offset, n, c)
         !! c = b(offset+1:offset+n, offset+1:offset+n), rows kept sorted.
