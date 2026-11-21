@@ -107,7 +107,7 @@ if(NOT TARGET fortnum)
     endif()
     FetchContent_Declare(fortnum
         GIT_REPOSITORY https://github.com/lazy-fortran/fortnum.git
-        GIT_TAG 4285c0e422082bc44a090bbad5d199739153af59)
+        GIT_TAG c972c6ef4d9dfe516ea23210efb17ce9a24c355f)
     FetchContent_MakeAvailable(fortnum)
 endif()
 include(cmake/fortsparse_blas.cmake)
