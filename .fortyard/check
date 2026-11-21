@@ -1,29 +1,27 @@
 #!/bin/sh
-# Landing check on fortyard: the two tiers of ci/run.sh, ci-native-analysis
-# and ci-cmake, through CMake. The fpm build does not cover the solver back
-# ends, and the runner image has no SuperLU or SuiteSparse packages, so CMake
-# fetches and builds them (FORTSPARSE_USE_SYSTEM_DEPS stays off). Build trees
-# stay under build/, which the runner keeps between checks.
+# Landing check on fortyard. The native solvers: the tests the landed
+# change affects, fo test --since its base (a changed source selects its
+# users, a moved dependency pin those of what changed between the pins, a
+# changed build description the whole suite). The external back ends, which
+# the fpm build does not cover: the ci-cmake tier of ci/run.sh through CMake.
+# The runner image has no SuperLU or SuiteSparse packages, so CMake fetches
+# and builds them (FORTSPARSE_USE_SYSTEM_DEPS stays off). Build trees stay
+# under build/, which the runner keeps between checks.
 set -eu
 jobs=${FY_CHECK_JOBS:-4}
 FC=${FC:-gfortran}
 export FC
 export OPENBLAS_NUM_THREADS=1 OMP_DYNAMIC=FALSE OMP_WAIT_POLICY=passive
+candidate=$(git rev-parse HEAD)
+base=$(git merge-base HEAD origin/main 2>/dev/null || git rev-parse HEAD~1)
+if [ "$base" = "$candidate" ]; then
+    base=$(git rev-parse HEAD~1)
+fi
 
 OMP_NUM_THREADS=8
 export OMP_NUM_THREADS
-cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-native \
-    -P cmake/fortsparse_check_compiler.cmake
-cmake -S . -B build/fortyard-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF \
-    -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
-cmake --build build/fortyard-native -j "$jobs" --target test_fortsparse_slu_factor \
-    test_fortsparse_slu_z_api test_fortsparse_slu_threads test_fortsparse_amg \
-    test_fortsparse_csr_smoothers test_amg_allocations \
-    test_fortsparse_compiler_self_assignment test_fortsparse_context_copy \
-    test_fortsparse_native_spd_refactor
-ctest --test-dir build/fortyard-native -j1 --output-on-failure --no-tests=error \
-    -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers|compiler_self_assignment|check_compiler_cache|context_copy|native_spd_refactor)$|^test_amg_allocations$'
+fo build
+fo test --since "$base"
 
 OMP_NUM_THREADS=1
 cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-cmake \
