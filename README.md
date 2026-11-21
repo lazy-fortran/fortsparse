@@ -105,7 +105,8 @@ explains status handling, factor ownership and derivative calls.
 - [Design: backend abstraction, CSC format, UMFPACK IPC](docs/design.md)
 - [Native CPU matrix classes](docs/native-cpu.md),
   [memory limits](docs/memory.md), [precision and adaptive storage](docs/precision.md)
-- [AMG and smoothers](docs/amg.md), [ILUTP preconditioner](docs/ilutp.md)
+- [AMG and smoothers](docs/amg.md), [ILUTP preconditioner](docs/ilutp.md),
+  [preconditioned conjugate gradients](docs/pcg.md)
 - [Native C/C++ API](docs/native-c-api.md),
   [FreeFem plugin](plugins/freefem/README.md)
 - [Licensing of the optional backends](docs/licensing.md)

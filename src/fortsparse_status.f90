@@ -16,6 +16,8 @@ module fortsparse_status
     integer, parameter, public :: FORTSPARSE_NOT_POSITIVE_DEFINITE = 9
 
     integer, parameter, public :: FORTSPARSE_RESOURCE_LIMIT       = 8
+    ! An iterative solve stopped at its iteration limit above its tolerance.
+    integer, parameter, public :: FORTSPARSE_NOT_CONVERGED        = 10
 
     ! Maximum length for the human-readable status message.
     integer, parameter :: MSG_LEN = 120

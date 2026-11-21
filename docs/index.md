@@ -7,7 +7,7 @@ public interfaces and their implementation.
 - [Backend selection and derivative contracts](backends.md)
 - [Native CPU matrix classes](native-cpu.md) and [C/C++ API](native-c-api.md)
 - [Memory limits](memory.md) and [precision](precision.md)
-- [Algebraic multigrid](amg.md) and [ILUTP](ilutp.md)
+- [Algebraic multigrid](amg.md), [ILUTP](ilutp.md) and [PCG](pcg.md)
 - [Backend design](design.md) and [licensing](licensing.md)
 
 Advanced ordering, matching, supernodal factorization and refinement contracts

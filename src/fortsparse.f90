@@ -8,7 +8,7 @@ module fortsparse
         FORTSPARSE_BACKEND_UNAVAILABLE, FORTSPARSE_NOT_FACTORED, &
         FORTSPARSE_INTERNAL_ERROR, FORTSPARSE_OUT_OF_MEMORY, &
         FORTSPARSE_INDEX_OVERFLOW, FORTSPARSE_NOT_POSITIVE_DEFINITE, &
-        FORTSPARSE_RESOURCE_LIMIT
+        FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_NOT_CONVERGED
     use fortsparse_backend, only: FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
         FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
         FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SCALAR, FORTSPARSE_LU_SUPERNODAL, &
@@ -46,11 +46,15 @@ module fortsparse
         smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
     use fortsparse_amg, only: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, &
         amg_apply, amg_destroy
+    use fortsparse_pcg, only: pcg_params_t, pcg_handle_t, pcg_setup, pcg_setup_csr, &
+        pcg_solve, pcg_destroy, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG
     implicit none
     private
     public :: csr_t, csr_matvec, csr_smoother_t, smoother_setup, smoother_apply
     public :: smoother_destroy, SMOOTHER_L1_JACOBI, SMOOTHER_CHEBYSHEV
     public :: amg_params_t, amg_handle_t, amg_setup, amg_setup_csr, amg_apply, amg_destroy
+    public :: pcg_params_t, pcg_handle_t, pcg_setup, pcg_setup_csr, pcg_solve, &
+        pcg_destroy, PCG_NONE, PCG_JACOBI, PCG_IC0, PCG_AMG
 
     ! Kinds
     public :: dp, sp, i4, i8
@@ -62,7 +66,7 @@ module fortsparse
     public :: FORTSPARSE_INTERNAL_ERROR
     public :: FORTSPARSE_OUT_OF_MEMORY, FORTSPARSE_INDEX_OVERFLOW
     public :: FORTSPARSE_NOT_POSITIVE_DEFINITE, &
-        FORTSPARSE_RESOURCE_LIMIT
+        FORTSPARSE_RESOURCE_LIMIT, FORTSPARSE_NOT_CONVERGED
 
     ! Version
     public :: fortsparse_version_string
@@ -113,11 +117,11 @@ contains
         integer, intent(in) :: ordering
         interface
             integer(c_int) function amd_available() &
-                bind(C, name='fsparse_native_order_amd_available')
+                    bind(C, name='fsparse_native_order_amd_available')
                 import c_int
             end function
             integer(c_int) function nd_available() &
-                bind(C, name='fsparse_native_order_available')
+                    bind(C, name='fsparse_native_order_available')
                 import c_int
             end function
         end interface
