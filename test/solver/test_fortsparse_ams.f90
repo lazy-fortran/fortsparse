@@ -65,9 +65,29 @@ program test_fortsparse_ams
         call check(it_ams(beta_case, 2) <= it_ams(beta_case, 1) + 8, &
             'AMS iterations stay nearly flat under refinement')
     end do
+    ! AMS handles local to a routine, destroyed or not, are released when it
+    ! returns.
+    call nedelec(4, 1.0_dp, a, g, pi, c)
+    do i = 1, 3
+        call scoped_ams(i == 2)
+    end do
     print '(a)', 'PASS'
 
 contains
+
+    subroutine scoped_ams(destroy)
+        logical, intent(in) :: destroy
+        type(pcg_handle_t) :: local
+        real(dp), allocatable :: xs(:), bs(:)
+        allocate (xs(a%nrow), bs(a%nrow))
+        bs = 1
+        xs = 0
+        call pcg_setup_ams(a, g, pi, params, local, info)
+        call check(info%code == FORTSPARSE_OK, 'scoped AMS setup')
+        call pcg_solve(local, params, bs, xs, info)
+        call check(info%code == FORTSPARSE_OK, 'scoped AMS solve')
+        if (destroy) call pcg_destroy(local)
+    end subroutine scoped_ams
 
     function g_times(g, v) result(y)
         type(csr_t), intent(in) :: g

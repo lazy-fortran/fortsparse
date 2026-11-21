@@ -36,7 +36,8 @@ module fortsparse_ams
     type :: ams_handle_t
         private
         type(csr_t) :: a, g, gt, pi, pit, ag, api
-        type(amg_handle_t) :: bg, bpi, bcomp(3)
+        ! Allocatable for the same finalization reason as in fortsparse_pcg.
+        type(amg_handle_t), allocatable :: bg, bpi, bcomp(:)
         type(csr_t) :: acomp(3)
         logical :: components = .false.
         integer :: n0 = 0
@@ -112,6 +113,7 @@ contains
             1.0e-12_dp*maxval(abs(a%val))*maxval(abs(g%val))**2
         if (handle%use_gradient) then
             call regularize(handle%ag, params%aux_shift)
+            allocate (handle%bg)
             call amg_setup(handle%ag, params%amg_gradient, handle%bg, info)
             if (info%code /= FORTSPARSE_OK) then
                 info%msg = 'AMS: gradient AMG: '//trim(info%msg)
@@ -121,6 +123,7 @@ contains
         handle%components = params%nodal_components
         handle%n0 = n0
         if (handle%components) then
+            allocate (handle%bcomp(3))
             do i = 1, 3
                 call diagonal_block(handle%api, (i - 1)*n0, n0, handle%acomp(i))
                 call regularize(handle%acomp(i), params%aux_shift)
@@ -146,6 +149,7 @@ contains
                 nodal%near_nullspace((i - 1)*n0 + 1:i*n0, i) = 1
             end do
         end if
+        allocate (handle%bpi)
         call amg_setup(handle%api, nodal, handle%bpi, info)
         if (info%code /= FORTSPARSE_OK) then
             info%msg = 'AMS: nodal AMG: '//trim(info%msg)
@@ -217,13 +221,19 @@ contains
 
         integer :: d
 
-        if (handle%use_gradient) call amg_destroy(handle%bg)
-        if (handle%components) then
-            do d = 1, 3
+        if (allocated(handle%bg)) then
+            call amg_destroy(handle%bg)
+            deallocate (handle%bg)
+        end if
+        if (allocated(handle%bcomp)) then
+            do d = 1, size(handle%bcomp)
                 call amg_destroy(handle%bcomp(d))
             end do
-        else
+            deallocate (handle%bcomp)
+        end if
+        if (allocated(handle%bpi)) then
             call amg_destroy(handle%bpi)
+            deallocate (handle%bpi)
         end if
         call smoother_destroy(handle%smoother)
         ! Released component by component, as pcg_destroy does.

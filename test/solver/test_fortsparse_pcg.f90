@@ -97,9 +97,31 @@ program test_fortsparse_pcg
     a%col([i, i + 1]) = a%col([i + 1, i])
     call pcg_setup(a, params, handle, info)
     call check(info%code == FORTSPARSE_INVALID_MATRIX, 'unsorted columns are refused')
+    ! A handle local to a routine is released when the routine returns.
+    call poisson_grid(16, 2, .false., 1.0_dp, a)
+    call manufactured(a)
+    do i = 1, 3
+        do kind = 1, 4
+            call scoped_solve(kinds(kind))
+        end do
+    end do
     print '(a)', 'PASS'
 
 contains
+
+    subroutine scoped_solve(preconditioner)
+        integer, intent(in) :: preconditioner
+        type(pcg_handle_t) :: local
+        type(pcg_params_t) :: p
+        p%preconditioner = preconditioner
+        p%amg%coarse_size = 16
+        call pcg_setup(a, p, local, info)
+        call check(info%code == FORTSPARSE_OK, 'scoped setup')
+        x = 0
+        call pcg_solve(local, p, b, x, info)
+        call check(info%code == FORTSPARSE_OK, 'scoped solve')
+        if (preconditioner /= PCG_JACOBI) call pcg_destroy(local)
+    end subroutine scoped_solve
 
     subroutine manufactured(m)
         type(csr_t), intent(in) :: m

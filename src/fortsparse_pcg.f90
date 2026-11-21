@@ -40,8 +40,11 @@ module fortsparse_pcg
         !! shift that made it exist.
         type(csr_t) :: l
         real(dp) :: shift = 0
-        type(amg_handle_t) :: amg
-        type(ams_handle_t) :: ams
+        ! Allocatable, so a handle that goes out of scope finalizes only the
+        ! preconditioner it holds; gfortran mis-finalizes nested handles
+        ! embedded directly.
+        type(amg_handle_t), allocatable :: amg
+        type(ams_handle_t), allocatable :: ams
         real(dp), allocatable :: r(:), z(:), p(:), q(:)
         logical :: ready = .false.
     end type
@@ -85,6 +88,7 @@ contains
         case (PCG_IC0)
             call ic0_setup(handle, info)
         case (PCG_AMG)
+            allocate (handle%amg)
             call amg_setup(a, params%amg, handle%amg, info)
         case (PCG_AMS)
             call status_set(info, FORTSPARSE_INVALID_MATRIX, &
@@ -116,6 +120,7 @@ contains
         plain%preconditioner = PCG_NONE
         call pcg_setup(a, plain, handle, info)
         if (info%code /= FORTSPARSE_OK) return
+        allocate (handle%ams)
         call ams_setup(a, g, pi, params%ams, handle%ams, info)
         if (info%code /= FORTSPARSE_OK) then
             call pcg_destroy(handle)
@@ -213,8 +218,14 @@ contains
         ! Released component by component: assigning a fresh handle runs the
         ! finalizers of a constructor temporary, which gfortran gets wrong
         ! for the nested solver handles.
-        if (handle%preconditioner == PCG_AMG) call amg_destroy(handle%amg)
-        if (handle%preconditioner == PCG_AMS) call ams_destroy(handle%ams)
+        if (allocated(handle%amg)) then
+            call amg_destroy(handle%amg)
+            deallocate (handle%amg)
+        end if
+        if (allocated(handle%ams)) then
+            call ams_destroy(handle%ams)
+            deallocate (handle%ams)
+        end if
         call release(handle%a)
         call release(handle%l)
         if (allocated(handle%inverse_diagonal)) deallocate (handle%inverse_diagonal)

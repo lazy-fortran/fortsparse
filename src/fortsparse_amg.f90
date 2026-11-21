@@ -44,7 +44,7 @@ module fortsparse_amg
         type(native_ldlt_t) :: coarse
         !! A coarse level above LARGE_COARSE rows is factored by the
         !! supernodal Cholesky instead of the scalar LDL^T.
-        type(sparse_solver_t) :: large
+        type(sparse_solver_t), allocatable :: large
         logical :: use_large = .false.
         integer :: count = 0, visits = 1
         logical :: ready = .false.
@@ -212,6 +212,7 @@ contains
         handle%use_large = n > LARGE_COARSE
         if (handle%use_large) then
             ! Cholesky fails on a coarse operator that is not positive definite.
+            allocate (handle%large)
             handle%large%options%symmetry = FORTSPARSE_SYM_SPD
             call sparse_factor(handle%large, csc, info)
             if (info%code /= 0) goto 900
@@ -497,7 +498,10 @@ contains
         type(amg_handle_t), intent(inout) :: handle
         if (allocated(handle%level)) deallocate (handle%level)
         call handle%coarse%free()
-        if (handle%use_large) call sparse_destroy(handle%large)
+        if (allocated(handle%large)) then
+            call sparse_destroy(handle%large)
+            deallocate (handle%large)
+        end if
         handle%use_large = .false.
         handle%count = 0
         handle%ready = .false.
