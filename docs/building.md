@@ -25,7 +25,7 @@ All options are set with `-D`.
 | `FORTSPARSE_ENABLE_UMFPACK_IPC` | `OFF` | Provision the separate GPL UMFPACK helper. `OFF` performs no UMFPACK/SuiteSparse search or fetch and installs no helper; the IPC binding remains for an explicitly supplied helper. |
 | `FORTSPARSE_USE_SYSTEM_DEPS` | `OFF` | Find SuperLU and UMFPACK with `find_package` instead of fetching them. |
 | `FORTSPARSE_ENABLE_MUMPS` | `OFF` | Build the in-process MUMPS backend; see [backends](backends.md#mumps). |
-| `FORTSPARSE_ENABLE_METIS` | `ON` | Use the optional METIS nested-dissection ordering for the native solvers. |
+| `FORTSPARSE_ENABLE_METIS` | `OFF` | Link METIS as the reference of the built-in nested dissection, which `test_fortsparse_nd` then compares against it. |
 | `FORTSPARSE_ENABLE_NATIVE_CUDA` | `OFF` | Build the native CUDA kernels. |
 | `FORTSPARSE_ENABLE_OPENMP` | `ON` | Thread the CSC matrix-vector product with OpenMP. |
 | `FORTSPARSE_BUILD_FREEFEM_PLUGIN` | `OFF` | Build the optional FreeFem SDK module ([plugin README](../plugins/freefem/README.md)); requires native-only core linkage and AMD. |
@@ -55,13 +55,12 @@ A build without any external sparse solver or ordering needs no library
 besides fortnum, which CMake fetches:
 
 ```sh
-cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release \
-  -DFORTSPARSE_ENABLE_METIS=OFF
+cmake -S . -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build-native --target test_fortsparse_native_only -j 2
 ctest --test-dir build-native -R '^test_fortsparse_native_only$' --output-on-failure
 ```
 
-AMD/METIS ordering and CUDA can be enabled on top of this when available.
+SuiteSparse AMD and CUDA can be enabled on top of this when available.
 
 ## WebAssembly
 
@@ -74,7 +73,7 @@ and node (`NODE`). LFortran's `main` lacks fixes this needs; the
 [lazy-fortran fork](https://github.com/lazy-fortran/lfortran) carries them and
 lists them in its `FORK.md`. A browser has no processes, threads or C solver
 libraries, so the build has the native solvers only, without SuperLU, the
-UMFPACK helper, METIS, AMD and OpenMP; dense kernels come from fortnum, which
+UMFPACK helper, SuiteSparse AMD and OpenMP; dense kernels come from fortnum, which
 builds for WebAssembly as well. With `-DFORTSPARSE_WASM_ENVIRONMENT=shell` or
 `web` the test programs are single files for a JavaScript shell such as
 JavaScriptCore's `jsc` or for a browser page. Test timeouts are ten times the
@@ -102,8 +101,8 @@ Linux-only tests and reference benchmarks are not built on macOS.
 ## fpm
 
 `fpm.toml` builds the native CPU library on fortnum's dense kernels and
-fetches fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD, METIS or the UMFPACK
-helper (the built-in AMD ordering is included), so
+fetches fortnum. It does not build SuperLU, MUMPS, SuiteSparse AMD or the UMFPACK
+helper (the built-in AMD and nested-dissection orderings are included), so
 `FORTSPARSE_BACKEND_AUTO` also selects the native backend. An explicitly requested
 backend that is not configured returns `FORTSPARSE_BACKEND_UNAVAILABLE`.
 

@@ -7,7 +7,7 @@ Paths are repository-relative.
 ## 0. Why this design (evidence in one paragraph)
 
 On both frozen KIN6D Jacobians, the pattern is 95.7% structurally symmetric. With a
-maximum-product matching (MPM) plus its dual scaling and METIS ND on the matched A+Aᵀ,
+maximum-product matching (MPM) plus its dual scaling and ND on the matched A+Aᵀ,
 the static symmetric L+U holds 0.97 M (n=5,525) and 4.94 M (n=19,989) entries. The
 existing pivoted scalar LU with matching stores 4.23–4.45 M and 35.5–57.5 M entries.
 Even with the weighted matching, it still stores 2.0 M and 20.6 M.
@@ -37,7 +37,7 @@ Symbolic analysis
   - Counts: :623.
   - Full `lp/li` construction: :654-685 (`row_reach` :833).
   - Blocked-path decision: :686-689.
-  - There is no explicit postorder anywhere. AMD and METIS orders are already almost postordered: only 0–35 more exact supernodes form after an etree postorder (diagnostic).
+  - There is no explicit postorder anywhere. AMD and ND orders are already almost postordered: only 0–35 more exact supernodes form after an etree postorder (diagnostic).
 - Supernode partition and relaxed amalgamation: `build_storage`, `src/native/fortsparse_native_supernodes.F90:232`.
   - Merge loop: :280-322.
   - Exact width ≤64, or ≤128 when nnz(L) > 128n.
@@ -67,7 +67,7 @@ Matching, ordering, LU and plumbing
   - Called from `general_order` (`src/native/fortsparse_native_general.f90:218`; match at :252, graph at :266).
   - There is no weighted matching or scaling anywhere. The only scaling is the scalar LU's row max-abs `row_norm`.
 - Orderings (perm[new]=old, one-based, 0 = OK):
-  - `fsparse_native_order_general` (METIS ND on A+Aᵀ, `src/native/fsparse_native_order.c:141`).
+  - `fsparse_native_order_general` (ND on A+Aᵀ, `src/native/fortsparse_native_nd.f90`).
   - `fsparse_native_order_amd_general` and the bounded AMD with a caller arena, `fsparse_native_amd_bounded_size/_bounded` (`src/native/fortsparse_amd.f90`).
   - ND is refused under a cap or LOW (`fortsparse_native_general.f90:381-385`).
 - Scalar LU `lu_factor_t` (`src/native/fortsparse_native_lu.f90:31`) is **generated** by `gen/gen_lu.f90`.
@@ -99,7 +99,7 @@ Matching, ordering, LU and plumbing
 
 1. **MPM + scaling.** Pm places the matched entries on the diagonal. Dr = exp(u) and Dc = exp(v)/colmax come from the optimal duals. Then |Ã_ij| ≤ 1 and diag(Ã) = 1.
 2. **Ordering.**
-   - Q from ND (METIS) or AMD on the pattern of PmA + (PmA)ᵀ. Reuse `matching_graph_rows` and the `*_general` wrappers unchanged.
+   - Q from ND or AMD on the pattern of PmA + (PmA)ᵀ. Reuse `matching_graph_rows` and the `*_general` wrappers unchanged.
    - Q̃ = Q followed by an etree postorder. Put the child with the largest count last; this is cheap and makes the chain rule robust.
 3. **Static symbolic analysis.** Counts, then the partition (SPD rule), then per-supernode `rows(:)`, `incoming` lists, groups and the exact plan. No numerical values are touched.
 4. **Numeric factorization.** Left-looking supernodal (§4) with pivoting restricted to each supernode's w×w diagonal block, plus perturbation.
@@ -206,7 +206,7 @@ With I = 4 and R = 8; ns = #supernodes; T = active threads.
 - **MPM phase:** 7n·I (cmatch, rmatch, heap, hpos, touched, pred, state) + 4n·R (u, v, dist, colmax) + [cache_costs] nnz·R. Not retained beyond the dr/dc/cmatch output.
 - **Graph phase:** matched graph nnz·I (`matching_graph_rows`), plus the ordering:
   - bounded AMD arena from `fsparse_native_amd_bounded_size`, or
-  - METIS opaque (refused under a cap or LOW, as today).
+  - ND workspace unbudgeted (refused under a cap or LOW, as today).
 - **Symbolic phase:** symmetrized pattern ≤ (2·nnz + n)·I + (n+1)·I, plus `native_symbolic_workspace_bytes(n)`, plus parent/count/post 3n·I.
 - **Retained factor:**
   `P = Σ_s 8·(2·m_s·w_s − w_s²) + Σ_s 4·(m_s + w_s) + ns·(storage_size(slu_panel_t)/8 + 8) + 4n (colnode) + 12·#updates (incoming) + group arrays + T·(4n + 8·maxwork) + 8n (solve_work) + 28n (dr, dc, perm, inverse, cmatch)`
@@ -264,7 +264,7 @@ Accuracy does not change.
   - Plus `pivot_perturbation` (real, default 1e-13).
   - The default stays SCALAR until consumer evidence exists.
   - `structural_matching` keeps its meaning for the scalar path. The supernodal path always uses MPM.
-  - Ordering: `ORDER_DEFAULT` selects METIS ND when no host cap is set, LOW_MEMORY is not requested and METIS is built; bounded AMD otherwise (its workspace is enforceable under the cap/LOW policy). Explicit `ORDER_AMD`/`ORDER_ND` wins (ND stays refused under a cap or LOW). `ordering_used` reports the choice. The scalar fallback keeps AMD unless ND was requested explicitly.
+  - Ordering: `ORDER_DEFAULT` selects ND when no host cap is set and LOW_MEMORY is not requested; bounded AMD otherwise (its workspace is enforceable under the cap/LOW policy). Explicit `ORDER_AMD`/`ORDER_ND` wins (ND stays refused under a cap or LOW). `ordering_used` reports the choice. The scalar fallback keeps AMD unless ND was requested explicitly.
 - **AUTO.** After the static symbolic analysis (ms; 1 s ≈ whole 19,989 probe on this Mac including I/O):
   - choose scalar Gilbert–Peierls when LU flops < F0 or the mean supernode width < W0;
   - otherwise choose supernodal.

@@ -511,7 +511,7 @@ contains
         if (order_kind == SLU_ORDER_ND) then
             if (self%strict .or. low) then
                 call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
-                    'supernodal LU: opaque METIS workspace cannot enforce a cap or LOW')
+                    'supernodal LU: the nested-dissection workspace is not budgeted, so no cap or LOW')
                 return
             end if
             self%opaque_ordering = .true.

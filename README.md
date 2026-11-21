@@ -20,9 +20,10 @@ unsupported paths.
 - Native CPU factorizations: real symmetric positive-definite (SPD) Cholesky,
   complex Hermitian positive-definite (HPD) Cholesky, real and
   complex general LU, and pivoted symmetric/Hermitian indefinite LDL^T/LDL^H.
-  Approximate minimum degree (AMD) fill-reducing ordering, optional METIS
-  ordering, OpenMP, and optional CUDA for real SPD. Default ordering depends
-  on the matrix class and resource settings; see
+  Approximate minimum degree (AMD) and nested-dissection (ND, a Fortran port
+  of METIS 5.2.1 with the same orderings) fill-reducing orderings, OpenMP, and
+  optional CUDA for real SPD. Default ordering depends on the matrix class and
+  resource settings; see
   [native matrix classes](docs/native-cpu.md).
 - Real and complex compressed sparse column (CSC) matrices (`csc_t`, `csc_z_t`),
   built from 1-based coordinate (COO) triplets; block solves, transpose/adjoint solves and same-pattern refactorization.
@@ -58,7 +59,7 @@ fpm test --target test_fortsparse_compiler_self_assignment
 fpm test --target test_fortsparse_native_only
 ```
 
-Build options (MUMPS, CUDA, AMD/METIS, system dependencies, the UMFPACK
+Build options (MUMPS, CUDA, SuiteSparse AMD, system dependencies, the UMFPACK
 helper) and how to link fortsparse from another CMake project are described in
 [docs/building.md](docs/building.md).
 

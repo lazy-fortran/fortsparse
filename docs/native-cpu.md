@@ -5,15 +5,15 @@ existing Cholesky engine and other classes to the following new CPU references:
 
 | Value/class | Native factors | Current execution |
 |---|---|---|
-| Real general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
-| Complex general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or METIS ND order, retained CSC L/U, serial factorization |
+| Real general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or ND order, retained CSC L/U, serial factorization |
+| Complex general | Row-scaled threshold-pivoted sparse LU | Default AMD (see below), natural or ND order, retained CSC L/U, serial factorization |
 | Complex Hermitian positive definite (`SYM_SPD`) | Supernodal Cholesky of the real embedding | Uncapped CPU; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the simplicial complex Cholesky |
 | Real symmetric indefinite (`SYM_INDEFINITE` or real `SYM_HERMITIAN`) | [Multifrontal LDLT](#multifrontal-ldlt) | Uncapped CPU, serial; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the scalar Bunch--Kaufman LDLT |
 | Complex Hermitian indefinite (`SYM_HERMITIAN`) | Multifrontal LDLT of the real embedding | Uncapped CPU; under a host cap, LOW_MEMORY or NATIVE_REFERENCE the scalar Bunch--Kaufman LDLH |
 | Complex transpose-symmetric indefinite (`SYM_INDEFINITE`) | Sparse complex Bunch--Kaufman LDLT | Default AMD; restricted 1x1/2x2 pivots with delays, serial reference |
 
 The symmetric and Hermitian CSC factors, real and complex, accept explicit AMD
-or METIS ND ordering. The real embedding of a complex Hermitian `A = Ar + i Ai`
+or ND ordering. The real embedding of a complex Hermitian `A = Ar + i Ai`
 is `E = [[Ar, -Ai], [Ai, Ar]]` with interleaved unknowns: every eigenvalue of
 `A` appears twice in `E`, so the reported inertia is half that of `E`, and the
 statistics name the families `LDLH_EMBEDDED` and `HPD_EMBEDDED`.
@@ -36,6 +36,15 @@ accounted caller-workspace AMD for the default, so exact host peaks and caps
 keep working; so do the HPD and indefinite factors and real SPD under a host
 cap, LOW_MEMORY or refinement, where `sparse_analyze` plans the AMD layout that
 the factorization will use. Only NATIVE_REFERENCE keeps natural order by default.
+
+`FORTSPARSE_ORDER_ND` needs no external library either: `fortsparse_nd` is a
+Fortran port of METIS 5.2.1 `METIS_NodeND` with default options and seed 0
+(multilevel node bisection, minimum-degree leaves). Its random numbers, sorts
+and priority queue are those of METIS's GKlib, with glibc's `rand`, so it
+returns the orderings of METIS on Linux on every platform;
+`test_fortsparse_nd` compares them with orderings recorded from METIS. Its run
+time equals METIS's within a few percent on grid and random graphs of
+10^3 to 2*10^5 vertices.
 
 ### Multifrontal LDLT
 
@@ -60,8 +69,8 @@ is updated by BLAS-3 after each window (fortnum `dgemm`). The front is
 assembled and factored in place at the end of the factor storage, so only the
 contribution block is copied, to a stack.
 
-`DEFAULT` and `AMD` order with AMD, `ND` with METIS nested dissection (AMD when
-METIS is not built), and `NATURAL` keeps the input order. A variable whose
+`DEFAULT` and `AMD` order with AMD, `ND` with nested dissection, and `NATURAL`
+keeps the input order. A variable whose
 diagonal fails the pivot test is first matched with its largest unmatched
 neighbour, and the pair is one vertex of the ordered graph, the member with
 the larger diagonal first (compressed ordering, Duff and Pralet 2005). A
@@ -307,13 +316,12 @@ For real and complex general matrices, production native LU accepts
 AMD accepts the canonical unsymmetric CSC graph and orders its structural
 `A+A^T`; numerical factorization borrows the original CSC values and applies the
 column permutation through its retained sparse factors.
-`FORTSPARSE_ORDER_ND` alternatively uses optional METIS nested dissection on the
+`FORTSPARSE_ORDER_ND` alternatively uses nested dissection on the
 undirected graph union of `A` and its transpose. Self edges and repeated mirrors
 are removed before ordering. With structural matching, either ordering consumes
 the matched `P*A` graph while numerical values stay in the original CSC.
 DEFAULT orders as described under [default ordering](#default-ordering).
-NATIVE_REFERENCE remains natural and rejects explicit graph orderings. A missing
-METIS returns BACKEND_UNAVAILABLE for ND.
+NATIVE_REFERENCE remains natural and rejects explicit graph orderings.
 `native_ordering_available(ordering)` queries the built native graph capability
 without allocating or factoring. Matrix-class, device and memory-policy support
 are still checked by factorization; this query is not a strict-cap guarantee.
@@ -334,9 +342,10 @@ in cap admission and phase peak statistics. See [bounded AMD](native-amd-bounded
 release trust, reuse and verification limits. Use measured process RSS for process
 memory comparisons; these changes make no performance-admission claim.
 
-METIS owns opaque internal workspace: ND always reports unknown complete peak
-(`-1`) and `strict_memory_supported=.false.`. Positive host caps or LOW_MEMORY
-with ND fail before calling METIS; use natural or bounded AMD for those contracts.
+The nested-dissection workspace is not budgeted: ND always reports unknown
+complete peak (`-1`) and `strict_memory_supported=.false.`. Positive host caps or
+LOW_MEMORY with ND fail before ordering; use natural or bounded AMD for those
+contracts.
 The same applies to the complex HPD and complex LDL factors.
 
 ## Opt-in supernodal real and complex LU
@@ -349,10 +358,10 @@ thresholds are calibrated. The family reports `native_factor_family='LU_SUPERNOD
 `'LU_SUPERNODAL_Z'` for complex factors.
 
 - Analysis: maximum-product matching with dual scaling, then AMD (bounded
-  caller-workspace AMD when available) or METIS ND on the matched symmetrized
+  caller-workspace AMD when available) or ND on the matched symmetrized
   pattern, an etree postorder, and the shared supernode partition and schedule.
-  DEFAULT ordering selects METIS ND when no host cap is set, LOW_MEMORY is not
-  requested and METIS is built; otherwise AMD. An explicit AMD or ND request
+  DEFAULT ordering selects ND when no host cap is set and LOW_MEMORY is not
+  requested; otherwise AMD. An explicit AMD or ND request
   wins. `ordering_used` reports the ordering actually used. `structural_matching` does not apply; the matching is always
   weighted (`matching_used=FORTSPARSE_MATCHING_WEIGHTED`).
 - Factor: left-looking panels, partial pivoting restricted to each

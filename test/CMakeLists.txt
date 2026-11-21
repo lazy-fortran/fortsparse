@@ -227,11 +227,15 @@ endif()
 add_executable(test_native_order
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order.c)
 target_link_libraries(test_native_order PRIVATE fortsparse)
-if(FORTSPARSE_NATIVE_METIS_FOUND)
-    target_compile_definitions(test_native_order PRIVATE FORTSPARSE_TEST_METIS)
-endif()
 add_test(NAME test_native_order COMMAND test_native_order)
 set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 1)
+fortsparse_add_test(test_fortsparse_nd solver/test_fortsparse_nd.F90)
+set_tests_properties(test_fortsparse_nd PROPERTIES LABELS "native;fast" TIMEOUT 5)
+set_property(TEST test_fortsparse_nd PROPERTY
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+if(FORTSPARSE_NATIVE_METIS_FOUND)
+    target_compile_definitions(test_fortsparse_nd PRIVATE FORTSPARSE_TEST_METIS)
+endif()
 add_executable(test_native_order_amd
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order_amd.c)
 target_link_libraries(test_native_order_amd PRIVATE fortsparse)
@@ -842,13 +846,6 @@ fortsparse_add_test(test_fortsparse_structured_raw solver/test_fortsparse_struct
 set_tests_properties(test_fortsparse_structured_raw PROPERTIES LABELS "native;memory;fast"
     TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
-if(FORTSPARSE_NATIVE_METIS_FOUND)
-    foreach(_c_api_nd_target test_native_c_api test_native_cxx_api test_native_c_api_memory)
-        if(TARGET ${_c_api_nd_target})
-            target_compile_definitions(${_c_api_nd_target} PRIVATE FS_TEST_EXPECT_METIS)
-        endif()
-    endforeach()
-endif()
 if(TARGET test_native_c_api_memory)
     target_link_options(test_native_c_api_memory PRIVATE "LINKER:--wrap=fsparse_native_order_general")
 endif()

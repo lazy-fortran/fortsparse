@@ -20,8 +20,8 @@ symbolic work for an unchanged pattern. Every failed factor/refactor invalidates
 old factors, including invalid input. A later valid factor/refactor can recover.
 Default ordering is the native DEFAULT: AMD for large non-banded matrices,
 natural order otherwise ([default ordering](native-cpu.md#default-ordering)).
-METIS and all external sparse solver backends may be disabled in this API's
-minimal build; AMD is always built.
+All external sparse solver backends may be disabled in this API's minimal
+build; AMD and nested dissection are always built.
 `set_refine(handle,1)` enables native original-equation residual refinement on the
 next factor. Changing the flag invalidates factors. It does not promise another
 vendor's iteration sequence or a rigorous forward-error certificate.
@@ -32,10 +32,10 @@ stays the default; `AMD=1` uses SuiteSparse AMD when built and the built-in
 implementation otherwise, with no external sparse factorization fallback.
 `ordering_available(order)` returns status 0 for supported, 3 for unavailable,
 and 2 for an invalid enum; it does not change any context diagnostic.
-`FS_NATIVE_ORDER_ND=2` enables optional METIS nested dissection for real/complex
-general LU. Availability reports the graph library, independently of memory
-policy: ND factorization with a positive host cap or LOW fails closed before
-opaque METIS allocation. Uncapped AUTO ND reports its factorization peak as
+`FS_NATIVE_ORDER_ND=2` selects nested dissection for real/complex general LU.
+Availability is independent of memory policy: ND factorization with a positive
+host cap or LOW fails closed before its unbudgeted ordering workspace is
+allocated. Uncapped AUTO ND reports its factorization peak as
 unknown (`-1`) and strict-memory support false through the C statistics API.
 ND also reports strict support false after a rejected capped/LOW operation.
 The setter checks support before changing policy: invalid/unavailable requests preserve
@@ -102,8 +102,7 @@ Build/test the minimal dependency configuration:
 ```sh
 cmake -S . -B build-c-api -G Ninja -DCMAKE_BUILD_TYPE=Debug \
   -DFORTSPARSE_ENABLE_SUPERLU=OFF -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF \
-  -DFORTSPARSE_ENABLE_MUMPS=OFF \
-  -DFORTSPARSE_ENABLE_METIS=OFF
+  -DFORTSPARSE_ENABLE_MUMPS=OFF
 cmake --build build-c-api --target test_native_c_api test_native_cxx_api -j2
 ctest --test-dir build-c-api -R '^test_native_c(xx)?_api$' --output-on-failure -j2
 ```
@@ -126,8 +125,7 @@ caps, unchanged failure output, independent handles and lifecycle recovery.
 These allocation fixtures establish payload accounting, not RSS predictability
 or performance admission.
 
-With METIS enabled, C API tests verify actual ND dispatch, retained real/complex
-N/T/H factors, refactor and same-policy behavior, unknown peak reporting, capped
-and LOW rejection before the ND helper, and recovery to DEFAULT. The same gates
-also run without the METIS feature macro and verify unavailable-setter factor
-preservation. No native general ND performance claim follows from these gates.
+The C API tests verify actual ND dispatch, retained real/complex N/T/H factors,
+refactor and same-policy behavior, unknown peak reporting, capped and LOW
+rejection before the ND helper, and recovery to DEFAULT. No native general ND
+performance claim follows from these gates.

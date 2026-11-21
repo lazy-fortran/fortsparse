@@ -20,7 +20,6 @@ int main(void) {
     const int row[11] = {1, 2, 1, 2, 3, 2, 3, 4, 3, 4, 5};
     int perm[5], inverse[5], again[5], again_inverse[5];
     int status = fsparse_native_order(5, 11, ptr, row, perm, inverse);
-#ifdef FORTSPARSE_TEST_METIS
     if (fsparse_native_order_available() != 1) return 10;
     if (status != 0 || !check_inverse(perm, inverse, 5)) return 1;
     if (fsparse_native_order(5, 11, ptr, row, again, again_inverse) != 0)
@@ -56,13 +55,6 @@ int main(void) {
     if (fsparse_native_order_general(3, 0, empty_ptr, NULL,
                                     perm, inverse) != 0 ||
         !check_inverse(perm, inverse, 3)) return 14;
-#else
-    (void)check_inverse; (void)again; (void)again_inverse;
-    if (status != 3) return 8;
-    if (fsparse_native_order_available() != 0 ||
-        fsparse_native_order_general(5, 11, ptr, row, perm, inverse) != 3)
-        return 15;
-#endif
     puts("PASS native ordering permutation, inverse, determinism and status");
     return 0;
 }

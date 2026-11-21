@@ -23,15 +23,7 @@ int main() {
     CHECK(fs_native_factor_z(h,2,4,cp,ri,v)==0);
     char msg[160];
     int32_t nd=fs_native_ordering_available(FS_NATIVE_ORDER_ND);
-#ifdef FS_TEST_EXPECT_METIS
     CHECK(nd==0);
-#else
-    CHECK(nd==3);
-#endif
-    if(nd==3) {
-        CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_ND)==3);
-        CHECK(fs_native_last_error(h,msg,sizeof msg)==3);
-    }
     CHECK(fs_native_set_ordering(h,FS_NATIVE_ORDER_DEFAULT)==0);
     CHECK(fs_native_last_error(h,msg,sizeof msg)==0 && msg[0]=='\0');
     int32_t amd=fs_native_ordering_available(FS_NATIVE_ORDER_AMD);

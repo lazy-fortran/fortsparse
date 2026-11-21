@@ -1,5 +1,6 @@
-/* MIT wrapper around the optional, separately linked Apache-2.0 METIS.
- * No ordering implementation or third-party headers are vendored here. */
+/* MIT wrapper around the optional, separately linked Apache-2.0 METIS, the
+ * reference for the native nested dissection (fortsparse_nd), which returns
+ * the same orderings. No third-party headers are vendored here. */
 #include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -9,7 +10,7 @@
 #include "fsparse_order_graph.h"
 #endif
 
-int fsparse_native_order_available(void) {
+int fsparse_metis_order_available(void) {
 #ifdef FORTSPARSE_HAVE_METIS
     return 1;
 #else
@@ -133,12 +134,12 @@ done:
 }
 
 /* Preserve the original symmetric-input contract used by SPD factors. */
-int fsparse_native_order(int n, int nnz, const int *ptr, const int *row,
+int fsparse_metis_order(int n, int nnz, const int *ptr, const int *row,
                         int *perm, int *inverse) {
     return order_metis(n, nnz, ptr, row, perm, inverse, 0);
 }
 
-int fsparse_native_order_general(int n, int nnz, const int *ptr, const int *row,
+int fsparse_metis_order_general(int n, int nnz, const int *ptr, const int *row,
                                 int *perm, int *inverse) {
     return order_metis(n, nnz, ptr, row, perm, inverse, 1);
 }

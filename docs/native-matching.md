@@ -22,7 +22,7 @@ numerical equilibration is added by matching. Existing row scaling and pivot
 thresholds are preserved. No pivot is accepted merely because it was matched:
 the same numerical threshold still applies, and singleton pivots retain priority.
 
-With AMD or METIS ND, analysis sorts matched row labels for the graph of `P*A`,
+With AMD or ND, analysis sorts matched row labels for the graph of `P*A`,
 then orders its structural symmetrization. Numerical values and caller CSC arrays remain
 unchanged. LU receives the column order and borrowed original-row preferences;
 normal, transpose, adjoint and implicit derivative solves still act on the
@@ -46,8 +46,8 @@ against the factor budget, then released. Actual index storage size determines
 the implementation's byte count. There is no persistent numerical CSC copy.
 LOW_MEMORY uses the same graph storage and existing compact LU growth policy.
 Positive caps and LOW with AMD require its existing audited caller-workspace ABI;
-uncapped opaque AMD retains its existing unknown complete-peak status. METIS ND
-also has unknown complete workspace and rejects strict caps or LOW. Existing
+uncapped opaque AMD retains its existing unknown complete-peak status. ND
+also has unbudgeted workspace and rejects strict caps or LOW. Existing
 refinement admission conservatively reserves the future checker quota even
 before those arrays are allocated. Owned array payload is distinct from RSS.
 

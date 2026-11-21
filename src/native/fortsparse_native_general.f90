@@ -436,7 +436,7 @@ contains
                 .or. automatic) then
                 if (self%order_request == FORTSPARSE_ORDER_ND) then
                     call status_set(status,FORTSPARSE_BACKEND_UNAVAILABLE, &
-                        'native CPU: opaque METIS workspace cannot enforce a strict cap or LOW')
+                        'native CPU: the nested-dissection workspace is not budgeted, so no strict cap or LOW')
                     return
                 end if
                 if (bounded_amd_available()/=1) then

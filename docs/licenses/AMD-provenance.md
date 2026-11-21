@@ -12,5 +12,5 @@ carries the AMD copyright and BSD 3-clause notice; the
 
 `src/native/fortsparse_amd.f90` (MIT) wraps the port for one-based CSC input:
 it returns `perm[new] = old` and `inverse[old] = new`, both one-based, and
-checks the permutation before exposing it. Input validation matches the METIS
-adapter's. No AMD or SuiteSparse_config library is linked.
+checks the permutation before exposing it. Input validation matches the
+nested-dissection adapter's. No AMD or SuiteSparse_config library is linked.

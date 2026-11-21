@@ -229,11 +229,7 @@ static void one_kind(int z) {
     CHECK(fs_native_free(&other)==0&&other==NULL);
 }
 int main(void) {
-#ifdef FS_TEST_EXPECT_METIS
     CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==0);
-#else
-    CHECK(fs_native_ordering_available(FS_NATIVE_ORDER_ND)==3);
-#endif
     for(int i=0;i<6;++i)zv[i]=v[i]*(1+0.2*I);
     one_kind(0);one_kind(1);
     puts("C ABI complete payload caps, staging, allocation failure and independent handles pass");

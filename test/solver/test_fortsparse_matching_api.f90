@@ -19,11 +19,11 @@ program test_matching_api
     logical::reused
     interface
         integer(c_int) function amd_available() &
-            bind(C, name='fsparse_native_order_amd_available')
+                bind(C, name='fsparse_native_order_amd_available')
             import c_int
         end function
         integer(c_int) function bounded_available() &
-            bind(C, name='fsparse_native_amd_bounded_available')
+                bind(C, name='fsparse_native_amd_bounded_available')
             import c_int
         end function
     end interface
@@ -35,7 +35,7 @@ program test_matching_api
     end do
     allocate (abar(n*n), zabar(n*n))
     exact = [(sin(real(i, dp)), i=1, n)]; zexact = cmplx(exact, &
- 0.25_dp*exact + 0.1_dp, dp)
+        0.25_dp*exact + 0.1_dp, dp)
     solver%backend_id = FORTSPARSE_BACKEND_NATIVE
     solver%options%structural_matching = .true.
     solver%options%pivot_tolerance = 0.1_dp
@@ -62,7 +62,7 @@ program test_matching_api
                            'actual ND ordering is reported')
                 call check(stats%host_peak_bytes == -1 .and. &
                            .not. stats%strict_memory_supported, &
-                           'opaque METIS peak remains unknown')
+                           'the ND peak remains unknown')
             end if
             solver%options%structural_matching = .true.
             if (cycle == 1) then
