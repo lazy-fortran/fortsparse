@@ -170,6 +170,15 @@ call sparse_solve_block(solver, B, X, status)   ! B(n, nrhs)
 call sparse_factor_stats(solver, stats, status) ! fill, memory, flops, times
 ```
 
+A symmetric matrix may be given as one triangle for any backend: set
+`options%triangle` to `FORTSPARSE_TRIANGLE_LOWER` or `FORTSPARSE_TRIANGLE_UPPER`
+(real matrices; SPD, INDEFINITE or HERMITIAN hint). Only that triangle, with
+its diagonal, is read; it is expanded to an exactly symmetric full matrix, which
+the native LDL^T needs and which also removes the demand that the two halves
+agree to the last bit. `sparse_refactor` with the same triangle pattern reuses
+the ordering and symbolic analysis. The default `FORTSPARSE_TRIANGLE_FULL`
+takes the full matrix as before.
+
 An indefinite matrix declared `FORTSPARSE_SYM_SPD` fails with
 `FORTSPARSE_SINGULAR`. Sizes are limited to 32-bit MUMPS integers.
 

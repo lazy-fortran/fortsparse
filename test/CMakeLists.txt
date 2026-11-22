@@ -474,6 +474,10 @@ set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" 
 fortsparse_add_test(test_fortsparse_ldlt_multifrontal solver/test_fortsparse_ldlt_multifrontal.f90)
 set_tests_properties(test_fortsparse_ldlt_multifrontal PROPERTIES
     LABELS "native;fast" TIMEOUT 5)
+fortsparse_add_test(test_fortsparse_symmetric_triangle
+    solver/test_fortsparse_symmetric_triangle.f90)
+set_tests_properties(test_fortsparse_symmetric_triangle PROPERTIES
+    LABELS "native;fast" TIMEOUT 5)
 fortsparse_add_test(test_fortsparse_ldlt_merge solver/test_fortsparse_ldlt_merge.f90)
 set_tests_properties(test_fortsparse_ldlt_merge PROPERTIES
     LABELS "native;performance;fast" TIMEOUT 1 PROCESSORS 2

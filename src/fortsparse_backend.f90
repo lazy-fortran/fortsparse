@@ -23,8 +23,9 @@ module fortsparse_backend
     public :: sparse_factor_stats_t
 
     ! Matrix structure hint for a factorization (sparse_options_t%symmetry).
-    ! SPD and INDEFINITE factor only the lower triangle of the supplied full
-    ! symmetric CSC matrix (MUMPS); GENERAL factors the matrix as given.
+    ! MUMPS reads only the lower triangle of a supplied full symmetric CSC
+    ! matrix; the native LDL^T needs the full matrix, or one triangle selected
+    ! by sparse_options_t%triangle. GENERAL factors the matrix as given.
     ! SuperLU factors the full matrix with every hint; a symmetric hint
     ! selects its symmetric-mode ordering and threshold pivoting.
     integer, parameter, public :: FORTSPARSE_SYM_GENERAL = 0
@@ -34,6 +35,16 @@ module fortsparse_backend
     ! INDEFINITE). For complex matrices SPD means Hermitian positive definite,
     ! and INDEFINITE means complex symmetric, A = A^T (not A^H).
     integer, parameter, public :: FORTSPARSE_SYM_HERMITIAN = 3
+
+    ! Which triangle of a symmetric matrix the caller supplies
+    ! (sparse_options_t%triangle; the uplo of LAPACK). FULL: the whole matrix,
+    ! symmetric to the last bit for the native LDL^T. LOWER or UPPER: only that
+    ! triangle (diagonal included) is read, the other one is ignored; the
+    ! matrix is then symmetric by construction. Requires an SPD, INDEFINITE or
+    ! HERMITIAN structure hint and a real matrix.
+    integer, parameter, public :: FORTSPARSE_TRIANGLE_FULL = 0
+    integer, parameter, public :: FORTSPARSE_TRIANGLE_LOWER = 1
+    integer, parameter, public :: FORTSPARSE_TRIANGLE_UPPER = 2
 
     ! Fill-reducing ordering (sparse_options_t%ordering). Native DEFAULT is
     ! AMD for large patterns that are neither narrow-banded nor fill their own
@@ -67,6 +78,7 @@ module fortsparse_backend
     ! Backends that have no use for a field ignore it.
     type :: sparse_options_t
         integer :: symmetry = FORTSPARSE_SYM_GENERAL
+        integer :: triangle = FORTSPARSE_TRIANGLE_FULL ! see FORTSPARSE_TRIANGLE_*
         integer :: ordering = FORTSPARSE_ORDER_DEFAULT
         logical :: structural_matching = .false. ! native CPU GENERAL, nonzero row matching
         integer :: nthreads = 0 ! 0: backend default (OMP_NUM_THREADS)

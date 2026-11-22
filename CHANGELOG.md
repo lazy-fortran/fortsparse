@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- A symmetric matrix can be passed as one triangle: `options%triangle =
+  FORTSPARSE_TRIANGLE_LOWER` or `_UPPER` (LAPACK's uplo; the other triangle is
+  not read) with an SPD, INDEFINITE or HERMITIAN hint, real matrices. The
+  triangle is expanded to an exactly symmetric full matrix, so the bitwise
+  symmetry the native LDL^T demanded of full storage no longer applies, and
+  `sparse_refactor` keeps the ordering and symbolic analysis of the expansion.
+  `sparse_inertia` reports the inertia of such factors.
 - Real symmetric indefinite matrices on the native CPU backend are factored by
   a multifrontal LDL^T with threshold 1x1/2x2 and delayed pivots and a
   pair-compressed AMD order; complex Hermitian and HPD matrices use it, or the

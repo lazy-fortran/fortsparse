@@ -26,7 +26,9 @@ module fortsparse_solver
         FORTSPARSE_ORDER_NATURAL, &
         FORTSPARSE_MEMORY_AUTO, FORTSPARSE_MEMORY_LOW, &
         FORTSPARSE_OP_NORMAL, FORTSPARSE_OP_TRANSPOSE, FORTSPARSE_OP_ADJOINT, &
-        FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL
+        FORTSPARSE_LU_AUTO, FORTSPARSE_LU_SUPERNODAL, &
+        FORTSPARSE_TRIANGLE_FULL, FORTSPARSE_TRIANGLE_UPPER
+    use fortsparse_triangle, only: triangle_cache_t, triangle_expand
     use fortsparse_inertia, only: FORTSPARSE_INERTIA_UNAVAILABLE
 #ifdef FORTSPARSE_HAVE_MUMPS
     use fortsparse_mumps, only: mumps_backend_t, mumps_available
@@ -107,6 +109,9 @@ module fortsparse_solver
         ! Structure hint, ordering and thread count, applied at the next factor.
         type(sparse_options_t) :: options
         class(sparse_backend_t), allocatable :: backend
+        ! Expansion of a one-triangle input (options%triangle); a cache that
+        ! copies of the solver rebuild on demand.
+        type(triangle_cache_t) :: triangle_cache
     contains
         procedure, private :: assign_solver
         generic :: assignment(=) => assign_solver
@@ -363,6 +368,11 @@ contains
         type(csc_t),               intent(in)    :: A
         type(fortsparse_status_t), intent(out)   :: status
 
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_factor(solver, A%nrow, A%ncol, A%nnz, A%col_ptr, &
+                A%row_idx, A%val, .false., status)
+            return
+        end if
         call ensure_backend(solver, A%nnz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real(A, solver%refine, status)
@@ -375,6 +385,10 @@ contains
         type(csc_z_t),             intent(in)    :: A
         type(fortsparse_status_t), intent(out)   :: status
 
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_real_only(solver, status)
+            return
+        end if
         call ensure_backend(solver, A%nnz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex(A, solver%refine, status)
@@ -392,6 +406,11 @@ contains
         type(fortsparse_status_t), intent(out)   :: status
 
         solver%factored = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_factor(solver, nrow, ncol, nz, col_ptr, row_idx, val, &
+                .false., status)
+            return
+        end if
         call ensure_backend(solver, nz, .false., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_real_raw(nrow, ncol, nz, col_ptr, row_idx, &
@@ -409,12 +428,71 @@ contains
         type(fortsparse_status_t), intent(out)   :: status
 
         solver%factored = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_real_only(solver, status)
+            return
+        end if
         call ensure_backend(solver, nz, .true., status)
         if (.not. status_ok(status)) return
         call solver%backend%factor_complex_raw(nrow, ncol, nz, col_ptr, &
             row_idx, val, solver%refine, status)
         solver%factored = status_ok(status)
     end subroutine sparse_factor_complex_raw
+
+    ! Factor (or refactor) a real symmetric matrix given as one triangle: the
+    ! triangle is expanded to full storage, exactly symmetric, and the
+    ! expansion is what the backend factors, so its retained analysis is
+    ! reused by a refactor with the same pattern.
+    subroutine triangle_factor(solver, nrow, ncol, nz, col_ptr, row_idx, val, &
+            refactor, status, reused)
+        type(sparse_solver_t),     intent(inout) :: solver
+        integer,                   intent(in)    :: nrow, ncol, nz
+        integer,                   intent(in)    :: col_ptr(:), row_idx(:)
+        real(dp),                  intent(in)    :: val(:)
+        logical,                   intent(in)    :: refactor
+        type(fortsparse_status_t), intent(out)   :: status
+        logical, optional,         intent(out)   :: reused
+        logical :: r, expansion_kept
+
+        r = .false.
+        if (present(reused)) reused = .false.
+        solver%factored = .false.
+        if (solver%options%triangle < FORTSPARSE_TRIANGLE_FULL .or. &
+            solver%options%triangle > FORTSPARSE_TRIANGLE_UPPER) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'sparse solver: invalid triangle option')
+            return
+        end if
+        if (solver%options%symmetry /= FORTSPARSE_SYM_SPD .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_INDEFINITE .and. &
+            solver%options%symmetry /= FORTSPARSE_SYM_HERMITIAN) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                'one-triangle input requires an SPD, INDEFINITE or HERMITIAN hint')
+            return
+        end if
+        call triangle_expand(solver%triangle_cache, nrow, ncol, nz, col_ptr, &
+            row_idx, val, solver%options%triangle, expansion_kept, status)
+        if (.not. status_ok(status)) return
+        call ensure_backend(solver, solver%triangle_cache%full%nnz, .false., status)
+        if (.not. status_ok(status)) return
+        if (refactor) then
+            call solver%backend%refactor_real(solver%triangle_cache%full, &
+                solver%refine, status, r)
+        else
+            call solver%backend%factor_real(solver%triangle_cache%full, &
+                solver%refine, status)
+        end if
+        solver%factored = status_ok(status)
+        if (present(reused)) reused = r
+    end subroutine triangle_factor
+
+    subroutine triangle_real_only(solver, status)
+        type(sparse_solver_t),     intent(inout) :: solver
+        type(fortsparse_status_t), intent(out)   :: status
+        solver%factored = .false.
+        call status_set(status, FORTSPARSE_BACKEND_UNAVAILABLE, &
+            'one-triangle input is available for real matrices only')
+    end subroutine triangle_real_only
 
     subroutine sparse_refactor_real(solver, A, status, reused)
         type(sparse_solver_t),     intent(inout) :: solver
@@ -425,6 +503,12 @@ contains
         logical :: r
 
         r = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_factor(solver, A%nrow, A%ncol, A%nnz, A%col_ptr, &
+                A%row_idx, A%val, .true., status, r)
+            if (present(reused)) reused = r
+            return
+        end if
         call ensure_backend(solver, A%nnz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real(A, solver%refine, status, r)
@@ -442,6 +526,11 @@ contains
         logical :: r
 
         r = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_real_only(solver, status)
+            if (present(reused)) reused = r
+            return
+        end if
         call ensure_backend(solver, A%nnz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex(A, solver%refine, status, r)
@@ -463,6 +552,12 @@ contains
 
         r = .false.
         solver%factored = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_factor(solver, nrow, ncol, nz, col_ptr, row_idx, val, &
+                .true., status, r)
+            if (present(reused)) reused = r
+            return
+        end if
         call ensure_backend(solver, nz, .false., status)
         if (status_ok(status)) then
             call solver%backend%refactor_real_raw(nrow, ncol, nz, col_ptr, &
@@ -485,6 +580,11 @@ contains
 
         r = .false.
         solver%factored = .false.
+        if (solver%options%triangle /= FORTSPARSE_TRIANGLE_FULL) then
+            call triangle_real_only(solver, status)
+            if (present(reused)) reused = r
+            return
+        end if
         call ensure_backend(solver, nz, .true., status)
         if (status_ok(status)) then
             call solver%backend%refactor_complex_raw(nrow, ncol, nz, col_ptr, &

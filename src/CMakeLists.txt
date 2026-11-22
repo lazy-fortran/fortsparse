@@ -22,6 +22,7 @@ target_sources(fortsparse PRIVATE
     fortsparse_native_c_api.f90
     fortsparse_solver.F90
     fortsparse_status.f90
+    fortsparse_triangle.f90
     fortsparse_version.f90
     generated/fortsparse_hpd_leaves.f90
     generated/fortsparse_ldlt_leaves.f90
