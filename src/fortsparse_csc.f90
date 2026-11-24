@@ -1,6 +1,6 @@
 module fortsparse_csc
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_value, ieee_positive_inf
-    use fortsparse_kinds, only: dp
+    use fortsparse_kinds, only: dp, i8
     use fortsparse_status, only: fortsparse_status_t, status_set, &
         FORTSPARSE_OK, FORTSPARSE_INVALID_MATRIX, FORTSPARSE_INDEX_OVERFLOW
     !$ use omp_lib, only: omp_get_thread_num, omp_get_max_threads, omp_get_num_threads
@@ -9,6 +9,7 @@ module fortsparse_csc
 
     ! Matrices with fewer stored entries than this are multiplied serially.
     integer, parameter :: MATVEC_MIN_NNZ = 20000
+    integer, parameter :: TRIPLET_MIN_NNZ = 20000
     ! Upper bound on the team size used by the matvec.
     integer, parameter :: MAXT = 512
 
@@ -34,8 +35,17 @@ module fortsparse_csc
         complex(dp), allocatable :: val(:)
     end type csc_z_t
 
+    ! Coordinates and reduction order for repeated real triplet assemblies.
+    type, public :: csc_triplet_plan_t
+        private
+        integer :: nrow = 0
+        integer, allocatable :: col_ptr(:), row_idx(:)
+        integer, allocatable :: order(:), group_start(:)
+    end type csc_triplet_plan_t
+
     public :: csc_normalize_symmetric_raw
     public :: csc_from_triplet
+    public :: csc_triplet_plan_build, csc_triplet_plan_apply
     public :: csc_is_valid
     public :: csc_matvec
     public :: csc_matmul
@@ -391,6 +401,101 @@ contains
         call shrink_real(A, nnz)
         call status_set(status, FORTSPARSE_OK, "")
     end subroutine csc_from_triplet_real
+
+    subroutine csc_triplet_plan_build(nrow, ncol, rows, cols, plan, status)
+        integer, intent(in) :: nrow, ncol, rows(:), cols(:)
+        type(csc_triplet_plan_t), intent(out) :: plan
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: ntrip, k, p, row, col, prev_row, prev_col, nnz
+
+        if (nrow == huge(nrow) .or. ncol == huge(ncol) .or. &
+            size(rows, kind=i8) >= huge(ntrip) .or. &
+            size(cols, kind=i8) >= huge(ntrip)) then
+            call status_set(status, FORTSPARSE_INDEX_OVERFLOW, &
+                "csc triplet plan: index capacity exceeded")
+            return
+        end if
+        ntrip = size(rows)
+        call validate_triplet(nrow, ncol, rows, cols, ntrip, status)
+        if (status%code /= FORTSPARSE_OK) return
+
+        call column_order(ncol, rows, cols, ntrip, plan%order)
+        nnz = 0
+        prev_row = 0
+        prev_col = 0
+        do k = 1, ntrip
+            p = plan%order(k)
+            row = rows(p)
+            col = cols(p)
+            if (row == prev_row .and. col == prev_col) cycle
+            nnz = nnz + 1
+            prev_row = row
+            prev_col = col
+        end do
+
+        plan%nrow = nrow
+        allocate (plan%col_ptr(ncol + 1), plan%row_idx(nnz), &
+                  plan%group_start(nnz + 1))
+        nnz = 0
+        prev_row = 0
+        prev_col = 0
+        plan%col_ptr(1) = 1
+        do k = 1, ntrip
+            p = plan%order(k)
+            row = rows(p)
+            col = cols(p)
+            if (row == prev_row .and. col == prev_col) cycle
+            call close_columns(plan%col_ptr, prev_col, col, nnz)
+            nnz = nnz + 1
+            plan%row_idx(nnz) = row
+            plan%group_start(nnz) = k
+            prev_row = row
+            prev_col = col
+        end do
+        call finish_columns(plan%col_ptr, prev_col, ncol, nnz)
+        plan%group_start(nnz + 1) = ntrip + 1
+    end subroutine csc_triplet_plan_build
+
+    subroutine csc_triplet_plan_apply(plan, vals, A, status)
+        type(csc_triplet_plan_t), intent(in) :: plan
+        real(dp), intent(in) :: vals(:)
+        type(csc_t), intent(out) :: A
+        type(fortsparse_status_t), intent(out) :: status
+        integer :: i, k, first
+        real(dp) :: total
+
+        if (.not. allocated(plan%order)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "csc triplet plan: build a plan before applying it")
+            return
+        end if
+        if (size(vals, kind=i8) /= size(plan%order)) then
+            call status_set(status, FORTSPARSE_INVALID_MATRIX, &
+                "csc triplet plan: value count differs from the plan")
+            return
+        end if
+
+        A%nrow = plan%nrow
+        A%ncol = size(plan%col_ptr) - 1
+        A%nnz = size(plan%row_idx)
+        A%col_ptr = plan%col_ptr
+        A%row_idx = plan%row_idx
+        allocate (A%val(A%nnz))
+        ! Keep the original sum order within each coefficient.
+        !$omp parallel do default(none) shared(plan, vals, A) &
+        !$omp private(i, k, first, total) schedule(static) &
+        !$omp if(A%nnz >= TRIPLET_MIN_NNZ)
+        do i = 1, A%nnz
+            first = plan%group_start(i)
+            total = vals(plan%order(first))
+            do k = first + 1, plan%group_start(i + 1) - 1
+                total = total + vals(plan%order(k))
+            end do
+            A%val(i) = total
+        end do
+        !$omp end parallel do
+        call status_set(status, FORTSPARSE_OK, "")
+    end subroutine csc_triplet_plan_apply
 
     ! Build a complex CSC matrix from coordinate triplets.
     subroutine csc_from_triplet_complex(nrow, ncol, rows, cols, vals, A, status)

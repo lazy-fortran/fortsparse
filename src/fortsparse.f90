@@ -26,7 +26,8 @@ module fortsparse
     use fortsparse_ilutp, only: sparse_ilutp_t, sparse_ilutp_stats_t
     use fortsparse_csc, only: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, &
         csc_conjugate_transpose, csc_matmul, csc_matvec, csc_transpose, &
-        csc_normalize_symmetric_raw
+        csc_normalize_symmetric_raw, csc_triplet_plan_t, &
+        csc_triplet_plan_build, csc_triplet_plan_apply
     use fortsparse_solver, only: sparse_solver_t, sparse_factor, sparse_refactor, &
         sparse_solve, sparse_solve_op, sparse_solve_block_op, sparse_analyze, sparse_memory_plan_t, &
         sparse_free, sparse_destroy, sparse_copy, sparse_solve_once, sparse_vector, &
@@ -81,6 +82,7 @@ module fortsparse
     public :: csc_t, csc_z_t, csc_from_triplet, csc_is_valid, csc_matmul
     public :: csc_matvec, csc_transpose
     public :: csc_conjugate_transpose, csc_normalize_symmetric_raw
+    public :: csc_triplet_plan_t, csc_triplet_plan_build, csc_triplet_plan_apply
 
     ! Solver
     public :: mixed_lu_t, mixed_lu_z_t, mixed_solve_report_t

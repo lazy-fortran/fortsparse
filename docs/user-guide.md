@@ -37,6 +37,12 @@ The solution is `[1, 2, 3]`. Triplet row and column indices are one-based.
 column storage. Supply the full symmetric matrix for the native
 positive-definite path, not just one triangle.
 
+For repeated real assemblies with fixed triplet coordinates, build a
+`csc_triplet_plan_t` with `csc_triplet_plan_build` and call
+`csc_triplet_plan_apply` with values in the original triplet order. Rebuild
+the plan whenever the dimensions, coordinates or their order change. The plan
+owns the sparse pattern and preserves the order of each duplicate sum.
+
 Check `status` after every call that returns it. `status%message` explains
 failures, including invalid matrices, singular or nonpositive pivots,
 unavailable backends and resource limits. Select a backend before factoring;
