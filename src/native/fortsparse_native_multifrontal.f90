@@ -1108,19 +1108,17 @@ contains
         logical, intent(in) :: root
         integer, intent(inout) :: idx(:)
         integer, intent(out) :: npiv
-        integer :: p, q, pend, pend0, lim, k, r, kind, j, i
+        integer :: p, q, pend, lim, k, r, kind, j, i, width
         real(dp) :: akk, arr, akr, amaxk, amaxr, det, u, d11, d22, d21, t1, t2, &
             gk, gr, sc
-        logical :: wide, force
+        logical :: force
 
         u = self%u
         p = 1
-        wide = .false.
+        width = window
         force = .false.
         do while (p <= nfs)
-            pend0 = nfs
-            if (.not. wide) pend0 = min(nfs, p + window - 1)
-            pend = pend0
+            pend = p - 1 + min(width, nfs - p + 1)
             ! untested candidates q:lim, candidates that failed in this
             ! window lim+1:pend (still updated, retested in the next window)
             lim = pend
@@ -1230,19 +1228,17 @@ contains
                 end if
             end do
             if (q == p) then
-                ! no pivot in this window: widen it, force a pivot at a root,
-                ! or delay the rest to the parent
-                if (pend0 < nfs) then
-                    wide = .true.
+                ! Keep rank-1/2 updates local until the search needs more columns.
+                if (pend < nfs) then
+                    width = width + min(width, nfs - pend)
                 else if (root) then
-                    wide = .true.
                     force = .true.
                 else
                     exit
                 end if
                 cycle
             end if
-            wide = .false.
+            width = window
             if (pend < nfs) call update_block(self, f, m, idx, p, q - 1, pend + 1, nfs)
             p = q
         end do
