@@ -1,146 +1,134 @@
+# Tests run in the merge queue and at night, not on every push to a pull
+# request. The merge queue builds one pull request per commit on top of the
+# ones before it, so HEAD^ is the state it lands on and `fo test --since HEAD^`
+# runs the cases it affects. The nightly run tests everything, slow cases
+# included, and is skipped when main has not moved since the last green
+# nightly run of less than a week ago. Everything runs in the gcc:16 image
+# (GNU Fortran 16 on Debian), with the Debian packages that
+# .github/ci/apt-packages lists, one per line.
 name: ci
-
 on:
-  merge_group:
-    types: [checks_requested]
   pull_request:
+  merge_group:
+  schedule:
+    - cron: '17 1 * * *'
+  workflow_dispatch:
 permissions:
   contents: read
-
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || format('{0}-{1}', github.ref, github.run_id) }}
+  group: ci-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  native-analysis:
-    name: native parallel analysis
-    runs-on: ${{ github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","itp-ubuntu24"]') || fromJSON('["self-hosted","itp-dispatch"]') }}
+  check:
+    # Required by the main ruleset; skipped (and so passing) on pull requests.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    container: gcc:16
+    timeout-minutes: 360
+    permissions:
+      contents: read
+      actions: read
     env:
-      OMP_NUM_THREADS: 8
-      OPENBLAS_NUM_THREADS: 1
-      OMP_DYNAMIC: 'FALSE'
-      OMP_WAIT_POLICY: passive
+      FPM_VERSION: 0.13.0
+      GIT_TERMINAL_PROMPT: 0
+      MPLBACKEND: Agg
+      DEBIAN_FRONTEND: noninteractive
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Bundle exact sources for Slurm
-        if: ${{ !github.event.pull_request.head.repo.fork }}
+      - name: Base packages
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends cmake ninja-build curl ca-certificates ccache jq python3 > /dev/null
+          # The image installs GCC under /usr/local; tests that run with a
+          # minimal PATH expect a distribution's /usr/bin.
+          for t in gcc g++ gfortran cpp gcc-ar gcc-nm gcc-ranlib gcov; do
+            ln -sf "/usr/local/bin/$t" "/usr/bin/$t"
+          done
+      - name: Skip a nightly run of an unchanged main
+        id: stale
+        if: github.event_name == 'schedule'
         env:
-          SCI_TIER: ci-native-analysis
-        run: |-
-          TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
-      - name: Run native checks on sCluster
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        run: |-
-          TMPDIR="$RUNNER_TEMP" sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
-      - name: Install native dependencies
+          GH_TOKEN: ${{ github.token }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake gfortran \
-            ninja-build liblapack-dev libblas-dev libsuitesparse-dev libmetis-dev
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Configure native Release
-        run: >-
-          cmake -S . -B native -G Ninja -DCMAKE_BUILD_TYPE=Release
-          -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=OFF
-          -DFORTSPARSE_ENABLE_UMFPACK_IPC=OFF -DFORTSPARSE_ENABLE_MUMPS=OFF
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Build affected native gates
-        run: >-
-          cmake --build native -j2 --target test_fortsparse_slu_factor
-          test_fortsparse_slu_z_api test_fortsparse_slu_threads
-          test_fortsparse_amg test_fortsparse_csr_smoothers test_amg_allocations
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Test values and parallel reuse
-        run: >-
-          ctest --test-dir native -j1 --output-on-failure --no-tests=error
-          -R '^test_fortsparse_(slu_factor|slu_z_api|slu_threads_uncapped|slu_threads_repeat|amg|csr_smoothers)$|^test_amg_allocations$'
-  # Bounded solver gates, including the independent out-of-process UMFPACK
-  # round-trip. Build and run only these named tests; never run the full suite.
-        if: ${{ github.event.pull_request.head.repo.fork }}
-    if: >-
-      github.event_name == 'merge_group' &&
-      (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]'))
-  cmake:
-    name: cmake + ctest ubuntu-latest
-    runs-on: ${{ github.event.pull_request.head.repo.fork && fromJSON('["self-hosted","itp-ubuntu24"]') || fromJSON('["self-hosted","itp-dispatch"]') }}
-    env:
-      OMP_NUM_THREADS: 1
-      OPENBLAS_NUM_THREADS: 1
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
+          last=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?event=schedule&status=success&per_page=1" |
+            jq -r '.workflow_runs[0] | "\(.head_sha) \(.created_at)"' 2>/dev/null || true)
+          sha=${last%% *} when=${last#* }
+          if [ "$sha" = "$GITHUB_SHA" ] && [ -n "$when" ] &&
+            [ "$(date -d "$when" +%s)" -gt "$(date -d '7 days ago' +%s)" ]; then
+            echo "main at $GITHUB_SHA passed the nightly run of $when; nothing to do."
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.stale.outputs.skip != '1'
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           persist-credentials: false
-      - name: Bundle exact sources for Slurm
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        env:
-          SCI_TIER: ci-cmake
-          SCI_MATRIX_OS: ubuntu-latest
-        run: |-
-          TMPDIR="$RUNNER_TEMP" ci/bundle.sh "$RUNNER_TEMP/ci.tar.zst"
-      - name: Run native checks on sCluster
-        if: ${{ !github.event.pull_request.head.repo.fork }}
-        run: |-
-          TMPDIR="$RUNNER_TEMP" sci-dispatch native "$RUNNER_TEMP/ci.tar.zst"
-      - name: Install system dependencies
+      - name: Repository packages
+        if: steps.stale.outputs.skip != '1' && hashFiles('.github/ci/apt-packages') != ''
+        run: grep -v '^#' .github/ci/apt-packages | xargs apt-get install -y -qq --no-install-recommends > /dev/null
+      - name: Places
+        if: steps.stale.outputs.skip != '1'
         run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake \
-            gfortran \
-            ninja-build \
-            libsuperlu-dev \
-            libsuitesparse-dev \
-            liblapack-dev \
-            libblas-dev
-
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Configure
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          fo=$(git ls-remote https://github.com/lazy-fortran/fo.git refs/heads/main | cut -f1)
+          test -n "$fo"
+          echo "FO_COMMIT=$fo" >> "$GITHUB_ENV"
+          echo "FO_TOOLS=$RUNNER_TOOL_CACHE/fo-$fo" >> "$GITHUB_ENV"
+          echo "FO_CACHE_DIR=$RUNNER_TEMP/fo-cache" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
+      - name: fo cache
+        if: steps.stale.outputs.skip != '1'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.FO_TOOLS }}
+          key: fo-gcc16-${{ env.FO_COMMIT }}-fpm-${{ env.FPM_VERSION }}
+      - name: Build cache
+        if: steps.stale.outputs.skip != '1'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ env.FO_CACHE_DIR }}
+            ${{ env.CCACHE_DIR }}
+            build/dependencies
+          key: build-${{ env.FO_COMMIT }}-${{ hashFiles('fpm.toml', 'CMakeLists.txt') }}-${{ github.sha }}
+          restore-keys: |
+            build-${{ env.FO_COMMIT }}-${{ hashFiles('fpm.toml', 'CMakeLists.txt') }}-
+            build-${{ env.FO_COMMIT }}-
+      - name: fo
+        if: steps.stale.outputs.skip != '1'
         run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DFORTSPARSE_BUILD_TESTING=ON \
-            -DFORTSPARSE_ENABLE_SUPERLU=ON \
-            -DFORTSPARSE_ENABLE_UMFPACK_IPC=ON \
-            -DFORTSPARSE_USE_SYSTEM_DEPS=ON
-
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Build focused solver gates
+          # fo at main, built once per commit with fpm's release binary of the
+          # pinned checksum.
+          if [ ! -x "$FO_TOOLS/bin/fo" ]; then
+            mkdir -p "$FO_TOOLS/bin"
+            curl -fsSL -o "$FO_TOOLS/bin/fpm" \
+              "https://github.com/fortran-lang/fpm/releases/download/v$FPM_VERSION/fpm-$FPM_VERSION-linux-x86_64-gcc-12"
+            echo "2e50a8649ac4136b9cf6b63c5d1b01adf26c02eedc18f32e16261c0ce655d46d  $FO_TOOLS/bin/fpm" | sha256sum -c -
+            chmod +x "$FO_TOOLS/bin/fpm"
+            git init --quiet "$RUNNER_TEMP/fo-src"
+            git -C "$RUNNER_TEMP/fo-src" fetch --quiet --depth 1 https://github.com/lazy-fortran/fo.git "$FO_COMMIT"
+            git -C "$RUNNER_TEMP/fo-src" checkout --quiet FETCH_HEAD
+            (cd "$RUNNER_TEMP/fo-src" && "$FO_TOOLS/bin/fpm" install --profile release --prefix "$FO_TOOLS")
+          fi
+          echo "$FO_TOOLS/bin" >> "$GITHUB_PATH"
+      - name: Check
+        if: steps.stale.outputs.skip != '1'
         run: |
-          cmake --build build -j 2 --target \
-            test_fortsparse_status \
-            test_fortsparse_solve_real \
-            test_fortsparse_solve_complex \
-            test_fortsparse_solve_derivatives \
-            test_fortsparse_complex_solve_derivatives \
-            test_fortsparse_superlu_symmetric \
-            test_fortsparse_errors \
-            test_fortsparse_superlu_status \
-            test_fortsparse_umfpack_ipc \
-            test_fortsparse_umfpack_controls \
-            fortsparse_umfpack_helper \
-            test_fortsparse_precision \
-            test_fortsparse_mixed_lu \
-            test_fortsparse_stability \
-            test_mixed_allocations \
-            test_fortsparse_native_general_api \
-            test_fortsparse_slu_z_api \
-            test_fortsparse_ldlt_multifrontal \
-            test_fortsparse_native_ldlt \
-            test_fortsparse_native_ldlt_z \
-            test_fortsparse_inertia
-
-        if: ${{ github.event.pull_request.head.repo.fork }}
-      - name: Test focused solver gates
-        run: >-
-          ctest --test-dir build -j 2 --output-on-failure --no-tests=error
-          -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_multifrontal|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
-        if: ${{ github.event.pull_request.head.repo.fork }}
-    if: >-
-      github.event_name == 'merge_group' &&
-      (github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.actor != 'github-merge-queue[bot]'))
+          # Tests of permission errors need a user that file modes bind, so
+          # they do not run as the container's root.
+          useradd -u 1001 -m ci 2> /dev/null || true
+          chown -R ci "$GITHUB_WORKSPACE" "$RUNNER_TEMP"
+          git config --system --add safe.directory "$GITHUB_WORKSPACE"
+          exec setpriv --reuid=ci --regid=ci --init-groups env HOME=/home/ci sh -euc '
+            if [ "$GITHUB_EVENT_NAME" = merge_group ]; then
+              [ -f .github/ci/check ] && exec ./.github/ci/check
+              fo build
+              exec fo test --since HEAD^
+            fi
+            [ -f .github/ci/nightly ] && exec ./.github/ci/nightly
+            [ -f .github/ci/verify ] && exec ./.github/ci/verify
+            fo build
+            FO_TEST_RERUN=1 exec fo test --all'
