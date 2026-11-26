@@ -1,0 +1,13 @@
+name: probe
+on: pull_request
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    container: gcc:16
+    steps:
+      - run: |
+          gfortran --version | head -1
+          cat /etc/os-release | head -2
+          command -v git curl cmake ninja || true
+          apt-get update -qq && apt-get install -y -qq cmake ninja-build >/dev/null && cmake --version | head -1
