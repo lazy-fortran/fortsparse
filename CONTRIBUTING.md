@@ -40,7 +40,5 @@ Handwritten code owns graph structure, schedules, allocation and backend
 orchestration. Keep `.and.` and `.or.` expressions independent of
 short-circuit evaluation.
 
-The primary repository is on [fortyard](https://code.tugraz.at/yard); GitHub is
-its public mirror. Submit a focused branch to the primary repository, run its
-configured checks, and land it there. Changes to the mirror are not a substitute
-for landing in the primary repository.
+Submit a focused pull request on GitHub. It lands through the merge queue as
+one squashed commit once the checks of `.github/ci/check` pass.

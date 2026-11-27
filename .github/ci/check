@@ -1,5 +1,5 @@
 #!/bin/sh
-# Landing check on fortyard. The native solvers: the tests the landed
+# Merge-queue check. The native solvers: the tests the landed
 # change affects, fo test --since its base (a changed source selects its
 # users, a moved dependency pin those of what changed between the pins, a
 # changed build description the whole suite). The external back ends, which
@@ -8,7 +8,7 @@
 # and builds them (FORTSPARSE_USE_SYSTEM_DEPS stays off). Build trees stay
 # under build/, which the runner keeps between checks.
 set -eu
-jobs=${FY_CHECK_JOBS:-4}
+jobs=${CHECK_JOBS:-4}
 FC=${FC:-gfortran}
 export FC
 export OPENBLAS_NUM_THREADS=1 OMP_DYNAMIC=FALSE OMP_WAIT_POLICY=passive
@@ -24,12 +24,12 @@ fo build
 fo test --since "$base"
 
 OMP_NUM_THREADS=1
-cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/fortyard-cmake \
+cmake -DFORTSPARSE_CHECK_BUILD_DIR=build/ci-cmake \
     -P cmake/fortsparse_check_compiler.cmake
-cmake -S . -B build/fortyard-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+cmake -S . -B build/ci-cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug \
     -DFORTSPARSE_BUILD_TESTING=ON -DFORTSPARSE_ENABLE_SUPERLU=ON \
     -DFORTSPARSE_ENABLE_UMFPACK_IPC=ON
-cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \
+cmake --build build/ci-cmake -j "$jobs" --target test_fortsparse_status \
     test_fortsparse_solve_real test_fortsparse_solve_complex \
     test_fortsparse_solve_derivatives test_fortsparse_complex_solve_derivatives \
     test_fortsparse_superlu_symmetric test_fortsparse_errors \
@@ -39,5 +39,5 @@ cmake --build build/fortyard-cmake -j "$jobs" --target test_fortsparse_status \
     test_mixed_allocations test_fortsparse_native_general_api \
     test_fortsparse_slu_z_api test_fortsparse_ldlt_multifrontal \
     test_fortsparse_native_ldlt test_fortsparse_native_ldlt_z test_fortsparse_inertia
-ctest --test-dir build/fortyard-cmake -j "$jobs" --output-on-failure --no-tests=error \
+ctest --test-dir build/ci-cmake -j "$jobs" --output-on-failure --no-tests=error \
     -R '^test_fortsparse_(status|solve_real|solve_complex|solve_derivatives|complex_solve_derivatives|superlu_symmetric|errors|superlu_status|umfpack_ipc|umfpack_controls|precision|mixed_lu|stability|native_general_api|slu_z_api|ldlt_multifrontal|native_ldlt|native_ldlt_z|inertia)$|^test_mixed_allocations$'
