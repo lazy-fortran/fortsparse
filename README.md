@@ -111,8 +111,7 @@ explains status handling, factor ownership and derivative calls.
 - [Native C/C++ API](docs/native-c-api.md),
   [FreeFem plugin](plugins/freefem/README.md)
 - [Licensing of the optional backends](docs/licensing.md)
-- [Contributing](CONTRIBUTING.md): checks and submission to the primary
-  repository on [fortyard](https://code.tugraz.at/yard)
+- [Contributing](CONTRIBUTING.md): checks and pull requests
 
 ## Related projects
 
