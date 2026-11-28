@@ -1,6 +1,11 @@
 # Changelog
 
 ## Unreleased
+- The native supernodal LU no longer keeps an assembly map after its first
+  factorization: the map (`4(n+1)+12 nnz` bytes, 19 % of a retained factor on
+  a coupled-MHD Jacobian) is built by the first `sparse_refactor` of the same
+  analysis, so a factor-once caller saves it at no cost in time. Delayed
+  pivots rebuild the layout from the factored matrix and no longer need it.
 - A symmetric matrix can be passed as one triangle: `options%triangle =
   FORTSPARSE_TRIANGLE_LOWER` or `_UPPER` (LAPACK's uplo; the other triangle is
   not read) with an SPD, INDEFINITE or HERMITIAN hint, real matrices. The

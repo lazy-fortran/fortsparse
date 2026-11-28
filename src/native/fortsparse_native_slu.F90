@@ -155,6 +155,10 @@ module fortsparse_native_slu
         ! takes the search. Built once per analysis, part of plan_bytes.
         integer, private :: map_nnz = 0
         logical, private :: map_ready = .false.
+        ! The map and delayed pivots are off under a host cap, LOW_MEMORY and
+        ! complex values. The map is built at the first refactorization.
+        logical, private :: map_allowed = .false.
+        integer, private :: numeric_calls = 0
         integer, allocatable, private :: map_ptr(:), map_rows(:)
         integer(i8), allocatable, private :: map_pos(:)
         ! Complex-valued factor (analyze with complex values): panels, update
@@ -624,13 +628,13 @@ contains
         if (.not. status_ok(status)) return
 
         self%map_nnz = 0
-        if (.not. (self%strict .or. low .or. self%complex_values)) self%map_nnz = nnz
+        self%map_allowed = .not. (self%strict .or. low .or. self%complex_values)
+        self%numeric_calls = 0
         call build_schedule(self, ledger, status)
         if (.not. status_ok(status)) return
         call allocate_numeric(self, ledger, status)
         if (.not. status_ok(status)) return
         call finalize_labels(self)
-        if (self%map_nnz > 0) call build_assembly_map(self, ptr, rows)
         call status_set(status, FORTSPARSE_OK, '')
         return
         910     call status_set(status, FORTSPARSE_OUT_OF_MEMORY, &
@@ -1434,6 +1438,25 @@ contains
         self%map_ready = .true.
     end subroutine build_assembly_map
 
+    subroutine add_assembly_map(self, ptr, rows)
+        ! Map of the refactored pattern, outside any caller budget like the
+        ! delay relayout. Without memory the assembly keeps its row search.
+        class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
+        integer :: nnz, ierr
+        nnz = ptr(self%n+1)-1
+        allocate(self%map_ptr(self%n+1), self%map_rows(nnz), self%map_pos(nnz), stat=ierr)
+        if (ierr /= 0) then
+            if (allocated(self%map_ptr)) deallocate(self%map_ptr)
+            if (allocated(self%map_rows)) deallocate(self%map_rows)
+            if (allocated(self%map_pos)) deallocate(self%map_pos)
+            return
+        end if
+        self%map_nnz = nnz
+        call build_assembly_map(self, ptr, rows)
+        self%owned_budget_bytes = self%memory_bytes()
+    end subroutine add_assembly_map
+
     logical function map_matches(self, ptr, rows) result(same)
         ! ptr/rows equal the analysed pattern of the assembly map.
         class(slu_factor_t), intent(in) :: self
@@ -1516,6 +1539,8 @@ contains
         if (allocated(self%map_pos)) deallocate(self%map_pos)
         self%map_nnz = 0
         self%map_ready = .false.
+        self%map_allowed = .false.
+        self%numeric_calls = 0
         self%complex_values = .false.
         call self%sched%free()
         self%n = 0
@@ -1598,6 +1623,11 @@ contains
         call validate_csc(self%n, ptr, rows, values, status)
         if (.not. status_ok(status)) return
         started = seconds()
+        ! A factor-once caller never pays for the map: building it costs the
+        ! row search that assembly does without it.
+        if (self%map_allowed .and. self%map_nnz == 0 .and. self%numeric_calls > 0) &
+            call add_assembly_map(self, ptr, rows)
+        self%numeric_calls = self%numeric_calls+1
         self%delay_rounds = 0
         do round = 0, SLU_DELAY_ROUNDS
             call assemble(self, ptr, rows, values, status)
@@ -1661,17 +1691,17 @@ contains
 #endif
                 self%active_threads = self%sched%active_threads
             end if
-            ! Delayed pivots need the analysed pattern (assembly map) and no cap.
-            ! Relayouts run only once the default growth gate trips, so a
-            ! factor that passes it keeps the fast restricted-pivot path.
+            ! Delayed pivots need no cap. Relayouts run only once the default
+            ! growth gate trips, so a factor that passes it keeps the fast
+            ! restricted-pivot path.
             if (round == SLU_DELAY_ROUNDS .or. .not. self%delay_threshold > 0.0_dp &
-                .or. self%map_nnz == 0) exit
+                .or. .not. self%map_allowed) exit
             if (.not. round_growth(self) > effective_growth_limit(self)) exit
             call mark_delays(self, delays)
             if (delays == 0) exit
             if (.not. allocated(delay)) allocate(delay(self%n))
             call mark_delays(self, delays, delay)
-            call relayout_delays(self, delay, status)
+            call relayout_delays(self, ptr, rows, delay, status)
             if (.not. status_ok(status)) return
             self%delay_rounds = round+1
         end do
@@ -1720,16 +1750,17 @@ contains
         end do
     end subroutine mark_delays
 
-    subroutine relayout_delays(self, delay, status)
+    subroutine relayout_delays(self, ptr, rows, delay, status)
         ! Delayed pivots: each marked column moves to the front of its parent
         ! supernode's column block in the permuted order, and the layout is
-        ! rebuilt from the analysed pattern. This is a symmetric permutation
+        ! rebuilt from the factored pattern. This is a symmetric permutation
         ! that keeps the matching, the scaling and every other supernode;
         ! the moved column's diagonal block then contains the parent rows
         ! that held its large entries. A supernode whose columns all move
         ! disappears. The panels, schedule and scratch are reallocated
         ! (outside any caller budget: delays run only without a host cap).
         class(slu_factor_t), intent(inout) :: self
+        integer, intent(in) :: ptr(:), rows(:)
         logical, intent(in) :: delay(:)
         type(fortsparse_status_t), intent(out) :: status
         type(memory_budget_t) :: ledger
@@ -1744,7 +1775,7 @@ contains
         integer :: override
         n = self%n
         ns = self%node_count
-        nnz = self%map_nnz
+        nnz = ptr(n+1)-1
         allocate(perm(n), starts(n), ends(n), msize(n), mark(n), up(ns), &
             dhead(ns), dtail(ns), dnext(ns), stat=ierr)
         if (ierr /= 0) goto 910
@@ -1791,13 +1822,13 @@ contains
         call status_set(status, FORTSPARSE_INTERNAL_ERROR, &
             'supernodal LU: delayed-pivot relayout lost a column')
         if (k /= n) return
-        ! Analysed pattern with matched original columns as row labels, and
+        ! Factored pattern with matched original columns as row labels, and
         ! the relabelled matching, scaling and ordering.
         allocate(apt(n+1), arows(nnz), graph(nnz), finv(n), col_old(n), &
             row_old(n), drp(n), dcp(n), stat=ierr)
         if (ierr /= 0) goto 910
-        apt = self%map_ptr
-        arows = self%map_rows
+        apt = ptr(1:n+1)
+        arows = rows(1:nnz)
         do j = 1, nnz
             graph(j) = self%col_old(self%row_new(arows(j)))
         end do
@@ -1833,8 +1864,10 @@ contains
         ! Rebuild the numeric layout; matching and labels are already final.
         override = self%blas_override
         deallocate(self%panels, self%failures, self%pivots, self%values, &
-            self%solve_work, self%thread_stats, self%map_ptr, self%map_rows, &
-            self%map_pos)
+            self%solve_work, self%thread_stats)
+        if (allocated(self%map_pos)) deallocate(self%map_ptr, self%map_rows, self%map_pos)
+        if (self%map_nnz > 0) self%map_nnz = nnz
+        self%map_ready = .false.
         if (allocated(self%blas_work)) deallocate(self%blas_work)
         call self%sched%free()
         ledger = memory_budget_t()
@@ -1845,7 +1878,7 @@ contains
         if (.not. status_ok(status)) return
         call allocate_numeric(self, ledger, status)
         if (.not. status_ok(status)) return
-        call build_assembly_map(self, apt, arows)
+        if (self%map_nnz > 0) call build_assembly_map(self, apt, arows)
         if (override >= 0) self%use_blas = override == 1
         self%owned_budget_bytes = self%memory_bytes()
         self%delayed_columns = self%delayed_columns+moved
