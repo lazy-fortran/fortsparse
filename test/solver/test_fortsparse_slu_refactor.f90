@@ -1,6 +1,7 @@
 program test_fortsparse_slu_refactor
-    ! Supernodal LU refactor. A same-pattern refactor assembles through
-    ! the analysis' assembly map, any other pattern searches the panel rows:
+    ! Supernodal LU refactor. A factor keeps no assembly map, so the first
+    ! refactor adds exactly its 4(n+1)+12nnz bytes and later refactors of
+    ! that pattern assemble through it, any other pattern searches the rows:
     ! equal values given once with explicit zeros on the analysed pattern
     ! (map) and once without them (search) give bitwise identical factors.
     ! A pattern outside the analysed structure analyzes again and equals a
@@ -176,7 +177,8 @@ contains
         type(sparse_solver_t) :: solver, searched
         type(fortsparse_status_t) :: status
         type(sparse_factor_stats_t) :: s1, s2
-        type(csc_t) :: matrix, padded
+        type(csc_t) :: matrix, padded, base
+        integer(i8) :: fresh
         real(dp), allocatable :: x(:), y(:)
         logical :: reused
         call supernodal(solver, nthreads)
@@ -188,12 +190,20 @@ contains
         call sparse_factor(searched, matrix, status)
         call check(status_ok(status), 'second factor')
         call same_factor(solver, matrix, nthreads, 'first factor', active)
-        ! Same pattern, new values: the analysis and its assembly map.
+        base = matrix
+        call sparse_factor_stats(solver, s1, status)
+        fresh = s1%host_current_bytes
+        ! Same pattern, new values: the analysis, and the map is built.
         call grid_matrix(1.75_dp, 0, matrix)
         matrix%val(1) = matrix%val(1)+0.5_dp
         call sparse_refactor(solver, matrix, status, reused)
         call check(status_ok(status) .and. reused, 'same-pattern refactor reuses')
         call check_residual(solver, matrix, 'same pattern')
+        call sparse_factor_stats(solver, s1, status)
+        call check(s1%host_current_bytes-fresh == &
+            4_i8*(matrix%ncol+1)+12_i8*matrix%nnz, 'map built by the first refactor')
+        call sparse_refactor(searched, base, status, reused)
+        call check(status_ok(status) .and. reused, 'base refactor maps the base pattern')
         ! Equal values through the map (explicit zeros) and by search.
         call grid_matrix(0.5_dp, 3, padded)
         call grid_matrix(0.5_dp, 1, matrix)
