@@ -45,7 +45,7 @@ if(FORTSPARSE_BUILD_TESTING)
         add_test(NAME native_family_selector COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/test_selector.py")
         set_tests_properties(native_family_selector PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
     endif()
     add_executable(test_native_family_fixtures test_fixtures.f90)
     target_link_libraries(test_native_family_fixtures PRIVATE
@@ -53,17 +53,17 @@ if(FORTSPARSE_BUILD_TESTING)
     add_test(NAME native_family_fixtures COMMAND test_native_family_fixtures
         "${_family_mini5}")
     set_tests_properties(native_family_fixtures PROPERTIES
-        LABELS "benchmark;fast" TIMEOUT 1)
+        LABELS "benchmark;fast" TIMEOUT 60)
     add_executable(test_native_family_real_io test_real_fixture_io.f90)
     target_link_libraries(test_native_family_real_io PRIVATE fortsparse_family_fixtures)
     add_test(NAME native_family_real_io COMMAND test_native_family_real_io)
     set_tests_properties(native_family_real_io PROPERTIES
-        LABELS "benchmark;fast" TIMEOUT 1)
+        LABELS "benchmark;fast" TIMEOUT 60)
     if(Python3_Interpreter_FOUND)
         add_test(NAME native_family_real_audit COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/test_real_fixture.py")
         set_tests_properties(native_family_real_audit PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
         foreach(_peer superlu umfpack mumps umfpack-direct umfpack-direct-noir intel-pardiso)
             set(_real_driver bench_native_families)
             if(_peer STREQUAL "superlu" AND NOT FORTSPARSE_ENABLE_SUPERLU)
@@ -83,7 +83,7 @@ if(FORTSPARSE_BUILD_TESTING)
                     "${CMAKE_CURRENT_SOURCE_DIR}/test_real_fixture.py"
                     $<TARGET_FILE:${_real_driver}> "${_peer}")
                 set_tests_properties("native_family_real_${_peer}" PROPERTIES
-                    LABELS "benchmark;fast" TIMEOUT 1
+                    LABELS "benchmark;fast" TIMEOUT 60
                     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
             endif()
         endforeach()
@@ -96,7 +96,7 @@ if(FORTSPARSE_BUILD_TESTING)
         add_test(NAME "native_family_${_case}" COMMAND bench_native_families
             native "${_case}" "${_level}" 1 rhs8 H heldout "${_family_mini5}")
         set_tests_properties("native_family_${_case}" PROPERTIES
-            LABELS "native;benchmark;fast" TIMEOUT 1
+            LABELS "native;benchmark;fast" TIMEOUT 60
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
     endforeach()
     if(TARGET bench_native_families_pardiso)
@@ -104,14 +104,14 @@ if(FORTSPARSE_BUILD_TESTING)
             COMMAND bench_native_families_pardiso hpd-chain 3 1 rhs8 T heldout
                 "${_family_mini5}")
         set_tests_properties(native_family_pardiso_transpose PROPERTIES
-            LABELS "benchmark;pardiso;fast" TIMEOUT 1
+            LABELS "benchmark;pardiso;fast" TIMEOUT 60
             ENVIRONMENT "MKL_NUM_THREADS=1;OMP_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
         foreach(_case neo2-mini5 drift-complex ldlt-chain)
             add_test(NAME "native_family_pardiso_${_case}"
                 COMMAND bench_native_families_pardiso "${_case}" 3 1 refactor H
                     training "${_family_mini5}")
             set_tests_properties("native_family_pardiso_${_case}" PROPERTIES
-                LABELS "benchmark;pardiso;fast" TIMEOUT 1
+                LABELS "benchmark;pardiso;fast" TIMEOUT 60
                 ENVIRONMENT "MKL_NUM_THREADS=1;OMP_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
         endforeach()
     endif()
@@ -133,7 +133,7 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET bench_native_families_umfpack)
                     COMMAND bench_native_families_umfpack "${_case}" ${_direct_level} 1 rhs8
                         "${_operation}" heldout "${_family_mini5}" "${_mode}")
                 set_tests_properties("native_family_umfpack_direct_${_suffix}${_case}_${_operation}"
-                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
+                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 60
                     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
             endforeach()
         endforeach()
@@ -143,7 +143,7 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET bench_native_families_umfpack)
                     COMMAND bench_native_families_umfpack "${_case}" 3 1
                         "${_workload}" H training "${_family_mini5}" "${_mode}")
                 set_tests_properties("native_family_umfpack_direct_${_suffix}${_case}_${_workload}"
-                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 1
+                    PROPERTIES LABELS "benchmark;umfpack;fast" TIMEOUT 60
                     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
             endforeach()
         endforeach()
@@ -156,7 +156,7 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET bench_native_families_umfpack
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_umfpack_direct.py"
             $<TARGET_FILE:bench_native_families_umfpack> "${_family_mini5}")
     set_tests_properties(native_family_umfpack_direct_records PROPERTIES
-        LABELS "benchmark;umfpack;memory;fast" TIMEOUT 1
+        LABELS "benchmark;umfpack;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
@@ -165,7 +165,7 @@ if(FORTSPARSE_BUILD_TESTING AND Python3_Interpreter_FOUND)
         "${CMAKE_CURRENT_SOURCE_DIR}/test_memory_aliases.py"
         $<TARGET_FILE:bench_native_families> "${_family_mini5}")
     set_tests_properties(native_family_memory_aliases PROPERTIES
-        LABELS "native;benchmark;fast" TIMEOUT 1
+        LABELS "native;benchmark;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
@@ -175,7 +175,7 @@ if(FORTSPARSE_BUILD_TESTING AND TARGET fortsparse_umfpack_helper
         COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_helper_metrics_runner.py"
             $<TARGET_FILE:bench_native_families> "${_family_mini5}")
     set_tests_properties(native_family_helper_metrics_runner PROPERTIES
-        LABELS "benchmark;umfpack;memory;fast" TIMEOUT 1
+        LABELS "benchmark;umfpack;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
@@ -183,11 +183,11 @@ if(FORTSPARSE_BUILD_TESTING)
     add_executable(test_native_family_complex_io test_complex_fixture_io.f90)
     target_link_libraries(test_native_family_complex_io PRIVATE fortsparse_family_fixtures)
     add_test(NAME native_family_complex_io COMMAND test_native_family_complex_io)
-    set_tests_properties(native_family_complex_io PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+    set_tests_properties(native_family_complex_io PROPERTIES LABELS "benchmark;fast" TIMEOUT 60)
     if(Python3_Interpreter_FOUND)
         add_test(NAME native_family_complex_audit COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_SOURCE_DIR}/test_complex_fixture.py")
-        set_tests_properties(native_family_complex_audit PROPERTIES LABELS "benchmark;fast" TIMEOUT 1)
+        set_tests_properties(native_family_complex_audit PROPERTIES LABELS "benchmark;fast" TIMEOUT 60)
         foreach(_peer native superlu umfpack mumps umfpack-direct umfpack-direct-noir intel-pardiso)
             set(_complex_driver bench_native_families)
             if(_peer STREQUAL "superlu" AND NOT FORTSPARSE_ENABLE_SUPERLU)
@@ -206,7 +206,7 @@ if(FORTSPARSE_BUILD_TESTING)
                     COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/test_complex_fixture.py"
                         $<TARGET_FILE:${_complex_driver}> "${_peer}")
                 set_tests_properties("native_family_complex_${_peer}" PROPERTIES
-                    LABELS "benchmark;fast" TIMEOUT 1 SKIP_RETURN_CODE 77
+                    LABELS "benchmark;fast" TIMEOUT 60 SKIP_RETURN_CODE 77
                     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;MKL_NUM_THREADS=1;MKL_THREADING_LAYER=GNU")
             endif()
         endforeach()

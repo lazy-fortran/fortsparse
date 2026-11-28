@@ -58,13 +58,15 @@ static int helper(int argc, char **argv)
             if (errno != EINTR) return 1;
         }
         if (header->opcode == FSPARSE_OP_SHUTDOWN) break;
-        if (header->opcode == 4) _exit(7); /* Die without a done post. */
         if (header->opcode != 1) {
             struct timespec delay = {0, 250000000L};
             while (nanosleep(&delay, &delay) != 0) {
                 if (errno != EINTR) return 1;
             }
         }
+        /* Die without a done post, late enough that timer signals hit the
+         * death polls also on a loaded host. */
+        if (header->opcode == 4) _exit(7);
         header->status = FSPARSE_ST_SINGULAR;
         if (sem_post(done) != 0) return 1;
     }

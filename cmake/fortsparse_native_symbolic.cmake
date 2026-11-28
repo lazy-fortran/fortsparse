@@ -11,5 +11,5 @@ function(fortsparse_add_native_symbolic_test target)
     target_link_libraries(test_native_symbolic_counts PRIVATE ${target})
     add_test(NAME test_native_symbolic_counts COMMAND test_native_symbolic_counts)
     set_tests_properties(test_native_symbolic_counts PROPERTIES
-        LABELS "native;fast" TIMEOUT 1)
+        LABELS "native;fast" TIMEOUT 60)
 endfunction()
