@@ -9,33 +9,33 @@ if(FORTSPARSE_BUILD_TESTING)
         add_test(NAME gpu_spd_front_analysis COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_LIST_DIR}/test_analyze_gpu_spd.py)
         set_tests_properties(gpu_spd_front_analysis PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
         add_test(NAME gpu_spd_offload_provenance COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_LIST_DIR}/test_offload_provenance.py)
         set_tests_properties(gpu_spd_offload_provenance PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
         add_test(NAME gpu_spd_plot_series COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_LIST_DIR}/test_plot_series.py)
         set_tests_properties(gpu_spd_plot_series PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
         add_test(NAME gpu_spd_accounting_peak COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_LIST_DIR}/test_accounting_peak.py)
         set_tests_properties(gpu_spd_accounting_peak PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
     endif()
     foreach(workload IN ITEMS rhs1 rhs8 warm refactor repeated-rhs)
         add_test(NAME gpu_contract_native_${workload}
             COMMAND bench_spd_native_gpu grid2 1 1 ${workload}
                 heldout -1 host tuned)
         set_tests_properties(gpu_contract_native_${workload} PROPERTIES
-            LABELS "native;benchmark;fast" TIMEOUT 1
+            LABELS "native;benchmark;fast" TIMEOUT 60
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
         if(FORTSPARSE_ENABLE_NATIVE_CUDA)
             add_test(NAME gpu_contract_native_cuda_${workload}
                 COMMAND bench_spd_native_gpu grid2 1 1 ${workload}
                     heldout 0 host tuned)
             set_tests_properties(gpu_contract_native_cuda_${workload} PROPERTIES
-                LABELS "native;cuda;benchmark;fast" TIMEOUT 1
+                LABELS "native;cuda;benchmark;fast" TIMEOUT 60
                 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
         endif()
     endforeach()

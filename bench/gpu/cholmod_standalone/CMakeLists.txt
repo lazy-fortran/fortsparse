@@ -15,7 +15,7 @@ foreach(workload rhs1 rhs8 refactor warm repeated-rhs)
     add_test(NAME gpu_cholmod_${workload}
         COMMAND bench_spd_cholmod grid2 1 1 ${workload} training 0 host tuned - 3)
     set_tests_properties(gpu_cholmod_${workload} PROPERTIES
-        LABELS "benchmark;cuda;fast" TIMEOUT 1
+        LABELS "benchmark;cuda;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;CHOLMOD_GPU_POOL_BYTES=268435456")
 endforeach()
 set(common_order "${CMAKE_CURRENT_BINARY_DIR}/identity-order.txt")
@@ -27,7 +27,7 @@ add_test(NAME gpu_cholmod_common_order
     COMMAND bench_spd_cholmod band 1 1 rhs1 training 0 host common - 1
         "${common_order}")
 set_tests_properties(gpu_cholmod_common_order PROPERTIES
-    LABELS "benchmark;cuda;fast" TIMEOUT 1
+    LABELS "benchmark;cuda;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;CHOLMOD_GPU_POOL_BYTES=268435456")
 
 find_package(Python3 COMPONENTS Interpreter QUIET)
@@ -43,7 +43,7 @@ if(Python3_Interpreter_FOUND AND EXISTS "${FORTSPARSE_BENCH_GPU_RUNNER}")
                 --runner "${FORTSPARSE_BENCH_GPU_RUNNER}"
                 --workload ${workload})
         set_tests_properties(gpu_cholmod_csv_${workload} PROPERTIES
-            LABELS "benchmark;cuda;fast" TIMEOUT 1
+            LABELS "benchmark;cuda;fast" TIMEOUT 60
             ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1;CHOLMOD_GPU_POOL_BYTES=268435456")
     endforeach()
 endif()

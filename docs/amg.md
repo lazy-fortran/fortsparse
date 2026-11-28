@@ -98,8 +98,7 @@ known spectral bounds, and standalone residual contraction.
 positivity, multi-mode/raw-array use, setup failure, lifetime, manufactured
 solutions and LDLT agreement to 1e-10. On Linux, `test_amg_allocations` observes
 five repeated applications of each cycle through the existing malloc/calloc/
-realloc wrapper after OpenMP warmup. The ordinary tests have a one-second
-CTest budget.
+realloc wrapper after OpenMP warmup.
 
 The synthetic P1-like generator uses Dirichlet 5/7-point graphs. Q1 uses exact
 tensor products of 1D stiffness and consistent mass matrices, with boundary

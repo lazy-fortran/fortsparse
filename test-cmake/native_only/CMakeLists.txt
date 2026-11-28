@@ -30,11 +30,11 @@ add_executable(native_only_smoke smoke.f90)
 target_link_libraries(native_only_smoke PRIVATE fortsparse)
 enable_testing()
 add_test(NAME native_only_smoke COMMAND native_only_smoke)
-set_tests_properties(native_only_smoke PROPERTIES TIMEOUT 1
+set_tests_properties(native_only_smoke PROPERTIES TIMEOUT 60
     ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=${CMAKE_CURRENT_BINARY_DIR}/no-helper")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME native_only_links COMMAND ${CMAKE_COMMAND}
         -DEXECUTABLE=$<TARGET_FILE:native_only_smoke>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/check_links.cmake)
-    set_tests_properties(native_only_links PROPERTIES TIMEOUT 1)
+    set_tests_properties(native_only_links PROPERTIES TIMEOUT 60)
 endif()

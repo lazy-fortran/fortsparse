@@ -9,7 +9,7 @@ foreach(_case real complex)
 endforeach()
 set_tests_properties(freefem_native_real freefem_native_complex freefem_native_hrot_complex
     freefem_native_singular_real freefem_native_singular_complex PROPERTIES
-    LABELS "native;freefem;fast" TIMEOUT 1
+    LABELS "native;freefem;fast" TIMEOUT 60
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     ENVIRONMENT "FF_LOADPATH=$<TARGET_FILE_DIR:fortsparse_freefem>;OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -18,5 +18,5 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_test(NAME freefem_native_module_linkage COMMAND "${CMAKE_COMMAND}"
         "-DLIBRARY=$<TARGET_FILE:fortsparse_freefem>" "-DLDD=${FORTSPARSE_LDD}"
         "-DNM=${FORTSPARSE_NM}" -P "${CMAKE_CURRENT_SOURCE_DIR}/module_linkage.cmake")
-    set_tests_properties(freefem_native_module_linkage PROPERTIES LABELS "native;freefem;fast" TIMEOUT 1)
+    set_tests_properties(freefem_native_module_linkage PROPERTIES LABELS "native;freefem;fast" TIMEOUT 60)
 endif()

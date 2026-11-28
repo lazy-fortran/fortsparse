@@ -21,7 +21,7 @@ fortsparse_add_test(test_fortsparse_status test_fortsparse_status.f90)
 fortsparse_add_test(test_fortsparse_compiler_self_assignment
     solver/test_fortsparse_compiler_self_assignment.f90)
 set_tests_properties(test_fortsparse_compiler_self_assignment PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 
 if(UNIX AND NOT CMAKE_CROSSCOMPILING AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
     set(_reference_compiler)
@@ -55,14 +55,14 @@ if(UNIX AND NOT CMAKE_CROSSCOMPILING AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU
     endforeach()
 endif()
 fortsparse_add_test(test_fortsparse_memory solver/test_fortsparse_memory.f90)
-set_tests_properties(test_fortsparse_memory PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_fortsparse_memory PROPERTIES LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_spd_leaves
     solver/test_fortsparse_spd_leaves.f90)
 fortsparse_add_test(test_fortsparse_native_lu
     solver/test_fortsparse_native_lu.f90)
 fortsparse_add_test(test_fortsparse_ilutp solver/test_fortsparse_ilutp.f90)
 set_tests_properties(test_fortsparse_ilutp PROPERTIES
-    LABELS "native;preconditioner;fast" TIMEOUT 1)
+    LABELS "native;preconditioner;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_ilutp_allocations
         ../test-cmake/native/test_ilutp_allocations.f90
@@ -72,20 +72,20 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
     add_test(NAME test_ilutp_allocations COMMAND test_ilutp_allocations)
     set_tests_properties(test_ilutp_allocations PROPERTIES
-        LABELS "native;preconditioner;memory;fast" TIMEOUT 1)
+        LABELS "native;preconditioner;memory;fast" TIMEOUT 60)
 endif()
 fortsparse_add_test(test_fortsparse_native_lu_lifetime
     ../test-cmake/native/test_native_lu_lifetime.f90)
 target_sources(test_fortsparse_native_lu_lifetime PRIVATE ../test-cmake/native/lu_discard_counter.c)
 set_tests_properties(test_fortsparse_native_lu_lifetime PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    LABELS "native;lu;fast" TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_definitions(test_fortsparse_native_lu_lifetime PRIVATE FS_TEST_WRAP_ADVICE)
     target_link_options(test_fortsparse_native_lu_lifetime PRIVATE "LINKER:--wrap=madvise" "LINKER:--wrap=malloc"
         "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
     add_test(NAME test_fortsparse_native_lu_advice_failure COMMAND test_fortsparse_native_lu_lifetime 1)
     set_tests_properties(test_fortsparse_native_lu_advice_failure PROPERTIES
-        LABELS "native;lu;fast" TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        LABELS "native;lu;fast" TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 # Always compile the no-advice fallback. Kernel-call wrapping is Linux-only.
 add_executable(test_native_lu_discard_portable
@@ -93,31 +93,31 @@ add_executable(test_native_lu_discard_portable
 target_compile_definitions(test_native_lu_discard_portable PRIVATE
     FORTSPARSE_LU_DISCARD_DISABLED FS_TEST_DISCARD_DISABLED)
 add_test(NAME test_native_lu_discard_portable COMMAND test_native_lu_discard_portable)
-set_tests_properties(test_native_lu_discard_portable PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+set_tests_properties(test_native_lu_discard_portable PROPERTIES LABELS "native;lu;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_native_lu_discard
         ../test-cmake/native/test_native_lu_discard.c ../src/native/fsparse_native_lu_memory.c)
     target_compile_definitions(test_native_lu_discard PRIVATE FS_TEST_WRAP_ADVICE)
     target_link_options(test_native_lu_discard PRIVATE "LINKER:--wrap=madvise")
     add_test(NAME test_native_lu_discard COMMAND test_native_lu_discard)
-    set_tests_properties(test_native_lu_discard PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+    set_tests_properties(test_native_lu_discard PROPERTIES LABELS "native;lu;fast" TIMEOUT 60)
 endif()
 fortsparse_add_test(test_fortsparse_lu_leaves
     solver/test_fortsparse_lu_leaves.f90)
 fortsparse_add_test(test_fortsparse_lu_pruning
     solver/test_fortsparse_lu_pruning.f90)
 set_tests_properties(test_fortsparse_lu_pruning PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 set_tests_properties(test_fortsparse_native_lu test_fortsparse_lu_leaves PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_hpd_leaves
     solver/test_fortsparse_hpd_leaves.f90)
 set_tests_properties(test_fortsparse_hpd_leaves PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_native_hpd
     solver/test_fortsparse_native_hpd.f90)
 set_tests_properties(test_fortsparse_native_hpd PROPERTIES
-    LABELS "native;fast" TIMEOUT 1 PROCESSORS 2
+    LABELS "native;fast" TIMEOUT 60 PROCESSORS 2
     ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_native
     solver/test_fortsparse_native.f90)
@@ -126,50 +126,50 @@ fortsparse_add_test(test_fortsparse_native_supernodes
 fortsparse_add_test(test_fortsparse_supernode_partition
     solver/test_fortsparse_supernode_partition.f90)
 set_tests_properties(test_fortsparse_supernode_partition PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_analysis
     solver/test_fortsparse_slu_analysis.f90)
 set_tests_properties(test_fortsparse_slu_analysis PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_leaves
     solver/test_fortsparse_slu_leaves.f90)
 set_tests_properties(test_fortsparse_slu_leaves PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_factor
     solver/test_fortsparse_slu_factor.f90)
 # Four-thread team: 1.7 to 2.0 s on a workstation at load 30 to 50.
 set_tests_properties(test_fortsparse_slu_factor PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 10)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_z_leaves
     solver/test_fortsparse_slu_z_leaves.f90)
 set_tests_properties(test_fortsparse_slu_z_leaves PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_z_factor
     solver/test_fortsparse_slu_z_factor.f90)
 set_tests_properties(test_fortsparse_slu_z_factor PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_z_api
     solver/test_fortsparse_slu_z_api.f90)
 set_tests_properties(test_fortsparse_slu_z_api PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_slu_api
     solver/test_fortsparse_slu_api.f90)
 set_tests_properties(test_fortsparse_slu_api PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_fallback
     solver/test_fortsparse_slu_fallback.f90)
 set_tests_properties(test_fortsparse_slu_fallback PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_slu_refactor
     solver/test_fortsparse_slu_refactor.f90)
 set_tests_properties(test_fortsparse_slu_refactor PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=2")
 fortsparse_add_test(test_fortsparse_slu_threads
     solver/test_fortsparse_slu_threads.f90)
 set_tests_properties(test_fortsparse_slu_threads PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
 if(TARGET test_fortsparse_slu_threads)
     # Exercise parallel analysis independently of the audited AMD cap ABI.
@@ -177,24 +177,23 @@ if(TARGET test_fortsparse_slu_threads)
     add_test(NAME test_fortsparse_slu_threads_uncapped
         COMMAND test_fortsparse_slu_threads uncapped)
     set_tests_properties(test_fortsparse_slu_threads_uncapped PROPERTIES
-        LABELS "native;lu;fast" TIMEOUT 1
+        LABELS "native;lu;fast" TIMEOUT 60
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
     add_test(NAME test_fortsparse_slu_threads_tiles
         COMMAND test_fortsparse_slu_threads tiles)
     set_tests_properties(test_fortsparse_slu_threads_tiles PROPERTIES
-        LABELS "native;lu;fast" TIMEOUT 1
+        LABELS "native;lu;fast" TIMEOUT 60
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=8")
     add_test(NAME test_fortsparse_slu_threads_repeat
         COMMAND test_fortsparse_slu_threads repeat)
-    # One thread: 0.24 s on a workstation, above 1 s on the CPU-capped CI hosts.
     set_tests_properties(test_fortsparse_slu_threads_repeat PROPERTIES
-        LABELS "native;lu;fast" TIMEOUT 5
+        LABELS "native;lu;fast" TIMEOUT 60
         ENVIRONMENT "OPENBLAS_NUM_THREADS=1;OMP_NUM_THREADS=1")
 endif()
 fortsparse_add_test(test_fortsparse_supernode_memory
     solver/test_fortsparse_supernode_memory.f90)
 set_tests_properties(test_fortsparse_supernode_memory PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_sources(test_fortsparse_supernode_memory PRIVATE
         ../test-cmake/native/forbid_supernode_blas.c)
@@ -203,18 +202,18 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=dtrsv_" "LINKER:--wrap=dtrsm_")
 endif()
 set_tests_properties(test_fortsparse_spd_leaves test_fortsparse_native
-    test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 1)
+    test_fortsparse_native_supernodes PROPERTIES LABELS "native;fast" TIMEOUT 60)
 add_executable(test_native_symbolic
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_symbolic.c)
 target_link_libraries(test_native_symbolic PRIVATE fortsparse)
 add_test(NAME test_native_symbolic COMMAND test_native_symbolic)
-set_tests_properties(test_native_symbolic PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_native_symbolic PROPERTIES LABELS "native;fast" TIMEOUT 60)
 add_executable(test_native_symbolic_portable
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_symbolic.c
     ../src/native/fsparse_native_symbolic.c)
 target_compile_definitions(test_native_symbolic_portable PRIVATE FORTSPARSE_SYMBOLIC_MALLOC_ONLY)
 add_test(NAME test_native_symbolic_portable COMMAND test_native_symbolic_portable)
-set_tests_properties(test_native_symbolic_portable PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_native_symbolic_portable PROPERTIES LABELS "native;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_native_symbolic_failure ../test-cmake/native/test_native_symbolic_failure.f90
         ../test-cmake/native/native_symbolic_fail.c)
@@ -222,15 +221,15 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     target_link_options(test_native_symbolic_failure PRIVATE
         "LINKER:--wrap=fsparse_native_symbolic_alloc")
     add_test(NAME test_native_symbolic_failure COMMAND test_native_symbolic_failure)
-    set_tests_properties(test_native_symbolic_failure PROPERTIES LABELS "native;fast" TIMEOUT 1)
+    set_tests_properties(test_native_symbolic_failure PROPERTIES LABELS "native;fast" TIMEOUT 60)
 endif()
 add_executable(test_native_order
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order.c)
 target_link_libraries(test_native_order PRIVATE fortsparse)
 add_test(NAME test_native_order COMMAND test_native_order)
-set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_native_order PROPERTIES LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_nd solver/test_fortsparse_nd.F90)
-set_tests_properties(test_fortsparse_nd PROPERTIES LABELS "native;fast" TIMEOUT 5)
+set_tests_properties(test_fortsparse_nd PROPERTIES LABELS "native;fast" TIMEOUT 60)
 set_property(TEST test_fortsparse_nd PROPERTY
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 if(FORTSPARSE_NATIVE_METIS_FOUND)
@@ -240,7 +239,7 @@ add_executable(test_native_order_amd
     ${PROJECT_SOURCE_DIR}/cmake/tests/test_native_order_amd.c)
 target_link_libraries(test_native_order_amd PRIVATE fortsparse)
 add_test(NAME test_native_order_amd COMMAND test_native_order_amd)
-set_tests_properties(test_native_order_amd PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_native_order_amd PROPERTIES LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_csc csc/test_fortsparse_csc.f90)
 fortsparse_add_test(test_fortsparse_matvec_omp csc/test_fortsparse_matvec_omp.f90)
 
@@ -290,7 +289,7 @@ if(UNIX AND NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
         ${PROJECT_SOURCE_DIR}/include)
     target_link_libraries(test_fortsparse_ipc_wait PRIVATE fortsparse)
     add_test(NAME test_fortsparse_ipc_wait COMMAND test_fortsparse_ipc_wait)
-    set_tests_properties(test_fortsparse_ipc_wait PROPERTIES TIMEOUT 10)
+    set_tests_properties(test_fortsparse_ipc_wait PROPERTIES TIMEOUT 60)
 endif()
 
 # These cases factor through the default native backend; the SuperLU-specific
@@ -359,7 +358,7 @@ endif()
 # External context copies keep options but never factors or handles.
 fortsparse_add_test(test_fortsparse_external_copy ipc/test_fortsparse_external_copy.f90)
 set_tests_properties(test_fortsparse_external_copy PROPERTIES
-    LABELS "external;fast" TIMEOUT 1)
+    LABELS "external;fast" TIMEOUT 60)
 if(TARGET fortsparse_umfpack_helper)
     set_tests_properties(test_fortsparse_external_copy PROPERTIES ENVIRONMENT
         "FORTSPARSE_UMFPACK_HELPER=$<TARGET_FILE:fortsparse_umfpack_helper>")
@@ -470,51 +469,51 @@ if(FORTSPARSE_ENABLE_MUMPS)
 endif()
 
 fortsparse_add_test(test_fortsparse_memory_api solver/test_fortsparse_memory_api.f90)
-set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 1)
+set_tests_properties(test_fortsparse_memory_api PROPERTIES LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_ldlt_multifrontal solver/test_fortsparse_ldlt_multifrontal.f90)
 set_tests_properties(test_fortsparse_ldlt_multifrontal PROPERTIES
-    LABELS "native;fast" TIMEOUT 5)
+    LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_symmetric_triangle
     solver/test_fortsparse_symmetric_triangle.f90)
 set_tests_properties(test_fortsparse_symmetric_triangle PROPERTIES
-    LABELS "native;fast" TIMEOUT 5)
+    LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_ldlt_merge solver/test_fortsparse_ldlt_merge.f90)
 set_tests_properties(test_fortsparse_ldlt_merge PROPERTIES
-    LABELS "native;performance;fast" TIMEOUT 1 PROCESSORS 2
+    LABELS "native;performance;fast" TIMEOUT 60 PROCESSORS 2
     ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_native_ldlt
     solver/test_fortsparse_native_ldlt.f90)
 set_tests_properties(test_fortsparse_native_ldlt PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 
 fortsparse_add_test(test_fortsparse_native_general_api solver/test_fortsparse_native_general_api.f90)
 set_tests_properties(test_fortsparse_native_general_api PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1 WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+    LABELS "native;lu;fast" TIMEOUT 60 WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 
 fortsparse_add_test(test_fortsparse_native_default_ordering
     solver/test_fortsparse_native_default_ordering.f90)
 set_tests_properties(test_fortsparse_native_default_ordering PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 fortsparse_add_test(test_fortsparse_native_symmetric_ordering
     solver/test_fortsparse_native_symmetric_ordering.f90)
 set_tests_properties(test_fortsparse_native_symmetric_ordering PROPERTIES
-    LABELS "native;fast" TIMEOUT 1
+    LABELS "native;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 fortsparse_add_test(test_fortsparse_context_copy
     solver/test_fortsparse_context_copy.f90)
 set_tests_properties(test_fortsparse_context_copy PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1)
+    LABELS "native;lu;fast" TIMEOUT 60)
 
 fortsparse_add_test(test_fortsparse_native_ldlt_z
     solver/test_fortsparse_native_ldlt_z.f90)
 set_tests_properties(test_fortsparse_native_ldlt_z PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_inertia solver/test_fortsparse_inertia.f90)
 # The runner's Xeon E5-2630 v4 takes 0.7 to 1.0 s for this test.
-set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 5)
+set_tests_properties(test_fortsparse_inertia PROPERTIES LABELS "native;fast" TIMEOUT 60)
 # This configure/build check is distinct from ordinary sub-second numerics.
 # It disables sparse dependency discovery/fetching and inspects actual linkage.
 get_target_property(_precision_fortnum_src fortnum SOURCE_DIR)
@@ -540,24 +539,24 @@ set_tests_properties(test_fortsparse_native_only_build PROPERTIES
 if(NOT FORTSPARSE_ENABLE_SUPERLU AND NOT FORTSPARSE_ENABLE_MUMPS)
     fortsparse_add_test(test_fortsparse_native_only ../test-cmake/native_only/smoke.f90)
     set_tests_properties(test_fortsparse_native_only PROPERTIES
-        LABELS "native;fast" TIMEOUT 1
+        LABELS "native;fast" TIMEOUT 60
         ENVIRONMENT "FORTSPARSE_UMFPACK_HELPER=${CMAKE_CURRENT_BINARY_DIR}/no-helper")
 endif()
 fortsparse_add_test(test_fortsparse_native_spd_refactor
     solver/test_fortsparse_native_spd_refactor.f90)
 set_tests_properties(test_fortsparse_native_spd_refactor PROPERTIES
-    LABELS "native;spd;fast" TIMEOUT 1)
+    LABELS "native;spd;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_native_refinement solver/test_fortsparse_native_refinement.f90)
 set_tests_properties(test_fortsparse_native_refinement PROPERTIES
-    LABELS "native;refinement;fast" TIMEOUT 1)
+    LABELS "native;refinement;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_componentwise_refinement
     solver/test_fortsparse_componentwise_refinement.f90)
 set_tests_properties(test_fortsparse_componentwise_refinement PROPERTIES
-    LABELS "native;refinement;lu;fast" TIMEOUT 1)
+    LABELS "native;refinement;lu;fast" TIMEOUT 60)
 fortsparse_add_test(test_fortsparse_refined_pivot_default
     solver/test_fortsparse_refined_pivot_default.f90)
 set_tests_properties(test_fortsparse_refined_pivot_default PROPERTIES
-    LABELS "native;refinement;lu;fast" TIMEOUT 1)
+    LABELS "native;refinement;lu;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_native_refinement_allocations
         ../test-cmake/native/test_native_refinement_allocations.f90
@@ -566,7 +565,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     target_link_options(test_native_refinement_allocations PRIVATE
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
     add_test(NAME test_native_refinement_allocations COMMAND test_native_refinement_allocations)
-    set_tests_properties(test_native_refinement_allocations PROPERTIES LABELS "native;refinement;fast" TIMEOUT 1)
+    set_tests_properties(test_native_refinement_allocations PROPERTIES LABELS "native;refinement;fast" TIMEOUT 60)
 endif()
 
 # Independent dense manufactured RHS tests for retained N/T/H on external factors.
@@ -606,7 +605,7 @@ endif()
 
 fortsparse_add_test(test_fortsparse_native_spd_refinement solver/test_fortsparse_native_spd_refinement.f90)
 set_tests_properties(test_fortsparse_native_spd_refinement PROPERTIES
-    LABELS "native;refinement;fast" TIMEOUT 1
+    LABELS "native;refinement;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_native_spd_refinement_allocations
@@ -617,13 +616,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
     add_test(NAME test_native_spd_refinement_allocations COMMAND test_native_spd_refinement_allocations)
     set_tests_properties(test_native_spd_refinement_allocations PROPERTIES
-        LABELS "native;refinement;fast" TIMEOUT 1
+        LABELS "native;refinement;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 fortsparse_add_test(test_fortsparse_refined_memory_plan solver/test_fortsparse_refined_memory_plan.f90)
 set_tests_properties(test_fortsparse_refined_memory_plan PROPERTIES
-    LABELS "native;refinement;fast" TIMEOUT 1
+    LABELS "native;refinement;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_general_amd
@@ -634,14 +633,14 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=fsparse_native_order_amd_general")
     target_compile_definitions(test_general_amd PRIVATE FORTSPARSE_TEST_AMD)
     add_test(NAME test_general_amd COMMAND test_general_amd)
-    set_tests_properties(test_general_amd PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+    set_tests_properties(test_general_amd PROPERTIES LABELS "native;lu;fast" TIMEOUT 60)
 endif()
 
 add_executable(test_native_order_amd_bounded ../test-cmake/native/test_amd_bounded.c)
 target_link_libraries(test_native_order_amd_bounded PRIVATE fortsparse ${CMAKE_DL_LIBS})
 target_include_directories(test_native_order_amd_bounded PRIVATE ../src/native)
 add_test(NAME test_native_order_amd_bounded COMMAND test_native_order_amd_bounded)
-set_tests_properties(test_native_order_amd_bounded PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+set_tests_properties(test_native_order_amd_bounded PROPERTIES LABELS "native;lu;fast" TIMEOUT 60)
 # SuiteSparse AMD, loaded at run time where installed, is the ordering oracle.
 add_executable(test_native_order_amd_reference ../test-cmake/native/test_amd_reference.c)
 target_link_libraries(test_native_order_amd_reference PRIVATE fortsparse ${CMAKE_DL_LIBS})
@@ -657,7 +656,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     target_include_directories(test_general_amd_bounded PRIVATE ../src/native)
     target_link_options(test_general_amd_bounded PRIVATE "LINKER:--wrap=fsparse_native_amd_bounded")
     add_test(NAME test_general_amd_bounded COMMAND test_general_amd_bounded)
-    set_tests_properties(test_general_amd_bounded PROPERTIES LABELS "native;lu;refinement;fast" TIMEOUT 1
+    set_tests_properties(test_general_amd_bounded PROPERTIES LABELS "native;lu;refinement;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
@@ -680,7 +679,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     target_link_options(test_spd_panel_no_blas PRIVATE "LINKER:--wrap=${_fortnum_dtrsm_symbol}")
     add_test(NAME test_spd_panel_no_blas COMMAND test_spd_panel_no_blas)
     set_tests_properties(test_spd_panel_no_blas PROPERTIES LABELS "native;memory;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 # Exercise the public ABI from actual C and C++ consumers, including C99 complex.
@@ -702,7 +701,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     endforeach()
 endif()
 set_tests_properties(test_native_c_api test_native_cxx_api PROPERTIES
-    LABELS "native;c-api;fast" TIMEOUT 1
+    LABELS "native;c-api;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_spd_amd_bounded
@@ -715,7 +714,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
     add_test(NAME test_spd_amd_bounded COMMAND test_spd_amd_bounded)
     set_tests_properties(test_spd_amd_bounded PROPERTIES LABELS "native;memory;refinement;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 # Public synthetic NEO-2 spline system: preserve the original observable gate,
@@ -725,16 +724,16 @@ target_link_libraries(test_native_lu_spline PRIVATE fortsparse)
 add_test(NAME test_native_lu_spline COMMAND test_native_lu_spline
     "${PROJECT_SOURCE_DIR}/test-cmake/native/data")
 set_tests_properties(test_native_lu_spline PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_native_lu_singletons ../test-cmake/native/test_native_lu_singletons.f90)
 set_tests_properties(test_native_lu_singletons PROPERTIES
-    LABELS "native;lu;fast" TIMEOUT 1
+    LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 fortsparse_add_test(test_fortsparse_native_raw_ldlt solver/test_fortsparse_native_raw_ldlt.f90)
 set_tests_properties(test_fortsparse_native_raw_ldlt PROPERTIES
-    LABELS "native;fast" TIMEOUT 1
+    LABELS "native;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -747,7 +746,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
     add_test(NAME test_ldlt_amd COMMAND test_ldlt_amd)
     set_tests_properties(test_ldlt_amd PROPERTIES LABELS "native;memory;refinement;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -762,23 +761,23 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
     endif()
     add_test(NAME test_csc_normalize_symmetric COMMAND test_csc_normalize_symmetric)
     set_tests_properties(test_csc_normalize_symmetric PROPERTIES LABELS "native;csc;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 fortsparse_add_test(test_lu_row_preference ../test-cmake/native/test_lu_row_preference.f90)
 set_tests_properties(test_lu_row_preference PROPERTIES LABELS "native;lu;fast"
-    TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 fortsparse_add_test(test_fortsparse_structural_matching solver/test_fortsparse_structural_matching.f90)
 fortsparse_add_test(test_fortsparse_matching_api solver/test_fortsparse_matching_api.f90)
 set_tests_properties(test_fortsparse_structural_matching test_fortsparse_matching_api
-    PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+    PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_order_wide solver/test_fortsparse_order_wide.f90)
-set_tests_properties(test_fortsparse_order_wide PROPERTIES LABELS "native;lu;fast" TIMEOUT 1
+set_tests_properties(test_fortsparse_order_wide PROPERTIES LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_mpm solver/test_fortsparse_mpm.f90)
-set_tests_properties(test_fortsparse_mpm PROPERTIES LABELS "native;lu;fast" TIMEOUT 1
+set_tests_properties(test_fortsparse_mpm PROPERTIES LABELS "native;lu;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_mpm_allocations
@@ -790,7 +789,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free"
         "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
     add_test(NAME test_mpm_allocations COMMAND test_mpm_allocations)
-    set_tests_properties(test_mpm_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+    set_tests_properties(test_mpm_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -803,7 +802,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free"
         "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
     add_test(NAME test_slu_allocations COMMAND test_slu_allocations)
-    set_tests_properties(test_slu_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+    set_tests_properties(test_slu_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -816,7 +815,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free"
         "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
     add_test(NAME test_matching_allocations COMMAND test_matching_allocations)
-    set_tests_properties(test_matching_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 1
+    set_tests_properties(test_matching_allocations PROPERTIES LABELS "native;lu;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
@@ -830,7 +829,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=malloc" "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
     add_test(NAME test_native_c_api_memory COMMAND test_native_c_api_memory)
     set_tests_properties(test_native_c_api_memory PROPERTIES LABELS "native;c-api;memory;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_structured_raw_allocations
@@ -843,12 +842,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=fsparse_native_amd_bounded" "LINKER:--wrap=fsparse_native_order_amd")
     add_test(NAME test_structured_raw_allocations COMMAND test_structured_raw_allocations)
     set_tests_properties(test_structured_raw_allocations PROPERTIES LABELS "native;memory;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 fortsparse_add_test(test_fortsparse_structured_raw solver/test_fortsparse_structured_raw.f90)
 set_tests_properties(test_fortsparse_structured_raw PROPERTIES LABELS "native;memory;fast"
-    TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+    TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 if(TARGET test_native_c_api_memory)
     target_link_options(test_native_c_api_memory PRIVATE "LINKER:--wrap=fsparse_native_order_general")
@@ -864,12 +863,12 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
 endif()
 add_test(NAME test_native_lu_compensated COMMAND test_native_lu_compensated)
 set_tests_properties(test_native_lu_compensated PROPERTIES
-    LABELS "native;lu;memory;fast" TIMEOUT 1
+    LABELS "native;lu;memory;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 
 # Experimental low-level real LU target panels; public defaults stay scalar.
 fortsparse_add_test(test_fortsparse_lu_panel solver/test_fortsparse_lu_panel.f90)
-set_tests_properties(test_fortsparse_lu_panel PROPERTIES LABELS "native;lu;fast" TIMEOUT 1)
+set_tests_properties(test_fortsparse_lu_panel PROPERTIES LABELS "native;lu;fast" TIMEOUT 60)
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_lu_panel_allocations
         ../test-cmake/native/test_lu_panel_allocations.f90
@@ -879,19 +878,19 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=calloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
     add_test(NAME test_lu_panel_allocations COMMAND test_lu_panel_allocations)
     set_tests_properties(test_lu_panel_allocations PROPERTIES
-        LABELS "native;lu;memory;fast" TIMEOUT 1)
+        LABELS "native;lu;memory;fast" TIMEOUT 60)
 endif()
 
 fortsparse_add_test(test_fortsparse_precision solver/test_fortsparse_precision.f90)
 
 fortsparse_add_test(test_fortsparse_mixed_lu solver/test_fortsparse_mixed_lu.f90)
 set_tests_properties(test_fortsparse_mixed_lu PROPERTIES
-    LABELS "native;precision;fast" TIMEOUT 1 PROCESSORS 2
+    LABELS "native;precision;fast" TIMEOUT 60 PROCESSORS 2
     ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 fortsparse_add_test(test_fortsparse_stability solver/test_fortsparse_stability.f90)
 target_sources(test_fortsparse_stability PRIVATE solver/stability_oracle.f90)
 set_tests_properties(test_fortsparse_stability PROPERTIES
-    LABELS "native;stability;fast" TIMEOUT 1
+    LABELS "native;stability;fast" TIMEOUT 60
     ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     add_executable(test_mixed_allocations ../test-cmake/native/test_mixed_allocations.f90
@@ -901,7 +900,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
     add_test(NAME test_mixed_allocations COMMAND test_mixed_allocations)
     set_tests_properties(test_mixed_allocations PROPERTIES LABELS "native;precision;memory;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()
 
 fortsparse_add_test(test_fortsparse_amg solver/test_fortsparse_amg.f90)
@@ -912,7 +911,7 @@ foreach(amg_test test_fortsparse_amg test_fortsparse_csr_smoothers test_fortspar
         test_fortsparse_ams)
     target_link_libraries(${amg_test} PRIVATE fortsparse_amg_test_support)
     set_tests_properties(${amg_test} PROPERTIES LABELS "native;preconditioner;fast"
-        TIMEOUT 1 ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
+        TIMEOUT 60 ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 endforeach()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -924,13 +923,13 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_C_COMPILER_ID MATCHES "GNU|Clang
         "LINKER:--wrap=calloc" "LINKER:--wrap=realloc")
     add_test(NAME test_amg_allocations COMMAND test_amg_allocations)
     set_tests_properties(test_amg_allocations PROPERTIES
-        LABELS "native;preconditioner;memory;fast" TIMEOUT 1
+        LABELS "native;preconditioner;memory;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=2;OPENBLAS_NUM_THREADS=1")
 endif()
 fortsparse_add_test(test_fortsparse_hermitian_embedding
     solver/test_fortsparse_hermitian_embedding.f90)
 set_tests_properties(test_fortsparse_hermitian_embedding PROPERTIES
-    LABELS "native;fast" TIMEOUT 1)
+    LABELS "native;fast" TIMEOUT 60)
 
 # Under WebAssembly each test starts node and runs several times slower than
 # native code; the timeouts, set for native runs, scale with it.

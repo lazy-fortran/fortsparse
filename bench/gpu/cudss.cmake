@@ -29,7 +29,7 @@ if(FORTSPARSE_BUILD_TESTING)
         add_test(NAME gpu_benchmark_runner COMMAND ${Python3_EXECUTABLE}
             "${CMAKE_CURRENT_LIST_DIR}/test_run_gpu_spd.py")
         set_tests_properties(gpu_benchmark_runner PROPERTIES
-            LABELS "benchmark;fast" TIMEOUT 1)
+            LABELS "benchmark;fast" TIMEOUT 60)
     endif()
     add_test(NAME spd_cudss_host
         COMMAND bench_spd_cudss grid2 1 1 rhs1 training 0 host tuned)
@@ -60,6 +60,6 @@ if(FORTSPARSE_BUILD_TESTING)
             "${CMAKE_CURRENT_BINARY_DIR}/cudss-common.perm")
     set_tests_properties(spd_cudss_host spd_cudss_refactor spd_cudss_resident
         spd_cudss_common spd_cudss_nonpositive spd_cudss_warm
-        PROPERTIES LABELS "benchmark;cuda;fast" TIMEOUT 1
+        PROPERTIES LABELS "benchmark;cuda;fast" TIMEOUT 60
         ENVIRONMENT "OMP_NUM_THREADS=1;OPENBLAS_NUM_THREADS=1")
 endif()

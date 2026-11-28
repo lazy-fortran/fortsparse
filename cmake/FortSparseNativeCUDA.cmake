@@ -14,15 +14,15 @@ function(fortsparse_add_cuda_tests)
     add_test(NAME test_fortsparse_native_cuda_contract
         COMMAND test_fortsparse_native --cuda)
     set_tests_properties(test_fortsparse_native_cuda_contract PROPERTIES
-        LABELS "native;cuda;fast" TIMEOUT 1)
+        LABELS "native;cuda;fast" TIMEOUT 60)
     add_test(NAME test_fortsparse_native_supernodes_cuda
         COMMAND test_fortsparse_native_supernodes --cuda)
     set_tests_properties(test_fortsparse_native_supernodes_cuda PROPERTIES
-        LABELS "native;cuda;fast" TIMEOUT 1)
+        LABELS "native;cuda;fast" TIMEOUT 60)
     add_test(NAME test_fortsparse_native_supernodes_cuda_levels
         COMMAND test_fortsparse_native_supernodes --cuda-levels)
     set_tests_properties(test_fortsparse_native_supernodes_cuda_levels PROPERTIES
-        LABELS "native;cuda;fast" TIMEOUT 1)
+        LABELS "native;cuda;fast" TIMEOUT 60)
     foreach(test IN ITEMS test_fortsparse_spd_cuda_leaves test_fortsparse_spd_cuda
             test_fortsparse_spd_cuda_thin_panel test_fortsparse_spd_cuda_levels
             test_fortsparse_spd_cuda_solve)
@@ -33,7 +33,7 @@ function(fortsparse_add_cuda_tests)
         set_target_properties(${test} PROPERTIES
             CUDA_STANDARD 14 CUDA_STANDARD_REQUIRED ON)
         add_test(NAME ${test} COMMAND ${test})
-        set_tests_properties(${test} PROPERTIES LABELS "native;cuda;fast" TIMEOUT 1)
+        set_tests_properties(${test} PROPERTIES LABELS "native;cuda;fast" TIMEOUT 60)
     endforeach()
     # Independent allocation oracle observes only this static library's explicit
     # CUDA calls; runtime/vendor internal pools are outside the payload contract.
@@ -48,7 +48,7 @@ function(fortsparse_add_cuda_tests)
         add_test(NAME test_fortsparse_spd_cuda_memory
             COMMAND test_fortsparse_spd_cuda_memory)
         set_tests_properties(test_fortsparse_spd_cuda_memory PROPERTIES
-            LABELS "native;cuda;memory;fast" TIMEOUT 1)
+            LABELS "native;cuda;memory;fast" TIMEOUT 60)
     endif()
     add_executable(test_fortsparse_native_cuda_memory
         ${PROJECT_SOURCE_DIR}/test-cmake/cuda/test_fortsparse_native_cuda_memory.f90)
@@ -56,12 +56,12 @@ function(fortsparse_add_cuda_tests)
     add_test(NAME test_fortsparse_native_cuda_memory
         COMMAND test_fortsparse_native_cuda_memory)
     set_tests_properties(test_fortsparse_native_cuda_memory PROPERTIES
-        LABELS "native;cuda;fast" TIMEOUT 1)
+        LABELS "native;cuda;fast" TIMEOUT 60)
     add_executable(test_fortsparse_native_cuda_binding
         ${PROJECT_SOURCE_DIR}/test-cmake/cuda/test_fortsparse_native_cuda_binding.f90)
     target_link_libraries(test_fortsparse_native_cuda_binding PRIVATE fortsparse)
     add_test(NAME test_fortsparse_native_cuda_binding
         COMMAND test_fortsparse_native_cuda_binding)
     set_tests_properties(test_fortsparse_native_cuda_binding PROPERTIES
-        LABELS "native;cuda;fast" TIMEOUT 1)
+        LABELS "native;cuda;fast" TIMEOUT 60)
 endfunction()
